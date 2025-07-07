@@ -1,0 +1,30 @@
+# Build stage
+FROM golang:1.24.1-alpine AS builder
+
+ARG ENVOY_VERSION
+ARG ELCHI_CONTROL_PLANE_VERSION
+
+WORKDIR /app
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo \
+    -ldflags "-X github.com/CloudNativeWorks/elchi-backend/pkg/version.Version=${ENVOY_VERSION} -X github.com/CloudNativeWorks/elchi-backend/pkg/version.ControlPlaneVersion=${ELCHI_CONTROL_PLANE_VERSION}" \
+    -o elchi-backend .
+
+# Final stage
+FROM alpine:3.21.3
+
+RUN apk --no-cache update && apk --no-cache upgrade && \
+    apk add --no-cache ca-certificates openssl
+
+WORKDIR /root/
+
+COPY --from=builder /app/elchi-backend .
+
+EXPOSE 8099 18000
+
+ENTRYPOINT ["./elchi-backend"]

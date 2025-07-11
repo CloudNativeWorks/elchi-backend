@@ -61,7 +61,7 @@ jobs:
       - name: Deploy gRPC container (Envoy 1.32.3) on DigitalOcean
         run: |
           ssh root@68.183.216.216 "\
-            echo ${{ env.DOCKER_PASSWORD }} | docker login -u ${{ env.DOCKER_USERNAME }} --password-stdin && \
+            echo '${{ env.DOCKER_PASSWORD }}' | docker login -u ${{ env.DOCKER_USERNAME }} --password-stdin && \
             docker pull jhonbrownn/elchi-backend:v0.1.0-v0.13.4-envoy1.32.3 && \
             docker stop -control-plane-container-v1_32_3 || true && \
             docker rm elchi-control-plane-container-v1_32_3 || true && \
@@ -70,7 +70,7 @@ jobs:
       - name: Deploy controller container (Envoy 1.32.3) on DigitalOcean
         run: |
           ssh root@68.183.216.216 "\
-            echo ${{ env.DOCKER_PASSWORD }} | docker login -u ${{ env.DOCKER_USERNAME }} --password-stdin && \
+            echo '${{ env.DOCKER_PASSWORD }}' | docker login -u ${{ env.DOCKER_USERNAME }} --password-stdin && \
             docker pull jhonbrownn/elchi-backend:v0.1.0-v0.13.4-envoy1.32.3 && \
             docker stop elchi-controller-container-v1_32_3 || true && \
             docker rm elchi-controller-container-v1_32_3 || true && \
@@ -79,7 +79,7 @@ jobs:
       - name: Deploy control plane container (Envoy 1.33.2) on DigitalOcean
         run: |
           ssh root@68.183.216.216 "\
-            echo ${{ env.DOCKER_PASSWORD }} | docker login -u ${{ env.DOCKER_USERNAME }} --password-stdin && \
+            echo '${{ env.DOCKER_PASSWORD }}' | docker login -u ${{ env.DOCKER_USERNAME }} --password-stdin && \
             docker pull jhonbrownn/elchi-backend:v0.1.0-v0.13.4-envoy1.33.2 && \
             docker stop elchi-control-plane-container-v1_33_2 || true && \
             docker rm elchi-control-plane-container-v1_33_2 || true && \
@@ -88,7 +88,7 @@ jobs:
       - name: Deploy controller container (Envoy 1.33.2) on DigitalOcean
         run: |
           ssh root@68.183.216.216 "\
-            echo ${{ env.DOCKER_PASSWORD }} | docker login -u ${{ env.DOCKER_USERNAME }} --password-stdin && \
+            echo '${{ env.DOCKER_PASSWORD }}' | docker login -u ${{ env.DOCKER_USERNAME }} --password-stdin && \
             docker pull jhonbrownn/elchi-backend:v0.1.0-v0.13.4-envoy1.33.2 && \
             docker stop elchi-controller-container-v1_33_2 || true && \
             docker rm elchi-controller-container-v1_33_2 || true && \

@@ -56,7 +56,7 @@ jobs:
 
       - name: Docker login on server
         run: |
-          ssh root@68.183.216.216 "echo '${{ secrets.DOCKER_PASSWORD }}' > /tmp/docker_pass && docker login -u '${{ secrets.DOCKER_USERNAME }}' --password-stdin < /tmp/docker_pass && rm /tmp/docker_pass"
+          echo '${{ secrets.DOCKER_PASSWORD }}' | base64 | ssh root@68.183.216.216 "base64 -d | docker login -u '${{ secrets.DOCKER_USERNAME }}' --password-stdin"
 
       - name: Deploy Envoy 1.32.3 containers on DigitalOcean
         run: |

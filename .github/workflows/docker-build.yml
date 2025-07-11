@@ -6,7 +6,7 @@ on:
       envoy_versions:
         description: 'Control Plane versions (comma separated)'
         required: true
-        default: 'v0.13.4-envoy1.33.0,v0.13.4-envoy1.33.2,v0.13.4-envoy1.32.3'
+        default: 'v0.13.4-envoy1.33.2,v0.13.4-envoy1.32.3'
         type: string
       platforms:
         description: 'Target platforms (comma separated)'

@@ -3,10 +3,6 @@ name: Deploy to Demo
 on:
   workflow_dispatch:
 
-env:
-  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-  DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-
 jobs:
   deploy:
     runs-on: ubuntu-22.04
@@ -61,7 +57,7 @@ jobs:
       - name: Deploy Envoy 1.32.3 containers on DigitalOcean
         run: |
           ssh root@68.183.216.216 "\
-            echo '${{ env.DOCKER_PASSWORD }}' | docker login -u ${{ env.DOCKER_USERNAME }} --password-stdin && \
+            cat <<< '${{ secrets.DOCKER_PASSWORD }}' | docker login -u '${{ secrets.DOCKER_USERNAME }}' --password-stdin && \
             docker pull jhonbrownn/elchi-backend:v0.1.0-v0.13.4-envoy1.32.3 && \
             docker stop elchi-control-plane-container-v1_32_3 || true && \
             docker rm elchi-control-plane-container-v1_32_3 || true && \
@@ -73,7 +69,7 @@ jobs:
       - name: Deploy Envoy 1.33.2 containers on DigitalOcean
         run: |
           ssh root@68.183.216.216 "\
-            echo '${{ env.DOCKER_PASSWORD }}' | docker login -u ${{ env.DOCKER_USERNAME }} --password-stdin && \
+            cat <<< '${{ secrets.DOCKER_PASSWORD }}' | docker login -u '${{ secrets.DOCKER_USERNAME }}' --password-stdin && \
             docker pull jhonbrownn/elchi-backend:v0.1.0-v0.13.4-envoy1.33.2 && \
             docker stop elchi-control-plane-container-v1_33_2 || true && \
             docker rm elchi-control-plane-container-v1_33_2 || true && \

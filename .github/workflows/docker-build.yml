@@ -25,10 +25,9 @@ env:
   GO_CONTROL_PLANE_ENVOY_PACKAGE: github.com/CloudNativeWorks/versioned-go-control-plane/envoy
 
 jobs:
-  build-amd64:
-    runs-on: ubuntu-22.04
+  build-and-push:
+    runs-on: ${{ contains(github.event.inputs.platforms, 'linux/arm64') && 'self-hosted' || 'ubuntu-22.04' }}
     timeout-minutes: 120
-    if: contains(github.event.inputs.platforms, 'linux/amd64')
     steps:
       - name: Checkout main branch
         uses: actions/checkout@v4
@@ -63,7 +62,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
-          platforms: linux/amd64
+          platforms: ${{ github.event.inputs.platforms }}
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -71,7 +70,7 @@ jobs:
           username: ${{ env.DOCKER_USERNAME }}
           password: ${{ env.DOCKER_PASSWORD }}
 
-      - name: Build and push AMD64 images
+      - name: Build and push multi-platform images
         working-directory: release
         env:
           DOCKER_BUILDKIT: 1
@@ -84,7 +83,7 @@ jobs:
             # Trim whitespace
             CONTROL_PLANE_VERSION=$(echo $CONTROL_PLANE_VERSION | xargs)
             
-            echo "Processing Control Plane version: ${CONTROL_PLANE_VERSION} (AMD64)"
+            echo "Processing Control Plane version: ${CONTROL_PLANE_VERSION} for platforms: ${{ github.event.inputs.platforms }}"
             
             # Extract Envoy version from the full version string
             ENVOY_VERSION=$(echo $CONTROL_PLANE_VERSION | sed -n 's/.*envoy\([0-9.]*\)/\1/p')
@@ -96,169 +95,23 @@ jobs:
             
             # Set image tags
             IMAGE_NAME="${DOCKER_USERNAME}/${DOCKER_IMAGE}"
-            IMAGE_TAG="${IMAGE_NAME}:v${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}-amd64"
-            
-            # Build and push AMD64 platform
-            docker buildx build \
-              --no-cache \
-              --platform linux/amd64 \
-              --build-arg "ENVOY_VERSION=v${ENVOY_VERSION}" \
-              --build-arg "ELCHI_CONTROL_PLANE_VERSION=elchi-backend-${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}" \
-              -t "${IMAGE_TAG}" \
-              -f Dockerfile-release \
-              --push \
-              .
-            
-            echo "✅ Control Plane version ${CONTROL_PLANE_VERSION} (AMD64) completed"
-            
-            # Reset go.mod changes for next iteration
-            git checkout -- go.mod go.sum
-          done
-
-  build-arm64:
-    runs-on: self-hosted
-    timeout-minutes: 120
-    if: contains(github.event.inputs.platforms, 'linux/arm64')
-    steps:
-      - name: Checkout main branch
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          token: ${{ secrets.GH_PAT }}
-
-      - name: Set Project Version
-        run: echo "PROJECT_VERSION=$(cat VERSION)" >> $GITHUB_ENV
-
-      - name: Checkout release tag
-        uses: actions/checkout@v4
-        with:
-          ref: v${{ env.PROJECT_VERSION }}
-          path: release
-          token: ${{ secrets.GH_PAT }}
-
-      - name: Clean workspace
-        run: |
-          rm -rf release/Dockerfile-release || true
-          cp Dockerfile-release release/
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
-          cache: false
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          platforms: linux/arm64
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ env.DOCKER_USERNAME }}
-          password: ${{ env.DOCKER_PASSWORD }}
-
-      - name: Build and push ARM64 images
-        working-directory: release
-        env:
-          DOCKER_BUILDKIT: 1
-        run: |
-          # Convert comma-separated versions to array
-          IFS=',' read -ra CONTROL_PLANE_VERSIONS <<< "${{ github.event.inputs.envoy_versions }}"
-          
-          # Process each control plane version
-          for CONTROL_PLANE_VERSION in "${CONTROL_PLANE_VERSIONS[@]}"; do
-            # Trim whitespace
-            CONTROL_PLANE_VERSION=$(echo $CONTROL_PLANE_VERSION | xargs)
-            
-            echo "Processing Control Plane version: ${CONTROL_PLANE_VERSION} (ARM64)"
-            
-            # Extract Envoy version from the full version string
-            ENVOY_VERSION=$(echo $CONTROL_PLANE_VERSION | sed -n 's/.*envoy\([0-9.]*\)/\1/p')
-            
-            # Update go.mod for both packages
-            go mod edit -require="${GO_CONTROL_PLANE_PACKAGE}@${CONTROL_PLANE_VERSION}"
-            go mod edit -require="${GO_CONTROL_PLANE_ENVOY_PACKAGE}@v${ENVOY_VERSION}"
-            go mod tidy
-            
-            # Set image tags
-            IMAGE_NAME="${DOCKER_USERNAME}/${DOCKER_IMAGE}"
-            IMAGE_TAG="${IMAGE_NAME}:v${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}-arm64"
-            
-            # Build and push ARM64 platform
-            docker buildx build \
-              --no-cache \
-              --platform linux/arm64 \
-              --build-arg "ENVOY_VERSION=v${ENVOY_VERSION}" \
-              --build-arg "ELCHI_CONTROL_PLANE_VERSION=elchi-backend-${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}" \
-              -t "${IMAGE_TAG}" \
-              -f Dockerfile-release \
-              --push \
-              .
-            
-            echo "✅ Control Plane version ${CONTROL_PLANE_VERSION} (ARM64) completed"
-            
-            # Reset go.mod changes for next iteration
-            git checkout -- go.mod go.sum
-          done
-
-  create-manifest:
-    runs-on: ubuntu-22.04
-    timeout-minutes: 30
-    needs: [build-amd64, build-arm64]
-    if: contains(github.event.inputs.platforms, ',')
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          token: ${{ secrets.GH_PAT }}
-
-      - name: Set Project Version
-        run: echo "PROJECT_VERSION=$(cat VERSION)" >> $GITHUB_ENV
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ env.DOCKER_USERNAME }}
-          password: ${{ env.DOCKER_PASSWORD }}
-
-      - name: Create multi-platform manifests
-        run: |
-          # Convert comma-separated versions to array
-          IFS=',' read -ra CONTROL_PLANE_VERSIONS <<< "${{ github.event.inputs.envoy_versions }}"
-          
-          # Process each control plane version
-          for CONTROL_PLANE_VERSION in "${CONTROL_PLANE_VERSIONS[@]}"; do
-            # Trim whitespace
-            CONTROL_PLANE_VERSION=$(echo $CONTROL_PLANE_VERSION | xargs)
-            
-            echo "Creating manifest for Control Plane version: ${CONTROL_PLANE_VERSION}"
-            
-            # Set image names
-            IMAGE_NAME="${DOCKER_USERNAME}/${DOCKER_IMAGE}"
-            MANIFEST_TAG="${IMAGE_NAME}:v${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}"
+            IMAGE_TAG="${IMAGE_NAME}:v${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}"
             LATEST_TAG="${IMAGE_NAME}:latest"
             
-            # Create manifest list
-            docker manifest create "${MANIFEST_TAG}" \
-              "${IMAGE_NAME}:v${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}-amd64" \
-              "${IMAGE_NAME}:v${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}-arm64"
+            # Build and push multi-platform image
+            docker buildx build \
+              --no-cache \
+              --platform ${{ github.event.inputs.platforms }} \
+              --build-arg "ENVOY_VERSION=v${ENVOY_VERSION}" \
+              --build-arg "ELCHI_CONTROL_PLANE_VERSION=elchi-backend-${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}" \
+              -t "${IMAGE_TAG}" \
+              -t "${LATEST_TAG}" \
+              -f Dockerfile-release \
+              --push \
+              .
             
-            # Push manifest
-            docker manifest push "${MANIFEST_TAG}"
+            echo "✅ Control Plane version ${CONTROL_PLANE_VERSION} completed for platforms: ${{ github.event.inputs.platforms }}"
             
-            # Create latest manifest if this is the first version
-            if [ "$CONTROL_PLANE_VERSION" = "${CONTROL_PLANE_VERSIONS[0]}" ]; then
-              docker manifest create "${LATEST_TAG}" \
-                "${IMAGE_NAME}:v${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}-amd64" \
-                "${IMAGE_NAME}:v${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}-arm64"
-              
-              docker manifest push "${LATEST_TAG}"
-            fi
-            
-            echo "✅ Manifest created for ${CONTROL_PLANE_VERSION}"
+            # Reset go.mod changes for next iteration
+            git checkout -- go.mod go.sum
           done 

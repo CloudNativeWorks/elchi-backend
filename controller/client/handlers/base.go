@@ -5,16 +5,20 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/controller/client/responser"
 	"github.com/CloudNativeWorks/elchi-backend/controller/client/services"
 	"github.com/CloudNativeWorks/elchi-backend/controller/crud/xds"
+	"github.com/CloudNativeWorks/elchi-backend/controller/forward"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/registry"
 )
 
 type Client struct {
-	Context    *db.AppContext
-	Service    *services.ClientService
-	logger     *logger.Logger
-	cmdFactory *processor.CommandProcessorFactory
-	responser  *responser.CommandResponserFactory
+	Context        *db.AppContext
+	Service        *services.ClientService
+	logger         *logger.Logger
+	cmdFactory     *processor.CommandProcessorFactory
+	responser      *responser.CommandResponserFactory
+	forwardClient  *forward.ForwardClient
+	registryClient *registry.RegistryClient
 }
 
 func NewClientHandler(context *db.AppContext, xdsHandler *xds.AppHandler, clientService *services.ClientService) *Client {
@@ -41,7 +45,6 @@ func NewClientHandler(context *db.AppContext, xdsHandler *xds.AppHandler, client
 	h.cmdFactory.RegisterProcessor("FRR", &processor.FRRProcessor{Logger: processorLogger})
 	h.cmdFactory.RegisterProcessor("FRR_LOGS", &processor.GeneralLogProcessor{Logger: processorLogger})
 
-
 	// Responser Register
 	h.responser.RegisterResponser("DEPLOY", &responser.DeployResponser{XDSHandler: xdsHandler, Logger: responserLogger})
 	h.responser.RegisterResponser("SERVICE", &responser.ServiceResponser{})
@@ -54,4 +57,10 @@ func NewClientHandler(context *db.AppContext, xdsHandler *xds.AppHandler, client
 	h.responser.RegisterResponser("FRR", &responser.FRRResponser{})
 	h.responser.RegisterResponser("FRR_LOGS", &responser.GeneralLogResponser{})
 	return h
+}
+
+// SetForwardClient sets the forward client and registry client for command forwarding
+func (h *Client) SetForwardClient(forwardClient *forward.ForwardClient, registryClient *registry.RegistryClient) {
+	h.forwardClient = forwardClient
+	h.registryClient = registryClient
 }

@@ -15,9 +15,11 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/controller/client/handlers"
 	"github.com/CloudNativeWorks/elchi-backend/controller/client/services"
 	"github.com/CloudNativeWorks/elchi-backend/controller/crud/xds"
+	"github.com/CloudNativeWorks/elchi-backend/controller/forward"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/config"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/registry"
 	pb "github.com/CloudNativeWorks/elchi-proto/client"
 )
 
@@ -26,20 +28,35 @@ const (
 )
 
 type AppHandler struct {
-	Service    *services.ClientService
-	Handler    *handlers.Client
-	Logger     *logger.Logger
-	XDSHandler *xds.AppHandler
+	Service        *services.ClientService
+	Handler        *handlers.Client
+	Logger         *logger.Logger
+	XDSHandler     *xds.AppHandler
+	RegistryClient *registry.RegistryClient
+	ForwardClient  *forward.ForwardClient
+	ForwardHandler *forward.ForwardHandler
 }
 
 func NewClientHandler(context *db.AppContext, xdsHandler *xds.AppHandler) *AppHandler {
 	clientService := services.NewClientService(context)
+	forwardClient := forward.NewForwardClient()
+	forwardHandler := forward.NewForwardHandler(clientService)
+	
 	return &AppHandler{
-		Service:    clientService,
-		Handler:    handlers.NewClientHandler(context, xdsHandler, clientService),
-		Logger:     logger.NewLogger("controller/client"),
-		XDSHandler: xdsHandler,
+		Service:        clientService,
+		Handler:        handlers.NewClientHandler(context, xdsHandler, clientService),
+		Logger:         logger.NewLogger("controller/client"),
+		XDSHandler:     xdsHandler,
+		ForwardClient:  forwardClient,
+		ForwardHandler: forwardHandler,
 	}
+}
+
+// SetRegistryClient sets the registry client for this handler
+func (h *AppHandler) SetRegistryClient(client *registry.RegistryClient) {
+	h.RegistryClient = client
+	h.Service.SetRegistryClient(client)
+	h.Handler.SetForwardClient(h.ForwardClient, client) // Forward client'ı handler'a da geç
 }
 
 func (h *AppHandler) Start(appConfig *config.AppConfig) {
@@ -69,7 +86,10 @@ func (h *AppHandler) Start(appConfig *config.AppConfig) {
 	}
 
 	grpcServer := grpclib.NewServer(opts...)
+	
+	// Register both services
 	pb.RegisterCommandServiceServer(grpcServer, grpc.NewServer(h.Service, appConfig))
+	pb.RegisterControllerServiceServer(grpcServer, grpc.NewControllerServer(h.ForwardHandler))
 
 	// Wait group for graceful shutdown
 	wg := sync.WaitGroup{}
@@ -99,6 +119,7 @@ func (h *AppHandler) Start(appConfig *config.AppConfig) {
 
 		// Clean up all connections
 		h.Service.DisconnectAllClients()
+		h.ForwardClient.Close()
 	}()
 
 	// Wait maximum 3 seconds

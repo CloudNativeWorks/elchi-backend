@@ -10,6 +10,7 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/registry"
 	pb "github.com/CloudNativeWorks/elchi-proto/client"
 	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/bson"
@@ -26,6 +27,7 @@ type ClientService struct {
 	pendingResponses map[string]chan *pb.CommandResponse
 	pendingMux       sync.RWMutex
 	logger           *logger.Logger
+	registryClient   *registry.RegistryClient
 }
 
 // ClientWithServiceIPs, bir client ve ona bağlı servis IP'lerini temsil eder.
@@ -43,6 +45,34 @@ func NewClientService(context *db.AppContext) *ClientService {
 		pendingResponses: make(map[string]chan *pb.CommandResponse),
 		pendingMux:       sync.RWMutex{},
 		logger:           logger.NewLogger("controller/clientService"),
+	}
+}
+
+// SetRegistryClient sets the registry client for notifications
+func (s *ClientService) SetRegistryClient(client *registry.RegistryClient) {
+	s.registryClient = client
+}
+
+// SetPendingResponse sets a pending response channel for command ID
+func (s *ClientService) SetPendingResponse(commandID string, respChan chan *pb.CommandResponse) {
+	s.pendingMux.Lock()
+	defer s.pendingMux.Unlock()
+	s.pendingResponses[commandID] = respChan
+}
+
+// RemovePendingResponse removes a pending response channel
+func (s *ClientService) RemovePendingResponse(commandID string) {
+	s.pendingMux.Lock()
+	defer s.pendingMux.Unlock()
+	delete(s.pendingResponses, commandID)
+}
+
+// notifyRegistryClientConnect notifies registry about client connection
+func (s *ClientService) notifyRegistryClientConnect(clientID string) {
+	if s.registryClient != nil {
+		if err := s.registryClient.SetClientLocation(clientID); err != nil {
+			s.logger.Errorf("Failed to notify registry about client connection %s: %v", clientID, err)
+		}
 	}
 }
 
@@ -105,6 +135,9 @@ func (s *ClientService) RegisterClient(req *pb.RegisterRequest) (*client.ClientI
 	s.clients[req.GetClientId()] = clientInfo
 	s.logger.Infof("Client registered: %s (Session Token: %s)", req.GetClientId(), sessionToken)
 
+	// Notify registry about client connection
+	s.notifyRegistryClientConnect(req.GetClientId())
+
 	// Upsert to DB
 	err = s.UpsertClientToDB(context.Background(), clientInfo)
 	if err != nil {
@@ -125,6 +158,10 @@ func (s *ClientService) UnregisterClient(clientID string) error {
 
 	delete(s.clients, clientID)
 	s.logger.Debugf("Client unregistered: %s", clientID)
+	
+	// Note: Registry'den silme işlemi yapmıyoruz çünkü client başka controller'a bağlanabilir
+	// Registry kendi cleanup mekanizmasına sahip olmalı
+	
 	return nil
 }
 
@@ -349,3 +386,17 @@ func (s *ClientService) DisconnectAllClients() {
 	}
 	s.pendingMux.Unlock()
 }
+// GetConnectedClientIDs returns all currently connected client IDs
+func (s *ClientService) GetConnectedClientIDs() []string {
+	s.clientsMux.RLock()
+	defer s.clientsMux.RUnlock()
+
+	clientIDs := make([]string, 0, len(s.clients))
+	for clientID, client := range s.clients {
+		if client.IsConnected() {
+			clientIDs = append(clientIDs, clientID)
+		}
+	}
+	return clientIDs
+}
+

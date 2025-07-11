@@ -22,6 +22,7 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
 	server "github.com/CloudNativeWorks/elchi-backend/pkg/httpserver"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/registry"
 )
 
 // restCmd represents the command for starting the REST API server.
@@ -48,6 +49,28 @@ var restCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
+		// Initialize registry client
+		registryConfig := registry.Config{
+			RegistryAddress: getRegistryAddress(appConfig),
+			ControllerID:    getControllerID(appConfig),
+			GRPCAddress:     getControllerGRPCAddress(appConfig),
+		}
+
+		rootLogger := logger.NewLogger("controller")
+		registryClient, err := registry.NewRegistryClient(registryConfig, rootLogger)
+		if err != nil {
+			rootLogger.Fatalf("Failed to create registry client: %v", err)
+		}
+
+		// Connect to registry and register controller
+		if err := registryClient.Connect(); err != nil {
+			rootLogger.Errorf("Failed to connect to registry: %v", err)
+		} else {
+			if err := registryClient.RegisterController(); err != nil {
+				rootLogger.Errorf("Failed to register controller: %v", err)
+			}
+		}
+
 		appContext := db.NewMongoDB(appConfig, false)
 		xdsHandler := xds.NewXDSHandler(appContext)
 		extensionHandler := extension.NewExtensionHandler(appContext)
@@ -59,6 +82,15 @@ var restCmd = &cobra.Command{
 
 		serviceHandler := service.NewServiceHandler(appContext)
 		clientHandler := client.NewClientHandler(appContext, xdsHandler)
+		
+		// Pass registry client to client handler
+		clientHandler.SetRegistryClient(registryClient)
+		
+		// Start health monitor for registry connection recovery
+		registryClient.StartHealthMonitor(func() []string {
+			return clientHandler.Service.GetConnectedClientIDs()
+		})
+		
 		go clientHandler.Start(appConfig)
 
 		dependencyHandler.StartCacheCleanup(1 * time.Minute)
@@ -77,11 +109,37 @@ var restCmd = &cobra.Command{
 
 		r := router.InitRouter(h)
 
-		logger := logger.NewLogger("controller")
-		if err := server.NewHTTPServer(r).Run(appConfig, logger.Logger); err != nil {
-			logger.Fatalf("Server failed to run: %v", err)
+		if err := server.NewHTTPServer(r).Run(appConfig, rootLogger.Logger); err != nil {
+			rootLogger.Fatalf("Server failed to run: %v", err)
 		}
 	},
+}
+
+// getRegistryAddress returns registry address from config or environment
+func getRegistryAddress(config *config.AppConfig) string {
+	if addr := os.Getenv("REGISTRY_ADDRESS"); addr != "" {
+		return addr
+	}
+	// Default registry address
+	return "localhost:9090"
+}
+
+// getControllerID returns controller ID from config or hostname
+func getControllerID(config *config.AppConfig) string {
+	if id := os.Getenv("CONTROLLER_ID"); id != "" {
+		return id
+	}
+	// Will auto-detect from hostname in registry client
+	return ""
+}
+
+// getControllerGRPCAddress returns controller gRPC address
+func getControllerGRPCAddress(config *config.AppConfig) string {
+	if addr := os.Getenv("CONTROLLER_GRPC_ADDRESS"); addr != "" {
+		return addr
+	}
+	// Will auto-detect from hostname:8080 in registry client
+	return ""
 }
 
 func init() {

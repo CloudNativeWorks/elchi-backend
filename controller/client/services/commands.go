@@ -61,7 +61,6 @@ func (s *ClientService) SendCommand(clientID string, cmdType pb.CommandType, sub
 		return nil, fmt.Errorf("command timed out")
 	}
 }
-
 // HandleCommandResponse processes command response
 func (s *ClientService) HandleCommandResponse(resp *pb.CommandResponse) {
 	s.pendingMux.RLock()
@@ -79,3 +78,4 @@ func (s *ClientService) HandleCommandResponse(resp *pb.CommandResponse) {
 		s.logger.Debugf("Unexpected response received: %s", resp.GetCommandId())
 	}
 }
+

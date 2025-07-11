@@ -211,6 +211,12 @@ jobs:
     needs: [build-amd64, build-arm64]
     if: contains(github.event.inputs.platforms, ',')
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GH_PAT }}
+
       - name: Set Project Version
         run: echo "PROJECT_VERSION=$(cat VERSION)" >> $GITHUB_ENV
 

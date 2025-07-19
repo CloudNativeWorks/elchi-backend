@@ -76,7 +76,7 @@ Envoy ext_proc service - integrates with Envoy for real-time HTTP request routin
 ┌──────────┐ ┌──────────┐ ┌──────────┐
 │Control-  │ │Control-  │ │Control-  │
 │Plane-1   │ │Plane-2   │ │Plane-3   │
-│(v1.33.5) │ │(v1.33.5) │ │(v1.34.3) │
+│(v1.33.5) │ │(v1.33.5) │ │(v1.34.2) │
 └──────────┘ └──────────┘ └──────────┘
 ```
 

@@ -4,8 +4,8 @@ go 1.24.1
 
 require (
 	github.com/CloudNativeWorks/elchi-proto v0.0.0-20250712163613-40ede279f27f
-	github.com/CloudNativeWorks/versioned-go-control-plane v0.13.4-envoy1.33.2
-	github.com/CloudNativeWorks/versioned-go-control-plane/envoy v1.33.2
+	github.com/CloudNativeWorks/versioned-go-control-plane v0.13.4-envoy1.33.5
+	github.com/CloudNativeWorks/versioned-go-control-plane/envoy v1.33.5
 	github.com/Masterminds/sprig/v3 v3.3.0
 	github.com/gin-gonic/gin v1.10.0
 	github.com/go-playground/validator/v10 v10.26.0
@@ -28,7 +28,7 @@ require (
 require (
 	cel.dev/expr v0.23.0 // indirect
 	dario.cat/mergo v1.0.1 // indirect
-	github.com/CloudNativeWorks/versioned-go-control-plane/ratelimit v1.33.2 // indirect
+	github.com/CloudNativeWorks/versioned-go-control-plane/ratelimit v1.33.5 // indirect
 	github.com/Masterminds/goutils v1.1.1 // indirect
 	github.com/Masterminds/semver/v3 v3.3.0 // indirect
 	github.com/bytedance/sonic v1.11.6 // indirect
@@ -81,7 +81,7 @@ require (
 	golang.org/x/sync v0.14.0 // indirect
 	golang.org/x/sys v0.33.0 // indirect
 	golang.org/x/text v0.25.0 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20250603155806-513f23925822 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20250528174236-200df99c418a // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20250715232539-7130f93afb79 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20250707201910-8d1bb00bc6a7 // indirect
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 )

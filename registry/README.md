@@ -76,7 +76,7 @@ Envoy ext_proc service - integrates with Envoy for real-time HTTP request routin
 ┌──────────┐ ┌──────────┐ ┌──────────┐
 │Control-  │ │Control-  │ │Control-  │
 │Plane-1   │ │Plane-2   │ │Plane-3   │
-│(v1.33.2) │ │(v1.33.2) │ │(v1.34.0) │
+│(v1.33.5) │ │(v1.33.5) │ │(v1.34.3) │
 └──────────┘ └──────────┘ └──────────┘
 ```
 
@@ -88,7 +88,7 @@ Envoy ext_proc service - integrates with Envoy for real-time HTTP request routin
 3. **Middleware Envoy** → Comes to our service via ext_proc
 4. **External Processor** → Parses ADS metadata:
    - `nodeid`: "deney::683b2148ff7e3ae67d825cfa::10.10.20.51"
-   - `envoy-version`: "v1.33.2"
+   - `envoy-version`: "v1.33.5"
 5. **Routing Decision** → Two priority levels:
    - **Priority 1**: Is this nodeID already mapped to a control-plane?
    - **Priority 2**: Is there an available control-plane for this version?
@@ -106,7 +106,7 @@ Envoy ext_proc service - integrates with Envoy for real-time HTTP request routin
             {
               "header": {
                 "key": "x-target-cluster",
-                "value": "elchi-control-plane-v1.33.2"
+                "value": "elchi-control-plane-v1.33.5"
               }
             },
             {
@@ -209,7 +209,7 @@ Register control-plane:
 message RegisterControlPlaneRequest {
     string control_plane_id = 1;
     string cluster_name = 2;     // control-plane-v1-33-2
-    string version = 3;          // v1.33.2
+    string version = 3;          // v1.33.5
     string grpc_address = 4;     // control-plane-v1-33-2:50051
 }
 
@@ -221,7 +221,7 @@ Routing request from Envoy:
 ```protobuf
 message GetControlPlaneClusterRequest {
     string node_id = 1;          // deney::683b2148ff7e3ae67d825cfa::10.10.20.51
-    string version = 2;          // v1.33.2
+    string version = 2;          // v1.33.5
 }
 
 message GetControlPlaneClusterResponse {
@@ -318,9 +318,9 @@ rpc Process(stream ProcessingRequest) returns (stream ProcessingResponse);
 
 ### Exact Version Matching ⭐
 - **Only exact version matching** is performed
-- `v1.33.2` request → only control-plane with version `v1.33.2`
-- Prefix matching (`v1.33` → `v1.33.2`) **NOT SUPPORTED**
-- Major version matching (`v1` → `v1.33.2`) **NOT SUPPORTED**
+- `v1.33.5` request → only control-plane with version `v1.33.5`
+- Prefix matching (`v1.33` → `v1.33.5`) **NOT SUPPORTED**
+- Major version matching (`v1` → `v1.33.5`) **NOT SUPPORTED**
 
 ### Routing Priorities
 1. **Priority 1**: Is this nodeID already mapped to a control-plane?
@@ -368,14 +368,14 @@ routing := NewRoutingClient(client)
 _, err := routing.RegisterControlPlane(ctx, &RegisterControlPlaneRequest{
     ControlPlaneId: "cp-v1-33-2-abc123",
     ClusterName:    "control-plane-v1-33-2",
-    Version:        "v1.33.2",
+    Version:        "v1.33.5",
     GrpcAddress:    "control-plane-v1-33-2:50051",
 })
 
 // Envoy routing request
 resp, err := routing.GetControlPlaneCluster(ctx, &GetControlPlaneClusterRequest{
     NodeId:  "deney::683b2148ff7e3ae67d825cfa::10.10.20.51",
-    Version: "v1.33.2",
+    Version: "v1.33.5",
 })
 if resp.Found {
     // Route to resp.ClusterName
@@ -385,7 +385,7 @@ if resp.Found {
 routing.NotifySnapshotDelivered(ctx, &NotifySnapshotDeliveredRequest{
     ControlPlaneId: "cp-v1-33-2-abc123",
     NodeId:         "deney::683b2148ff7e3ae67d825cfa::10.10.20.51",
-    Version:        "v1.33.2",
+    Version:        "v1.33.5",
 })
 ```
 

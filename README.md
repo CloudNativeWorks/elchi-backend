@@ -47,7 +47,7 @@ The gRPC server is responsible for distributing configurations to Envoy instance
 To run the gRPC server:
 
 ```bash
-go run  -ldflags "-X github.com/CloudNativeWorks/elchi-backend/pkg/version.Version=v1.33.2 elchi-control-plane
+go run  -ldflags "-X github.com/CloudNativeWorks/elchi-backend/pkg/version.Version=v1.33.5 elchi-control-plane
 ```
 
 #### Configuration
@@ -62,5 +62,5 @@ The REST server provides API endpoints for the Elchi frontend application, handl
 To run the REST server:
 
 ```bash
-go run  -ldflags "-X github.com/CloudNativeWorks/elchi-backend/pkg/version.Version=v1.33.2" main.go elchi-controller
+go run  -ldflags "-X github.com/CloudNativeWorks/elchi-backend/pkg/version.Version=v1.33.5" main.go elchi-controller
 ```

@@ -9,7 +9,9 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	pb "github.com/CloudNativeWorks/elchi-proto/client"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
 )
 
 type RegistryClient struct {
@@ -23,38 +25,21 @@ type RegistryClient struct {
 
 type Config struct {
 	RegistryAddress string
-	ControllerID    string 
-	GRPCAddress     string
 }
 
 // NewRegistryClient creates a new registry client
-func NewRegistryClient(config Config, logger *logger.Logger) (*RegistryClient, error) {
+func NewRegistryClient(registryAddress string, logger *logger.Logger) (*RegistryClient, error) {
 	// Auto-detect controller ID from hostname if not provided
-	controllerID := config.ControllerID
-	if controllerID == "" {
-		hostname, err := os.Hostname()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get hostname: %v", err)
-		}
-		controllerID = hostname
-	}
-
-	// Auto-detect gRPC address from hostname if not provided
-	grpcAddress := config.GRPCAddress
-	if grpcAddress == "" {
-		hostname, err := os.Hostname()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get hostname: %v", err)
-		}
-		
-		// Kubernetes StatefulSet ortamında FQDN oluştur
-		grpcAddress = buildGRPCAddress(hostname)
+	controllerID := ""
+	controllerID, err := os.Hostname()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get hostname: %v", err)
 	}
 
 	client := &RegistryClient{
 		controllerID: controllerID,
-		grpcAddress:  grpcAddress,
-		registryAddr: config.RegistryAddress,
+		grpcAddress:  buildGRPCAddress(controllerID),
+		registryAddr: registryAddress,
 		logger:       logger,
 	}
 
@@ -72,19 +57,32 @@ func buildGRPCAddress(hostname string) string {
 		// Service name yoksa sadece namespace ile: hostname.namespace.svc.cluster.local:8080
 		return fmt.Sprintf("%s.%s.svc.cluster.local:50051", hostname, namespace)
 	}
-	
+
 	// Local development ortamında hostname:port
 	return fmt.Sprintf("%s:50051", hostname)
 }
 
 // Connect establishes gRPC connection to registry
 func (r *RegistryClient) Connect() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	conn, err := grpc.DialContext(ctx, r.registryAddr, 
+	conn, err := grpc.NewClient(r.registryAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
+		grpc.WithDisableServiceConfig(),
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                10 * time.Second,
+			Timeout:             5 * time.Second,
+			PermitWithoutStream: true,
+		}),
+		grpc.WithDefaultCallOptions(
+			grpc.WaitForReady(true),
+		),
+		grpc.WithConnectParams(grpc.ConnectParams{
+			Backoff: backoff.Config{
+				BaseDelay:  1.0 * time.Second,
+				Multiplier: 1.6,
+				Jitter:     0.2,
+				MaxDelay:   10 * time.Second,
+			},
+		}),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to connect to registry: %v", err)
@@ -92,7 +90,7 @@ func (r *RegistryClient) Connect() error {
 
 	r.conn = conn
 	r.client = pb.NewControllerServiceClient(conn)
-	
+
 	r.logger.Infof("Connected to registry at %s", r.registryAddr)
 	return nil
 }
@@ -262,7 +260,7 @@ func (r *RegistryClient) StartHealthMonitor(getConnectedClients func() []string)
 		for range ticker.C {
 			// Get currently connected clients
 			connectedClients := getConnectedClients()
-			
+
 			// Only monitor if we have connected clients
 			if len(connectedClients) == 0 {
 				continue
@@ -277,7 +275,7 @@ func (r *RegistryClient) StartHealthMonitor(getConnectedClients func() []string)
 
 			if !registered {
 				r.logger.Warnf("Controller not registered in registry, attempting re-registration...")
-				
+
 				// Re-register controller
 				if err := r.RegisterController(); err != nil {
 					r.logger.Errorf("Failed to re-register controller: %v", err)
@@ -293,6 +291,6 @@ func (r *RegistryClient) StartHealthMonitor(getConnectedClients func() []string)
 			}
 		}
 	}()
-	
+
 	r.logger.Infof("Health monitor started - checking every 30 seconds")
-} 
+}

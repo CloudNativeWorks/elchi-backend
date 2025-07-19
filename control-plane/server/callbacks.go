@@ -11,6 +11,7 @@ import (
 
 	"github.com/CloudNativeWorks/elchi-backend/control-plane/envoys"
 	"github.com/CloudNativeWorks/elchi-backend/control-plane/server/bridge"
+	"github.com/CloudNativeWorks/elchi-backend/control-plane/server/routing"
 	"github.com/CloudNativeWorks/elchi-backend/control-plane/server/snapshot"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
@@ -23,14 +24,16 @@ type Callbacks struct {
 	appContext       *db.AppContext
 	logger           *logger.Logger
 	envoyConnTracker *envoys.EnvoyConnTracker
+	routingManager   *routing.Manager
 }
 
-func NewCallbacks(poke *bridge.PokeService, cache *snapshot.Context, appContext *db.AppContext, envoyConnTracker *envoys.EnvoyConnTracker) *Callbacks {
+func NewCallbacks(poke *bridge.PokeService, cache *snapshot.Context, appContext *db.AppContext, envoyConnTracker *envoys.EnvoyConnTracker, routingManager *routing.Manager) *Callbacks {
 	return &Callbacks{
 		poke:             poke,
 		cache:            cache,
 		appContext:       appContext,
 		envoyConnTracker: envoyConnTracker,
+		routingManager:   routingManager,
 		logger:           logger.NewLogger("control-plane/callbacks"),
 	}
 }
@@ -64,6 +67,12 @@ func (c *Callbacks) OnDeltaStreamOpen(ctx context.Context, id int64, typ string)
 		return errors.New("nodeID missing from metadata")
 	}
 
+	// Notify routing manager about snapshot delivery
+	if c.routingManager != nil {
+		c.routingManager.NotifySnapshotDelivered(nodeID, version)
+		c.logger.Debugf("Notified routing manager about snapshot delivery for node: %s (version: %s)", nodeID, version)
+	}
+
 	if err := c.CheckSetSnapshot(nodeID, version); err != nil {
 		c.logger.Warnf("Error checking snapshot: %v", err)
 		return err
@@ -81,6 +90,9 @@ func (c *Callbacks) OnDeltaStreamClosed(id int64, node *core.Node) {
 		c.logger.Warn("NodeID missing, skipping client cleanup")
 		return
 	}
+
+	// Node will be removed from tracking when it's not seen for a while
+	// (handled by the periodic UpdateNodeList which only sends active nodes)
 
 	c.envoyConnTracker.TrackClientDown(c.appContext.Client, c.cache.Cache.Cache, node.Id, id, c.logger)
 	c.logger.Infof("Delta stream %d closed for NodeID %s", id, node.Id)
@@ -106,7 +118,7 @@ func (c *Callbacks) OnStreamDeltaRequest(id int64, req *discovery.DeltaDiscovery
 }
 
 func (c *Callbacks) OnStreamDeltaResponse(_ int64, req *discovery.DeltaDiscoveryRequest, resp *discovery.DeltaDiscoveryResponse) {
-
+	// No routing notification needed here
 }
 
 func (c *Callbacks) CheckSetSnapshot(nodeID, version string) error {

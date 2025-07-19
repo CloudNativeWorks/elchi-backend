@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 
@@ -11,10 +12,12 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/control-plane/envoys"
 	grpcserver "github.com/CloudNativeWorks/elchi-backend/control-plane/server"
 	"github.com/CloudNativeWorks/elchi-backend/control-plane/server/bridge"
+	"github.com/CloudNativeWorks/elchi-backend/control-plane/server/routing"
 	"github.com/CloudNativeWorks/elchi-backend/control-plane/server/snapshot"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/config"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/version"
 )
 
 var (
@@ -50,9 +53,16 @@ var grpcCmd = &cobra.Command{
 		pokeService := bridge.NewPokeService(ctxCache, appContext)
 		envoyConnTracker := envoys.NewEnvoyConnTracker()
 
-		callbacks := grpcserver.NewCallbacks(pokeService, ctxCache, appContext, envoyConnTracker)
+		callbacks := grpcserver.NewCallbacks(pokeService, ctxCache, appContext, envoyConnTracker, nil)
 		srv := server.NewServer(context.Background(), ctxCache.Cache.Cache, callbacks)
-		grpcServer := grpcserver.NewServer(srv, port, ctxCache)
+
+		// Create routing config for server
+		routingConfig := routing.NewConfig(fmt.Sprintf(":%d", appConfig.RegistryPort), version.GetVersion())
+
+		grpcServer := grpcserver.NewServer(srv, port, ctxCache, routingConfig)
+
+		// Set routing manager for callbacks
+		grpcServer.SetCallbacksRoutingManager(callbacks)
 
 		grpcServer.Run(appContext)
 	},

@@ -3,7 +3,7 @@ module github.com/CloudNativeWorks/elchi-backend
 go 1.24.1
 
 require (
-	github.com/CloudNativeWorks/elchi-proto v0.0.0-20250711140156-acfafe311be9
+	github.com/CloudNativeWorks/elchi-proto v0.0.0-20250712163613-40ede279f27f
 	github.com/CloudNativeWorks/versioned-go-control-plane v0.13.4-envoy1.33.2
 	github.com/CloudNativeWorks/versioned-go-control-plane/envoy v1.34.1
 	github.com/Masterminds/sprig/v3 v3.3.0

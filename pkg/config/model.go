@@ -22,13 +22,15 @@ type AppConfig struct {
 	MongodbAuthSource    string `mapstructure:"MONGODB_AUTH_SOURCE" yaml:"MONGODB_AUTH_SOURCE"`
 	MongodbAuthMechanism string `mapstructure:"MONGODB_AUTH_MECHANISM" yaml:"MONGODB_AUTH_MECHANISM"`
 
-/* 	LogLevel        string `mapstructure:"LOG_LEVEL" yaml:"LOG_LEVEL"`
-	LogFormatter    string `mapstructure:"LOG_FORMATTER" yaml:"LOG_FORMATTER"`
-	LogReportCaller string `mapstructure:"LOG_REPORTCALLER" yaml:"LOG_REPORTCALLER"` */
+	/* 	LogLevel        string `mapstructure:"LOG_LEVEL" yaml:"LOG_LEVEL"`
+	   	LogFormatter    string `mapstructure:"LOG_FORMATTER" yaml:"LOG_FORMATTER"`
+	   	LogReportCaller string `mapstructure:"LOG_REPORTCALLER" yaml:"LOG_REPORTCALLER"` */
 
 	Logging LoggingConfig `mapstructure:"LOGGING" yaml:"LOGGING"`
 
 	SMTPPassword string `mapstructure:"SMTP_PASSWORD" yaml:"SMTP_PASSWORD"`
+
+	RegistryPort    uint   `mapstructure:"REGISTRY_PORT" yaml:"REGISTRY_PORT"`
 }
 
 type LoggingConfig struct {
@@ -37,3 +39,5 @@ type LoggingConfig struct {
 	OutputPath string            `mapstructure:"output_path"`
 	Modules    map[string]string `mapstructure:"modules"`
 }
+
+

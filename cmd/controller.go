@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"time"
@@ -49,15 +50,8 @@ var restCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		// Initialize registry client
-		registryConfig := registry.Config{
-			RegistryAddress: getRegistryAddress(appConfig),
-			ControllerID:    getControllerID(appConfig),
-			GRPCAddress:     getControllerGRPCAddress(appConfig),
-		}
-
 		rootLogger := logger.NewLogger("controller")
-		registryClient, err := registry.NewRegistryClient(registryConfig, rootLogger)
+		registryClient, err := registry.NewRegistryClient(fmt.Sprintf(":%d", appConfig.RegistryPort), rootLogger)
 		if err != nil {
 			rootLogger.Fatalf("Failed to create registry client: %v", err)
 		}
@@ -82,15 +76,15 @@ var restCmd = &cobra.Command{
 
 		serviceHandler := service.NewServiceHandler(appContext)
 		clientHandler := client.NewClientHandler(appContext, xdsHandler)
-		
+
 		// Pass registry client to client handler
 		clientHandler.SetRegistryClient(registryClient)
-		
+
 		// Start health monitor for registry connection recovery
 		registryClient.StartHealthMonitor(func() []string {
 			return clientHandler.Service.GetConnectedClientIDs()
 		})
-		
+
 		go clientHandler.Start(appConfig)
 
 		dependencyHandler.StartCacheCleanup(1 * time.Minute)
@@ -113,33 +107,6 @@ var restCmd = &cobra.Command{
 			rootLogger.Fatalf("Server failed to run: %v", err)
 		}
 	},
-}
-
-// getRegistryAddress returns registry address from config or environment
-func getRegistryAddress(config *config.AppConfig) string {
-	if addr := os.Getenv("REGISTRY_ADDRESS"); addr != "" {
-		return addr
-	}
-	// Default registry address
-	return "localhost:9090"
-}
-
-// getControllerID returns controller ID from config or hostname
-func getControllerID(config *config.AppConfig) string {
-	if id := os.Getenv("CONTROLLER_ID"); id != "" {
-		return id
-	}
-	// Will auto-detect from hostname in registry client
-	return ""
-}
-
-// getControllerGRPCAddress returns controller gRPC address
-func getControllerGRPCAddress(config *config.AppConfig) string {
-	if addr := os.Getenv("CONTROLLER_GRPC_ADDRESS"); addr != "" {
-		return addr
-	}
-	// Will auto-detect from hostname:8080 in registry client
-	return ""
 }
 
 func init() {

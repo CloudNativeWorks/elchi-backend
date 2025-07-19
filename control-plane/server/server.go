@@ -16,6 +16,7 @@ import (
 	"github.com/CloudNativeWorks/versioned-go-control-plane/pkg/server/v3"
 
 	serverBridge "github.com/CloudNativeWorks/elchi-backend/control-plane/server/bridge"
+	"github.com/CloudNativeWorks/elchi-backend/control-plane/server/routing"
 	"github.com/CloudNativeWorks/elchi-backend/control-plane/server/snapshot"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/bridge"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
@@ -32,25 +33,50 @@ const (
 )
 
 type Server struct {
-	xdsServer     server.Server
-	port          uint
-	logger        *logger.Logger
-	context       *snapshot.Context
-	healthServer  *health.Server
+	xdsServer      server.Server
+	port           uint
+	logger         *logger.Logger
+	context        *snapshot.Context
+	healthServer   *health.Server
+	routingManager *routing.Manager
 }
 
-func NewServer(xdsServer server.Server, port uint, context *snapshot.Context) *Server {
+func NewServer(xdsServer server.Server, port uint, context *snapshot.Context, routingConfig *routing.Config) *Server {
+	logger := logger.NewLogger("control-plane/server")
+
+	// Create routing manager
+	routingManager, err := routing.NewManager(routingConfig, logger, context)
+	if err != nil {
+		logger.Errorf("Failed to create routing manager: %v", err)
+		// Continue without routing manager
+		routingManager = nil
+	}
+
 	return &Server{
-		xdsServer:     xdsServer,
-		port:          port,
-		logger:        logger.NewLogger("control-plane/server"),
-		context:       context,
-		healthServer:  health.NewServer(),
+		xdsServer:      xdsServer,
+		port:           port,
+		logger:         logger,
+		context:        context,
+		healthServer:   health.NewServer(),
+		routingManager: routingManager,
 	}
 }
 
 // Run starts an xDS server at the given port.
 func (s *Server) Run(db *db.AppContext) {
+	// Start routing manager if available
+	if s.routingManager != nil {
+		if err := s.routingManager.Start(); err != nil {
+			s.logger.Errorf("Failed to start routing manager: %v", err)
+		} else {
+			defer func() {
+				if err := s.routingManager.Stop(); err != nil {
+					s.logger.Errorf("Failed to stop routing manager: %v", err)
+				}
+			}()
+		}
+	}
+
 	var grpcOptions []grpc.ServerOption
 	grpcOptions = append(grpcOptions,
 		grpc.MaxConcurrentStreams(grpcMaxConcurrentStreams),
@@ -91,4 +117,16 @@ func (s *Server) registerServer(grpcServer *grpc.Server, db *db.AppContext) {
 	grpc_health_v1.RegisterHealthServer(grpcServer, s.healthServer)
 	s.healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
 	s.logger.Info("Health check server registered and serving status set to SERVING")
+}
+
+// GetRoutingManager returns the routing manager
+func (s *Server) GetRoutingManager() *routing.Manager {
+	return s.routingManager
+}
+
+// SetCallbacksRoutingManager sets the routing manager for callbacks
+func (s *Server) SetCallbacksRoutingManager(callbacks *Callbacks) {
+	if s.routingManager != nil {
+		callbacks.routingManager = s.routingManager
+	}
 }

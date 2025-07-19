@@ -11,11 +11,8 @@ on:
       platforms:
         description: 'Target platforms (comma separated)'
         required: true
-        type: choice
-        options:
-          - 'linux/amd64'
-          - 'linux/arm64'
-          - 'linux/amd64,linux/arm64'
+        default: 'linux/amd64,linux/arm64'
+        type: string
 
 env:
   DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
@@ -23,6 +20,7 @@ env:
   DOCKER_IMAGE: elchi-backend
   GO_CONTROL_PLANE_PACKAGE: github.com/CloudNativeWorks/versioned-go-control-plane
   GO_CONTROL_PLANE_ENVOY_PACKAGE: github.com/CloudNativeWorks/versioned-go-control-plane/envoy
+  GO_CONTROL_PLANE_RATELIMIT_PACKAGE: github.com/CloudNativeWorks/versioned-go-control-plane/ratelimit
 
 jobs:
   build-amd64:
@@ -87,9 +85,10 @@ jobs:
             # Extract Envoy version from the full version string
             ENVOY_VERSION=$(echo $CONTROL_PLANE_VERSION | sed -n 's/.*envoy\([0-9.]*\)/\1/p')
             
-            # Update go.mod for both packages
+            # Update go.mod for all packages
             go mod edit -require="${GO_CONTROL_PLANE_PACKAGE}@${CONTROL_PLANE_VERSION}"
             go mod edit -require="${GO_CONTROL_PLANE_ENVOY_PACKAGE}@v${ENVOY_VERSION}"
+            go mod edit -require="${GO_CONTROL_PLANE_RATELIMIT_PACKAGE}@v${ENVOY_VERSION}"
             go mod tidy
             
             # Set image tags
@@ -178,9 +177,10 @@ jobs:
             # Extract Envoy version from the full version string
             ENVOY_VERSION=$(echo $CONTROL_PLANE_VERSION | sed -n 's/.*envoy\([0-9.]*\)/\1/p')
             
-            # Update go.mod for both packages
+            # Update go.mod for all packages
             go mod edit -require="${GO_CONTROL_PLANE_PACKAGE}@${CONTROL_PLANE_VERSION}"
             go mod edit -require="${GO_CONTROL_PLANE_ENVOY_PACKAGE}@v${ENVOY_VERSION}"
+            go mod edit -require="${GO_CONTROL_PLANE_RATELIMIT_PACKAGE}@v${ENVOY_VERSION}"
             go mod tidy
             
             # Set image tags

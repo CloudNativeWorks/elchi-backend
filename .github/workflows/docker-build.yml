@@ -222,37 +222,23 @@ jobs:
           username: ${{ env.DOCKER_USERNAME }}
           password: ${{ env.DOCKER_PASSWORD }}
 
-      - name: Create multi-platform manifests
+      - name: Create latest tag manifests
         run: |
           # Convert comma-separated versions to array
           IFS=',' read -ra CONTROL_PLANE_VERSIONS <<< "${{ github.event.inputs.envoy_versions }}"
           
-          # Process each control plane version
-          for CONTROL_PLANE_VERSION in "${CONTROL_PLANE_VERSIONS[@]}"; do
-            # Trim whitespace
-            CONTROL_PLANE_VERSION=$(echo $CONTROL_PLANE_VERSION | xargs)
-            
-            echo "Creating manifest for Control Plane version: ${CONTROL_PLANE_VERSION}"
-            
-            # Set image names
-            IMAGE_NAME="${DOCKER_USERNAME}/${DOCKER_IMAGE}"
-            MANIFEST_TAG="${IMAGE_NAME}:v${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}"
-            LATEST_TAG="${IMAGE_NAME}:latest"
-            
-            # Create manifest list
-            docker manifest create "${MANIFEST_TAG}" \
-              "${IMAGE_NAME}:v${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}"
-            
-            # Push manifest
-            docker manifest push "${MANIFEST_TAG}"
-            
-            # Create latest manifest if this is the first version
-            if [ "$CONTROL_PLANE_VERSION" = "${CONTROL_PLANE_VERSIONS[0]}" ]; then
-              docker manifest create "${LATEST_TAG}" \
-                "${IMAGE_NAME}:v${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}"
-              
-              docker manifest push "${LATEST_TAG}"
-            fi
-            
-            echo "✅ Manifest created for ${CONTROL_PLANE_VERSION}"
-          done 
+          # Get the first version for latest tag
+          FIRST_VERSION=$(echo "${CONTROL_PLANE_VERSIONS[0]}" | xargs)
+          
+          echo "Creating latest tag for Control Plane version: ${FIRST_VERSION}"
+          
+          # Set image names
+          IMAGE_NAME="${DOCKER_USERNAME}/${DOCKER_IMAGE}"
+          SOURCE_TAG="${IMAGE_NAME}:v${PROJECT_VERSION}-${FIRST_VERSION}"
+          LATEST_TAG="${IMAGE_NAME}:latest"
+          
+          # Create latest tag by copying the first version
+          docker manifest create "${LATEST_TAG}" "${SOURCE_TAG}"
+          docker manifest push "${LATEST_TAG}"
+          
+          echo "✅ Latest tag created from ${FIRST_VERSION}" 

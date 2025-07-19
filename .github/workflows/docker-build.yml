@@ -96,7 +96,7 @@ jobs:
             IMAGE_NAME="${DOCKER_USERNAME}/${DOCKER_IMAGE}"
             IMAGE_TAG="${IMAGE_NAME}:v${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}-amd64"
             
-            # Build and push AMD64 platform
+            # Build AMD64 platform
             docker buildx build \
               --no-cache \
               --platform linux/amd64 \
@@ -104,8 +104,11 @@ jobs:
               --build-arg "ELCHI_CONTROL_PLANE_VERSION=elchi-backend-${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}" \
               -t "${IMAGE_TAG}" \
               -f Dockerfile-release \
-              --push \
+              --load \
               .
+            
+            # Push AMD64 image
+            docker push "${IMAGE_TAG}"
             
             echo "✅ Control Plane version ${CONTROL_PLANE_VERSION} (AMD64) completed"
             
@@ -184,7 +187,7 @@ jobs:
             IMAGE_NAME="${DOCKER_USERNAME}/${DOCKER_IMAGE}"
             IMAGE_TAG="${IMAGE_NAME}:v${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}-arm64"
             
-            # Build and push ARM64 platform
+            # Build ARM64 platform
             docker buildx build \
               --no-cache \
               --platform linux/arm64 \
@@ -192,8 +195,11 @@ jobs:
               --build-arg "ELCHI_CONTROL_PLANE_VERSION=elchi-backend-${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}" \
               -t "${IMAGE_TAG}" \
               -f Dockerfile-release \
-              --push \
+              --load \
               .
+            
+            # Push ARM64 image
+            docker push "${IMAGE_TAG}"
             
             echo "✅ Control Plane version ${CONTROL_PLANE_VERSION} (ARM64) completed"
             

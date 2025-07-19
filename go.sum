@@ -6,10 +6,10 @@ github.com/CloudNativeWorks/elchi-proto v0.0.0-20250712163613-40ede279f27f h1:VC
 github.com/CloudNativeWorks/elchi-proto v0.0.0-20250712163613-40ede279f27f/go.mod h1:Ueq8oq9fNnLZ/6I2JQKVu8npURk2T+Ts44x4o8VDlj0=
 github.com/CloudNativeWorks/versioned-go-control-plane v0.13.4-envoy1.33.2 h1:b3DUdQYkH5KX3qjjMuTbOfQzaYxx0sWa/FHJLnKZAGI=
 github.com/CloudNativeWorks/versioned-go-control-plane v0.13.4-envoy1.33.2/go.mod h1:ZNZdn54RWYCCgAl7ohHNQzRtp3vHYtgJKfKuX3SpHQY=
-github.com/CloudNativeWorks/versioned-go-control-plane/envoy v1.34.1 h1:6A1EZ587WPyQpnV3CzF0A/PHcIVHIQSKVXRQDDUgyKk=
-github.com/CloudNativeWorks/versioned-go-control-plane/envoy v1.34.1/go.mod h1:3amoSN81CWZo7qW4VaOVyhpNbctdNB5MvSu9hkLLiMU=
-github.com/CloudNativeWorks/versioned-go-control-plane/ratelimit v0.1.0 h1:DSLZdtaxA+xQ6xvYBCDjMFSMGj5T4sRboiDawAV6hoo=
-github.com/CloudNativeWorks/versioned-go-control-plane/ratelimit v0.1.0/go.mod h1:1m0xznIcc9rjGcxKgULHff0tqPzaE9Gg8jqWYXaPI8A=
+github.com/CloudNativeWorks/versioned-go-control-plane/envoy v1.33.2 h1:WuOp3OE0L5nqaESjJseTfNPS5VzSF9CoDDpHIILHQ/4=
+github.com/CloudNativeWorks/versioned-go-control-plane/envoy v1.33.2/go.mod h1:3amoSN81CWZo7qW4VaOVyhpNbctdNB5MvSu9hkLLiMU=
+github.com/CloudNativeWorks/versioned-go-control-plane/ratelimit v1.33.2 h1:lXXABkZKfZNms9FFPNC7xjUS6CaBgDhmArVfo2L7uko=
+github.com/CloudNativeWorks/versioned-go-control-plane/ratelimit v1.33.2/go.mod h1:ld+wNKqjm3AEgwwK+ZcZWZ/UwNrsSsl+tiT5p/LMITk=
 github.com/Masterminds/goutils v1.1.1 h1:5nUrii3FMTL5diU80unEVvNevw1nH4+ZV4DSLVJLSYI=
 github.com/Masterminds/goutils v1.1.1/go.mod h1:8cTjp+g8YejhMuvIA5y2vz3BpJxksy863GQaJW2MFNU=
 github.com/Masterminds/semver/v3 v3.3.0 h1:B8LGeaivUe71a5qox1ICM/JLl0NqZSW5CHyL+hmvYS0=

@@ -5,7 +5,7 @@ set -e
 
 # Check parameters
 if [ "$#" -ne 1 ]; then
-    echo "Usage: $0 'v0.13.4-envoy1.33.2,v0.13.4-envoy1.32.3'"
+    echo "Usage: $0 'v0.13.4-envoy1.33.2,v0.13.4-envoy1.34.3'"
     exit 1
 fi
 

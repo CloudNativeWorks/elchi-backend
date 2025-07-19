@@ -7,7 +7,7 @@ require (
 	github.com/CloudNativeWorks/versioned-go-control-plane v0.13.4-envoy1.33.5
 	github.com/CloudNativeWorks/versioned-go-control-plane/envoy v1.33.5
 	github.com/Masterminds/sprig/v3 v3.3.0
-	github.com/gin-gonic/gin v1.10.0
+	github.com/gin-gonic/gin v1.10.1
 	github.com/go-playground/validator/v10 v10.26.0
 	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/google/uuid v1.6.0

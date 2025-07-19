@@ -62,8 +62,6 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-        with:
-          platforms: linux/amd64
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -96,7 +94,7 @@ jobs:
             
             # Set image tags
             IMAGE_NAME="${DOCKER_USERNAME}/${DOCKER_IMAGE}"
-            IMAGE_TAG="${IMAGE_NAME}:v${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}-amd64"
+            IMAGE_TAG="${IMAGE_NAME}:v${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}"
             
             # Build and push AMD64 platform
             docker buildx build \
@@ -152,8 +150,6 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-        with:
-          platforms: linux/arm64
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -186,7 +182,7 @@ jobs:
             
             # Set image tags
             IMAGE_NAME="${DOCKER_USERNAME}/${DOCKER_IMAGE}"
-            IMAGE_TAG="${IMAGE_NAME}:v${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}-arm64"
+            IMAGE_TAG="${IMAGE_NAME}:v${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}"
             
             # Build and push ARM64 platform
             docker buildx build \
@@ -245,8 +241,7 @@ jobs:
             
             # Create manifest list
             docker manifest create "${MANIFEST_TAG}" \
-              "${IMAGE_NAME}:v${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}-amd64" \
-              "${IMAGE_NAME}:v${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}-arm64"
+              "${IMAGE_NAME}:v${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}"
             
             # Push manifest
             docker manifest push "${MANIFEST_TAG}"
@@ -254,8 +249,7 @@ jobs:
             # Create latest manifest if this is the first version
             if [ "$CONTROL_PLANE_VERSION" = "${CONTROL_PLANE_VERSIONS[0]}" ]; then
               docker manifest create "${LATEST_TAG}" \
-                "${IMAGE_NAME}:v${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}-amd64" \
-                "${IMAGE_NAME}:v${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}-arm64"
+                "${IMAGE_NAME}:v${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}"
               
               docker manifest push "${LATEST_TAG}"
             fi

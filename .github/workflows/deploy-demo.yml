@@ -32,12 +32,18 @@ jobs:
           export MONGODB_REPLICASET=${{ vars.MONGODB_REPLICASET }}
           export MONGODB_TIMEOUTSECONDS=${{ vars.MONGODB_TIMEOUTSECONDS }}
           export MONGODB_TLS_ENABLED=${{ vars.MONGODB_TLS_ENABLED }}
-          export LOG_LEVEL=${{ vars.LOG_LEVEL }}
-          export LOG_FORMATTER=${{ vars.LOG_FORMATTER }}
-          export LOG_REPORTCALLER=${{ vars.LOG_REPORTCALLER }}
           export SMTP_PASSWORD=${{ secrets.SMTP_PASSWORD }}
           export REGISTRY_PORT=${{ vars.REGISTRY_PORT }}
           export REGISTRY_ADDRESS=${{ vars.REGISTRY_ADDRESS }}
+          
+          # Set default logging values if not provided
+          export LOG_LEVEL=${LOG_LEVEL:-"info"}
+          export LOG_FORMATTER=${LOG_FORMATTER:-"text"}
+          export LOG_REPORTCALLER=${LOG_REPORTCALLER:-"false"}
+          
+          # Set default registry values if not provided
+          export REGISTRY_PORT=${REGISTRY_PORT:-"9090"}
+          export REGISTRY_ADDRESS=${REGISTRY_ADDRESS:-"elchi-registry-container-v1_34_2"}
           
           envsubst < .configs/config-prod.yaml > .configs/config-prod.yaml.filled
           mv .configs/config-prod.yaml.filled .configs/config-prod.yaml

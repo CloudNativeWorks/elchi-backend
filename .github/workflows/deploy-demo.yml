@@ -36,6 +36,8 @@ jobs:
           export LOG_FORMATTER=${{ vars.LOG_FORMATTER }}
           export LOG_REPORTCALLER=${{ vars.LOG_REPORTCALLER }}
           export SMTP_PASSWORD=${{ secrets.SMTP_PASSWORD }}
+          export REGISTRY_PORT=${{ vars.REGISTRY_PORT }}
+          export REGISTRY_ADDRESS=${{ vars.REGISTRY_ADDRESS }}
           
           envsubst < .configs/config-prod.yaml > .configs/config-prod.yaml.filled
           mv .configs/config-prod.yaml.filled .configs/config-prod.yaml
@@ -61,13 +63,17 @@ jobs:
       - name: Deploy Envoy 1.34.2 containers on DigitalOcean
         run: |
           ssh root@68.183.216.216 "\
+            docker network create elchi-network || true && \
             docker pull jhonbrownn/elchi-backend:v0.1.0-v0.13.4-envoy1.34.2 && \
             docker stop elchi-control-plane-container-v1_34_2 || true && \
             docker rm elchi-control-plane-container-v1_34_2 || true && \
             docker stop elchi-controller-container-v1_34_2 || true && \
             docker rm elchi-controller-container-v1_34_2 || true && \
-            docker run --pull always -d -p 18000:18000 -v /root/.configs/config-prod.yaml:/root/.configs/config-prod.yaml --name elchi-control-plane-container-v1_34_2 jhonbrownn/elchi-backend:v0.1.0-v0.13.4-envoy1.34.2 elchi-control-plane && \
-            docker run --pull always -d -p 8099:8099 -v /root/.configs/config-prod.yaml:/root/.configs/config-prod.yaml --name elchi-controller-container-v1_34_2 jhonbrownn/elchi-backend:v0.1.0-v0.13.4-envoy1.34.2 elchi-controller"
+            docker stop elchi-registry-container-v1_34_2 || true && \
+            docker rm elchi-registry-container-v1_34_2 || true && \
+            docker run --pull always -d --network elchi-network -p 18000:18000 -v /root/.configs/config-prod.yaml:/root/.configs/config-prod.yaml --name elchi-control-plane-container-v1_34_2 jhonbrownn/elchi-backend:v0.1.0-v0.13.4-envoy1.34.2 elchi-control-plane && \
+            docker run --pull always -d --network elchi-network -p 8099:8099 -v /root/.configs/config-prod.yaml:/root/.configs/config-prod.yaml --name elchi-controller-container-v1_34_2 jhonbrownn/elchi-backend:v0.1.0-v0.13.4-envoy1.34.2 elchi-controller && \
+            docker run --pull always -d --network elchi-network -p 9090:9090 -v /root/.configs/config-prod.yaml:/root/.configs/config-prod.yaml --name elchi-registry-container-v1_34_2 jhonbrownn/elchi-backend:v0.1.0-v0.13.4-envoy1.34.2 elchi-registry"
 
       - name: Deploy Envoy 1.33.5 containers on DigitalOcean
         run: |
@@ -77,5 +83,5 @@ jobs:
             docker rm elchi-control-plane-container-v1_33_5 || true && \
             docker stop elchi-controller-container-v1_33_5 || true && \
             docker rm elchi-controller-container-v1_33_5 || true && \
-            docker run --pull always -d -p 18001:18000 -v /root/.configs/config-prod.yaml:/root/.configs/config-prod.yaml --name elchi-control-plane-container-v1_33_5 jhonbrownn/elchi-backend:v0.1.0-v0.13.4-envoy1.33.5 elchi-control-plane && \
-            docker run --pull always -d -p 8199:8099 -v /root/.configs/config-prod.yaml:/root/.configs/config-prod.yaml --name elchi-controller-container-v1_33_5 jhonbrownn/elchi-backend:v0.1.0-v0.13.4-envoy1.33.5 elchi-controller"
+            docker run --pull always -d --network elchi-network -p 18001:18000 -v /root/.configs/config-prod.yaml:/root/.configs/config-prod.yaml --name elchi-control-plane-container-v1_33_5 jhonbrownn/elchi-backend:v0.1.0-v0.13.4-envoy1.33.5 elchi-control-plane && \
+            docker run --pull always -d --network elchi-network -p 8199:8099 -v /root/.configs/config-prod.yaml:/root/.configs/config-prod.yaml --name elchi-controller-container-v1_33_5 jhonbrownn/elchi-backend:v0.1.0-v0.13.4-envoy1.33.5 elchi-controller"

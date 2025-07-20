@@ -56,8 +56,15 @@ var grpcCmd = &cobra.Command{
 		callbacks := grpcserver.NewCallbacks(pokeService, ctxCache, appContext, envoyConnTracker, nil)
 		srv := server.NewServer(context.Background(), ctxCache.Cache.Cache, callbacks)
 
+		// Combine RegistryAddress and RegistryPort
+		registryAddress := appConfig.RegistryAddress
+		if registryAddress == "" {
+			registryAddress = "localhost"
+		}
+		fullAddress := fmt.Sprintf("%s:%d", registryAddress, appConfig.RegistryPort)
+		
 		// Create routing config for server
-		routingConfig := routing.NewConfig(fmt.Sprintf(":%d", appConfig.RegistryPort), version.GetVersion())
+		routingConfig := routing.NewConfig(fullAddress, version.GetVersion())
 
 		grpcServer := grpcserver.NewServer(srv, port, ctxCache, routingConfig)
 

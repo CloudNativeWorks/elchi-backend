@@ -51,7 +51,14 @@ var restCmd = &cobra.Command{
 		}
 
 		rootLogger := logger.NewLogger("controller")
-		registryClient, err := registry.NewRegistryClient(fmt.Sprintf(":%d", appConfig.RegistryPort), rootLogger)
+		// Combine RegistryAddress and RegistryPort
+		registryAddress := appConfig.RegistryAddress
+		if registryAddress == "" {
+			registryAddress = "localhost"
+		}
+		fullAddress := fmt.Sprintf("%s:%d", registryAddress, appConfig.RegistryPort)
+		
+		registryClient, err := registry.NewRegistryClient(fullAddress, rootLogger)
 		if err != nil {
 			rootLogger.Fatalf("Failed to create registry client: %v", err)
 		}

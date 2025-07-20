@@ -492,7 +492,7 @@ func (p *ExternalProcessorServer) handleRequestBody(stream ext.ExternalProcessor
 }
 
 // handleRequestTrailers processes request trailers
-func (p *ExternalProcessorServer) handleRequestTrailers(stream ext.ExternalProcessor_ProcessServer, trailers *ext.HttpTrailers) error {
+func (p *ExternalProcessorServer) handleRequestTrailers(stream ext.ExternalProcessor_ProcessServer, _ *ext.HttpTrailers) error {
 	p.logger.Debugf("Processing request trailers")
 
 	response := &ext.ProcessingResponse{
@@ -507,7 +507,7 @@ func (p *ExternalProcessorServer) handleRequestTrailers(stream ext.ExternalProce
 }
 
 // handleResponseHeaders processes response headers
-func (p *ExternalProcessorServer) handleResponseHeaders(stream ext.ExternalProcessor_ProcessServer, headers *ext.HttpHeaders) error {
+func (p *ExternalProcessorServer) handleResponseHeaders(stream ext.ExternalProcessor_ProcessServer, _ *ext.HttpHeaders) error {
 	p.logger.Debugf("Processing response headers")
 
 	// Add response processing metadata
@@ -553,7 +553,7 @@ func (p *ExternalProcessorServer) handleResponseBody(stream ext.ExternalProcesso
 }
 
 // handleResponseTrailers processes response trailers
-func (p *ExternalProcessorServer) handleResponseTrailers(stream ext.ExternalProcessor_ProcessServer, trailers *ext.HttpTrailers) error {
+func (p *ExternalProcessorServer) handleResponseTrailers(stream ext.ExternalProcessor_ProcessServer, _ *ext.HttpTrailers) error {
 	p.logger.Debugf("Processing response trailers")
 
 	response := &ext.ProcessingResponse{
@@ -612,10 +612,10 @@ func (p *ExternalProcessorServer) resolveCluster(version, nodeID string) string 
 }
 
 // StartGRPCServer starts the gRPC server
-func StartGRPCServer(port int, registryService *service.RegistryService, routingService *service.RoutingService, logger *logger.Logger) error {
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+func StartGRPCServer(address string, registryService *service.RegistryService, routingService *service.RoutingService, logger *logger.Logger) error {
+	lis, err := net.Listen("tcp", address)
 	if err != nil {
-		return fmt.Errorf("failed to listen on port %d: %w", port, err)
+		return fmt.Errorf("failed to listen on address %s: %w", address, err)
 	}
 
 	grpcServer := grpc.NewServer()
@@ -632,7 +632,7 @@ func StartGRPCServer(port int, registryService *service.RegistryService, routing
 	extProcessorServer := NewExternalProcessorServer(routingService, logger)
 	ext.RegisterExternalProcessorServer(grpcServer, extProcessorServer)
 
-	logger.Infof("gRPC server starting on port %d (Registry + Routing + ExternalProcessor services)", port)
+	logger.Infof("gRPC server starting on address %s (Registry + Routing + ExternalProcessor services)", address)
 
 	if err := grpcServer.Serve(lis); err != nil {
 		return fmt.Errorf("failed to serve gRPC: %w", err)

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"time"
@@ -48,6 +49,13 @@ var registryCmd = &cobra.Command{
 		rootLogger := logger.NewLogger("registry")
 		rootLogger.Infof("Starting Elchi Registry Service")
 
+		// Combine RegistryAddress and RegistryPort
+		registryAddress := appConfig.RegistryAddress
+		if registryAddress == "" {
+			registryAddress = "localhost"
+		}
+		fullAddress := fmt.Sprintf("%s:%d", registryAddress, appConfig.RegistryPort)
+
 		// Initialize in-memory storage
 		rootLogger.Info("Initializing in-memory storage...")
 		storageInstance := storage.NewInMemoryStorage()
@@ -76,8 +84,8 @@ var registryCmd = &cobra.Command{
 		}()
 
 		// Start gRPC server
-		rootLogger.WithField("port", appConfig.RegistryPort).Info("Starting gRPC server")
-		if err := server.StartGRPCServer(int(appConfig.RegistryPort), registryService, routingService, rootLogger); err != nil {
+		rootLogger.WithField("address", fullAddress).Info("Starting gRPC server")
+		if err := server.StartGRPCServer(fullAddress, registryService, routingService, rootLogger); err != nil {
 			rootLogger.WithError(err).Fatal("gRPC server error")
 		}
 	},

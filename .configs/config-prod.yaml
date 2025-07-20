@@ -19,9 +19,15 @@ MONGODB_REPLICASET: ""
 MONGODB_TIMEOUTMS: "${MONGODB_TIMEOUTMS}"
 MONGODB_TLS_ENABLED: "${MONGODB_TLS_ENABLED}"
 
-LOG_LEVEL: debug # debug, info, warn, error
-LOG_FORMATTER: text # json, text
-LOG_REPORTCALLER: "false"
+LOGGING:
+  level: info
+  format: text
+  output_path: stdout
+  modules:
+    controller: debug
+    controlplane: debug
+    elchi-client: debug
+    grpc_server: debug
 
 SMTP_PASSWORD: "${SMTP_PASSWORD}"
 REGISTRY_PORT: "${REGISTRY_PORT}"

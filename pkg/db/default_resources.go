@@ -624,13 +624,13 @@ func createDefaultSettings(ctx context.Context, db *AppContext, projectID string
 		return nil
 	}
 
-	defaultToken := uuid.New().String()
 	defaultSettings := bson.M{
 		"project": projectID,
 		"tokens": bson.A{
 			bson.M{
 				"name":  "default",
-				"token": defaultToken,
+				"id":    uuid.New().String(),
+				"token": uuid.New().String(),
 			},
 		},
 	}

@@ -23,6 +23,8 @@ var AllowedEndpoints = []string{
 	"/api/v3/setting/project_list",
 	"/api/v3/setting/project/:project_id",
 	"/api/v3/setting/permissions/:kind/:type/:id",
+	"/api/v3/setting/tokens",
+	"/api/v3/setting/tokens/:token_id",
 	"/api/v3/xds/secrets",
 	"/api/v3/xds/secrets/:name",
 	"/api/v3/xds/bootstrap",

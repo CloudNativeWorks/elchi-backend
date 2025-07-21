@@ -35,13 +35,13 @@ func initServiceRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 }
 
 func initAuthRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
-	enableDemo := h.Auth.Context.Config.ElchiEnableDemo == "true"
+	enableDemo := h.Settings.Context.Config.ElchiEnableDemo == "true"
 	routes := []struct {
 		method  string
 		path    string
 		handler gin.HandlerFunc
 	}{
-		{"POST", "/login", h.Auth.Login()},
+		{"POST", "/login", h.Settings.Login()},
 	}
 
 	if enableDemo {
@@ -50,7 +50,7 @@ func initAuthRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 			path    string
 			handler gin.HandlerFunc
 		}{
-			"POST", "/demo/:email", h.Auth.DemoAccount,
+			"POST", "/demo/:email", h.Settings.DemoAccount,
 		})
 	}
 
@@ -80,22 +80,26 @@ func initSettingRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		path    string
 		handler gin.HandlerFunc
 	}{
-		{"GET", "/user_list", h.Auth.ListUsers},
-		{"GET", "/user/:user_id", h.Auth.GetUser},
-		{"PUT", "/user/:user_id", h.Auth.SetUpdateUser},
-		{"DELETE", "/user/:user_id", h.Auth.DeleteUser},
+		{"GET", "/user_list", h.Settings.ListUsers},
+		{"GET", "/user/:user_id", h.Settings.GetUser},
+		{"PUT", "/user/:user_id", h.Settings.SetUpdateUser},
+		{"DELETE", "/user/:user_id", h.Settings.DeleteUser},
 
-		{"GET", "/group_list", h.Auth.ListGroups},
-		{"GET", "/group/:group_id", h.Auth.GetGroup},
-		{"PUT", "/group/:group_id", h.Auth.SetUpdateGroup},
-		{"DELETE", "/group/:group_id", h.Auth.DeleteGroup},
+		{"GET", "/group_list", h.Settings.ListGroups},
+		{"GET", "/group/:group_id", h.Settings.GetGroup},
+		{"PUT", "/group/:group_id", h.Settings.SetUpdateGroup},
+		{"DELETE", "/group/:group_id", h.Settings.DeleteGroup},
 
-		{"GET", "/project_list", h.Auth.ListProjects},
-		{"GET", "/project/:project_id", h.Auth.GetProject},
-		{"PUT", "/project/:project_id", h.Auth.SetUpdateProject},
-		{"DELETE", "/project/:project_id", h.Auth.DeleteProject},
+		{"GET", "/project_list", h.Settings.ListProjects},
+		{"GET", "/project/:project_id", h.Settings.GetProject},
+		{"PUT", "/project/:project_id", h.Settings.SetUpdateProject},
+		{"DELETE", "/project/:project_id", h.Settings.DeleteProject},
 
-		{"GET", "/permissions/:kind/:type/:id", h.Auth.GetPermissions},
+		{"GET", "/permissions/:kind/:type/:id", h.Settings.GetPermissions},
+
+		{"GET", "/tokens", h.Settings.GetTokens},
+		{"POST", "/tokens", h.Settings.SetToken},
+		{"DELETE", "/tokens/:token_id", h.Settings.DeleteToken},
 	}
 
 	initRoutes(rg, routes)

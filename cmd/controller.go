@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/CloudNativeWorks/elchi-backend/controller/api/auth"
 	"github.com/CloudNativeWorks/elchi-backend/controller/api/router"
+	"github.com/CloudNativeWorks/elchi-backend/controller/api/settings"
 	"github.com/CloudNativeWorks/elchi-backend/controller/bridge"
 	"github.com/CloudNativeWorks/elchi-backend/controller/client"
 	"github.com/CloudNativeWorks/elchi-backend/controller/crud/custom"
@@ -57,7 +57,7 @@ var restCmd = &cobra.Command{
 			registryAddress = "localhost"
 		}
 		fullAddress := fmt.Sprintf("%s:%d", registryAddress, appConfig.RegistryPort)
-		
+
 		registryClient, err := registry.NewRegistryClient(fullAddress, rootLogger)
 		if err != nil {
 			rootLogger.Fatalf("Failed to create registry client: %v", err)
@@ -78,7 +78,7 @@ var restCmd = &cobra.Command{
 		scenarioHandler := scenario.NewScenarioHandler(appContext)
 		customHandler := custom.NewCustomHandler(appContext)
 		bridgeHandler := bridge.NewBridgeHandler(appContext)
-		userHandler := auth.NewUserHandler(appContext)
+		userHandler := settings.NewUserHandler(appContext)
 		dependencyHandler := dependency.NewDependencyHandler(appContext)
 
 		serviceHandler := service.NewServiceHandler(appContext)

@@ -22,8 +22,8 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 	e.Use(middleware.PathCheck())
 	e.Use(middleware.GinLog(logger.Logger), gin.Recovery())
 
-	e.POST("/logout", middleware.Authentication(), h.Auth.Logout())
-	e.POST("/refresh", middleware.Refresh(), h.Auth.Refresh())
+	e.POST("/logout", middleware.Authentication(), h.Settings.Logout())
+	e.POST("/refresh", middleware.Refresh(), h.Settings.Refresh())
 
 	api := e.Group("/api")
 	v3 := api.Group("/v3")

@@ -62,7 +62,7 @@ var grpcCmd = &cobra.Command{
 			registryAddress = "localhost"
 		}
 		fullAddress := fmt.Sprintf("%s:%d", registryAddress, appConfig.RegistryPort)
-		
+
 		// Create routing config for server
 		routingConfig := routing.NewConfig(fullAddress, version.GetVersion())
 

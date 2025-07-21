@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/CloudNativeWorks/elchi-backend/controller/api/auth"
+	"github.com/CloudNativeWorks/elchi-backend/controller/api/settings"
 	"github.com/CloudNativeWorks/elchi-backend/controller/bridge"
 	"github.com/CloudNativeWorks/elchi-backend/controller/client"
 	"github.com/CloudNativeWorks/elchi-backend/controller/crud/custom"
@@ -36,7 +36,7 @@ type Handler struct {
 	XDS        *xds.AppHandler
 	Extension  *extension.AppHandler
 	Custom     *custom.AppHandler
-	Auth       *auth.AppHandler
+	Settings   *settings.AppHandler
 	dependency *dependency.AppHandler
 	Bridge     *bridge.AppHandler
 	Scenario   *scenario.AppHandler
@@ -44,12 +44,12 @@ type Handler struct {
 	Service    *service.AppHandler
 }
 
-func NewHandler(xds *xds.AppHandler, extension *extension.AppHandler, custom *custom.AppHandler, auth *auth.AppHandler, dependency *dependency.AppHandler, stats *bridge.AppHandler, scenario *scenario.AppHandler, client *client.AppHandler, service *service.AppHandler) *Handler {
+func NewHandler(xds *xds.AppHandler, extension *extension.AppHandler, custom *custom.AppHandler, settings *settings.AppHandler, dependency *dependency.AppHandler, stats *bridge.AppHandler, scenario *scenario.AppHandler, client *client.AppHandler, service *service.AppHandler) *Handler {
 	return &Handler{
 		XDS:        xds,
 		Extension:  extension,
 		Custom:     custom,
-		Auth:       auth,
+		Settings:   settings,
 		dependency: dependency,
 		Bridge:     stats,
 		Scenario:   scenario,

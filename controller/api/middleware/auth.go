@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/CloudNativeWorks/elchi-backend/controller/api/auth"
+	"github.com/CloudNativeWorks/elchi-backend/controller/api/settings"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 
 	"github.com/gin-gonic/gin"
@@ -21,7 +21,7 @@ func Authentication() gin.HandlerFunc {
 			return
 		}
 
-		claims, err := auth.ValidateToken(clientToken)
+		claims, err := settings.ValidateToken(clientToken)
 		if err != "" {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": err})
 			c.Abort()
@@ -59,7 +59,7 @@ func Refresh() gin.HandlerFunc {
 			return
 		}
 
-		claims, err := auth.ValidateRefreshToken(tokenString)
+		claims, err := settings.ValidateRefreshToken(tokenString)
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, err.Error())
 			c.Abort()

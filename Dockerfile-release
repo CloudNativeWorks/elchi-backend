@@ -25,6 +25,6 @@ WORKDIR /root/
 
 COPY --from=builder /app/elchi-backend .
 
-EXPOSE 8099 18000
+EXPOSE 8099 18000 9090
 
 ENTRYPOINT ["./elchi-backend"]

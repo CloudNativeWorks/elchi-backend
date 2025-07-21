@@ -50,10 +50,7 @@ var registryCmd = &cobra.Command{
 		rootLogger.Infof("Starting Elchi Registry Service")
 
 		// Combine RegistryAddress and RegistryPort
-		registryAddress := appConfig.RegistryAddress
-		if registryAddress == "" {
-			registryAddress = "localhost"
-		}
+		registryAddress := "0.0.0.0"
 		fullAddress := fmt.Sprintf("%s:%d", registryAddress, appConfig.RegistryPort)
 
 		// Initialize in-memory storage

@@ -129,13 +129,7 @@ func (s *InMemoryRoutingStorage) SetNodeMapping(ctx context.Context, mapping *mo
 
 	key := fmt.Sprintf("%s:%s", mapping.NodeID, mapping.Version)
 
-	// Check if mapping already exists (race condition check)
-	if existingMapping, exists := s.nodeMappings[key]; exists {
-		// Mapping already exists, return error to indicate this
-		return fmt.Errorf("mapping already exists for %s:%s -> %s", mapping.NodeID, mapping.Version, existingMapping.ControlPlaneID)
-	}
-
-	// Copy to avoid external modifications
+	// Upsert: Update existing mapping or create new one
 	mappingCopy := *mapping
 	mappingCopy.LastSeen = time.Now()
 	s.nodeMappings[key] = &mappingCopy

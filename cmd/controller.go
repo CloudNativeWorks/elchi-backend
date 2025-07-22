@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -63,14 +64,28 @@ var restCmd = &cobra.Command{
 			rootLogger.Fatalf("Failed to create registry client: %v", err)
 		}
 
-		// Connect to registry and register controller
-		if err := registryClient.Connect(); err != nil {
-			rootLogger.Errorf("Failed to connect to registry: %v", err)
-		} else {
-			if err := registryClient.RegisterController(); err != nil {
-				rootLogger.Errorf("Failed to register controller: %v", err)
+		// Start registry connection and registration in background with retry
+		go func() {
+			// Create context for registry operations
+			registryCtx, registryCancel := context.WithCancel(context.Background())
+			defer registryCancel()
+
+			rootLogger.Infof("Starting registry connection and registration process...")
+
+			// Connect to registry with retry
+			if err := registryClient.ConnectWithRetry(registryCtx); err != nil {
+				rootLogger.Errorf("Failed to connect to registry: %v", err)
+				return
 			}
-		}
+
+			// Register controller with retry
+			if err := registryClient.RegisterControllerWithRetry(registryCtx); err != nil {
+				rootLogger.Errorf("Failed to register controller: %v", err)
+				return
+			}
+
+			rootLogger.Infof("Successfully connected to registry and registered controller")
+		}()
 
 		appContext := db.NewMongoDB(appConfig, false)
 		xdsHandler := xds.NewXDSHandler(appContext)
@@ -86,6 +101,25 @@ var restCmd = &cobra.Command{
 
 		// Pass registry client to client handler
 		clientHandler.SetRegistryClient(registryClient)
+
+		// Sync all existing clients with registry after client handler is set up
+		go func() {
+			// Wait a bit for everything to be initialized
+			time.Sleep(2 * time.Second)
+			
+			rootLogger.Infof("Starting initial client sync with registry...")
+			getAllClients := func() []string {
+				return clientHandler.Service.GetConnectedClientIDs()
+			}
+			
+			syncCtx, syncCancel := context.WithTimeout(context.Background(), 60*time.Second)
+			if err := registryClient.SyncAllClientsWithRegistry(syncCtx, getAllClients); err != nil {
+				rootLogger.Errorf("Failed to sync existing clients with registry: %v", err)
+			} else {
+				rootLogger.Infof("Initial client sync completed successfully")
+			}
+			syncCancel()
+		}()
 
 		// Start health monitor for registry connection recovery
 		registryClient.StartHealthMonitor(func() []string {

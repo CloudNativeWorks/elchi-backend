@@ -58,6 +58,7 @@ var AllowedEndpoints = []string{
 	"/api/v3/bridge/snapshot_details",
 	"/api/v3/scenario/scenario_list",
 	"/api/v3/scenario/scenario",
+	"/api/v3/registry/data",
 	"/api/op/clients",
 	"/api/op/clients/:client_id",
 	"/api/op/services",

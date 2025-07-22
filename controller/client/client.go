@@ -15,7 +15,6 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/controller/client/handlers"
 	"github.com/CloudNativeWorks/elchi-backend/controller/client/services"
 	"github.com/CloudNativeWorks/elchi-backend/controller/crud/xds"
-	"github.com/CloudNativeWorks/elchi-backend/controller/forward"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/config"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
@@ -33,22 +32,16 @@ type AppHandler struct {
 	Logger         *logger.Logger
 	XDSHandler     *xds.AppHandler
 	RegistryClient *registry.RegistryClient
-	ForwardClient  *forward.ForwardClient
-	ForwardHandler *forward.ForwardHandler
 }
 
 func NewClientHandler(context *db.AppContext, xdsHandler *xds.AppHandler) *AppHandler {
 	clientService := services.NewClientService(context)
-	forwardClient := forward.NewForwardClient()
-	forwardHandler := forward.NewForwardHandler(clientService)
 	
 	return &AppHandler{
-		Service:        clientService,
-		Handler:        handlers.NewClientHandler(context, xdsHandler, clientService),
-		Logger:         logger.NewLogger("controller/client"),
-		XDSHandler:     xdsHandler,
-		ForwardClient:  forwardClient,
-		ForwardHandler: forwardHandler,
+		Service:    clientService,
+		Handler:    handlers.NewClientHandler(context, xdsHandler, clientService),
+		Logger:     logger.NewLogger("controller/client"),
+		XDSHandler: xdsHandler,
 	}
 }
 
@@ -56,7 +49,6 @@ func NewClientHandler(context *db.AppContext, xdsHandler *xds.AppHandler) *AppHa
 func (h *AppHandler) SetRegistryClient(client *registry.RegistryClient) {
 	h.RegistryClient = client
 	h.Service.SetRegistryClient(client)
-	h.Handler.SetForwardClient(h.ForwardClient, client) // Forward client'ı handler'a da geç
 }
 
 func (h *AppHandler) Start(appConfig *config.AppConfig) {
@@ -73,8 +65,8 @@ func (h *AppHandler) Start(appConfig *config.AppConfig) {
 			Timeout:           10 * time.Second, // Health check timeout
 		}),
 		grpclib.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
-			MinTime:             5 * time.Second, // Minimum ping interval
-			PermitWithoutStream: true,            // Allow ping without stream
+			MinTime:             30 * time.Second, // Minimum ping interval (5s -> 30s)
+			PermitWithoutStream: false,            // Allow ping without stream (true -> false)
 		}),
 		// Connection management settings
 		grpclib.MaxConcurrentStreams(1000),             // Maximum concurrent streams
@@ -87,9 +79,8 @@ func (h *AppHandler) Start(appConfig *config.AppConfig) {
 
 	grpcServer := grpclib.NewServer(opts...)
 	
-	// Register both services
+	// Register command service
 	pb.RegisterCommandServiceServer(grpcServer, grpc.NewServer(h.Service, appConfig))
-	pb.RegisterControllerServiceServer(grpcServer, grpc.NewControllerServer(h.ForwardHandler))
 
 	// Wait group for graceful shutdown
 	wg := sync.WaitGroup{}
@@ -98,7 +89,7 @@ func (h *AppHandler) Start(appConfig *config.AppConfig) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		h.Logger.Infof("gRPC server started: %s", grpcPort)
+		h.Logger.Infof("controller gRPC server started: %s", grpcPort)
 		if err := grpcServer.Serve(lis); err != nil {
 			h.Logger.Errorf("gRPC server error: %v", err)
 		}
@@ -119,7 +110,6 @@ func (h *AppHandler) Start(appConfig *config.AppConfig) {
 
 		// Clean up all connections
 		h.Service.DisconnectAllClients()
-		h.ForwardClient.Close()
 	}()
 
 	// Wait maximum 3 seconds

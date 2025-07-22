@@ -5,7 +5,6 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/controller/client/responser"
 	"github.com/CloudNativeWorks/elchi-backend/controller/client/services"
 	"github.com/CloudNativeWorks/elchi-backend/controller/crud/xds"
-	"github.com/CloudNativeWorks/elchi-backend/controller/forward"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/registry"
@@ -17,7 +16,6 @@ type Client struct {
 	logger         *logger.Logger
 	cmdFactory     *processor.CommandProcessorFactory
 	responser      *responser.CommandResponserFactory
-	forwardClient  *forward.ForwardClient
 	registryClient *registry.RegistryClient
 }
 
@@ -59,8 +57,7 @@ func NewClientHandler(context *db.AppContext, xdsHandler *xds.AppHandler, client
 	return h
 }
 
-// SetForwardClient sets the forward client and registry client for command forwarding
-func (h *Client) SetForwardClient(forwardClient *forward.ForwardClient, registryClient *registry.RegistryClient) {
-	h.forwardClient = forwardClient
+// SetRegistryClient sets the registry client for command routing
+func (h *Client) SetRegistryClient(registryClient *registry.RegistryClient) {
 	h.registryClient = registryClient
 }

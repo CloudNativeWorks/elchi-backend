@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"math"
 	"math/rand"
 	"time"
 
@@ -246,4 +247,111 @@ func (s *RoutingService) CleanupStaleData(ctx context.Context, maxAge time.Durat
 	}
 
 	return nil
+}
+
+// ListAllData returns all control plane and node data for reporting
+func (s *RoutingService) ListAllData(ctx context.Context) (*models.RegistryData, error) {
+	s.logger.Infof("Listing all registry data (control planes and nodes)")
+
+	// Get all control planes
+	controlPlanes, err := s.storage.ListControlPlanes(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list control planes: %w", err)
+	}
+
+	// Get node mappings for each control plane
+	var nodesByControlPlane = make(map[string][]*models.NodeInfo)
+	for _, cp := range controlPlanes {
+		nodes, err := s.storage.GetNodesByControlPlane(ctx, cp.ID)
+		if err != nil {
+			s.logger.Warnf("Failed to get nodes for control plane %s: %v", cp.ID, err)
+			continue
+		}
+		nodesByControlPlane[cp.ID] = nodes
+	}
+
+	data := &models.RegistryData{
+		ControlPlanes:        controlPlanes,
+		NodesByControlPlane:  nodesByControlPlane,
+	}
+
+	s.logger.Infof("Retrieved %d control planes with total node data", len(controlPlanes))
+	return data, nil
+}
+
+// ListControlPlanes returns all registered control planes
+func (s *RoutingService) ListControlPlanes(ctx context.Context) ([]*models.ControlPlane, error) {
+	s.logger.Infof("Listing all control planes")
+
+	controlPlanes, err := s.storage.ListControlPlanes(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list control planes: %w", err)
+	}
+
+	s.logger.Infof("Found %d control planes", len(controlPlanes))
+	return controlPlanes, nil
+}
+
+// ListNodesByControlPlane returns all nodes for a specific control plane
+func (s *RoutingService) ListNodesByControlPlane(ctx context.Context, controlPlaneID string) ([]*models.NodeInfo, error) {
+	s.logger.Infof("Listing nodes for control plane: %s", controlPlaneID)
+
+	if controlPlaneID == "" {
+		return nil, fmt.Errorf("control plane ID cannot be empty")
+	}
+
+	nodes, err := s.storage.GetNodesByControlPlane(ctx, controlPlaneID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get nodes for control plane %s: %w", controlPlaneID, err)
+	}
+
+	s.logger.Infof("Found %d nodes for control plane %s", len(nodes), controlPlaneID)
+	return nodes, nil
+} 
+
+// GetLeastLoadedControlPlane returns the control plane with the least number of nodes
+func (s *RoutingService) GetLeastLoadedControlPlane(ctx context.Context, version string) (*models.ControlPlane, error) {
+	s.logger.Infof("Finding least loaded control plane for version: %s", version)
+
+	// Get all control planes
+	controlPlanes, err := s.storage.ListControlPlanes(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list control planes: %w", err)
+	}
+
+	if len(controlPlanes) == 0 {
+		return nil, fmt.Errorf("no control planes available")
+	}
+
+	// Find control plane with least nodes
+	var selectedControlPlane *models.ControlPlane
+	minNodes := math.MaxInt32
+
+	for _, controlPlane := range controlPlanes {
+		// Skip control planes with different version if version is specified
+		if version != "" && controlPlane.Version != version {
+			continue
+		}
+
+		nodes, err := s.storage.GetNodesByControlPlane(ctx, controlPlane.ID)
+		if err != nil {
+			s.logger.Warnf("Failed to get nodes for control plane %s: %v", controlPlane.ID, err)
+			continue
+		}
+
+		if len(nodes) < minNodes {
+			minNodes = len(nodes)
+			selectedControlPlane = controlPlane
+		}
+	}
+
+	if selectedControlPlane == nil {
+		if version != "" {
+			return nil, fmt.Errorf("no control planes available for version %s", version)
+		}
+		return nil, fmt.Errorf("no control planes available")
+	}
+
+	s.logger.Infof("Selected control plane %s with %d nodes", selectedControlPlane.ID, minNodes)
+	return selectedControlPlane, nil
 } 

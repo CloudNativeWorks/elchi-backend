@@ -204,3 +204,15 @@ func initRoutes(rg *gin.RouterGroup, routes []struct {
 		}
 	}
 }
+
+func initRegistryRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
+	routes := []struct {
+		method  string
+		path    string
+		handler gin.HandlerFunc
+	}{
+		{"GET", "/data", h.GetRegistryData},
+	}
+
+	initRoutes(rg, routes)
+}

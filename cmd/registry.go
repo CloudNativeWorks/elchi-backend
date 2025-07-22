@@ -55,15 +55,15 @@ var registryCmd = &cobra.Command{
 
 		// Initialize in-memory storage
 		rootLogger.Info("Initializing in-memory storage...")
-		storageInstance := storage.NewInMemoryStorage()
-		routingStorageInstance := storage.NewInMemoryRoutingStorage()
+		controllerStorage := storage.NewInMemoryStorage()                    // For controller routing
+		controlPlaneStorage := storage.NewInMemoryRoutingStorage()           // For control-plane routing
 
 		// Initialize services
-		rootLogger.Info("Initializing registry service...")
-		registryService := service.NewRegistryService(storageInstance, rootLogger)
+		rootLogger.Info("Initializing controller routing service...")
+		controllerRoutingService := service.NewControllerRoutingService(controllerStorage, rootLogger)
 
-		rootLogger.Info("Initializing routing service...")
-		routingService := service.NewRoutingService(routingStorageInstance, rootLogger)
+		rootLogger.Info("Initializing control-plane routing service...")
+		controlPlaneRoutingService := service.NewRoutingService(controlPlaneStorage, rootLogger)
 
 		// Start cleanup goroutine for stale data (every 10 minutes)
 		go func() {
@@ -71,18 +71,25 @@ var registryCmd = &cobra.Command{
 			defer ticker.Stop()
 
 			for range ticker.C {
-				// Clean up data that hasn't been updated for 2 minutes
-				if err := routingService.CleanupStaleData(context.Background(), 2*time.Minute); err != nil {
-					rootLogger.WithError(err).Error("Routing cleanup failed")
+				// Clean up control-plane data that hasn't been updated for 2 minutes
+				if err := controlPlaneRoutingService.CleanupStaleData(context.Background(), 2*time.Minute); err != nil {
+					rootLogger.WithError(err).Error("Control-plane routing cleanup failed")
 				} else {
-					rootLogger.Debug("Routing stale data cleanup completed")
+					rootLogger.Debug("Control-plane stale data cleanup completed")
+				}
+
+				// Clean up controller data that hasn't been updated for 2 minutes
+				if err := controllerRoutingService.CleanupStaleData(context.Background(), 2*time.Minute); err != nil {
+					rootLogger.WithError(err).Error("Controller routing cleanup failed")
+				} else {
+					rootLogger.Debug("Controller stale data cleanup completed")
 				}
 			}
 		}()
 
 		// Start gRPC server
 		rootLogger.WithField("address", fullAddress).Info("Starting gRPC server")
-		if err := server.StartGRPCServer(fullAddress, registryService, routingService, rootLogger); err != nil {
+		if err := server.StartGRPCServer(fullAddress, controllerRoutingService, controlPlaneRoutingService, rootLogger); err != nil {
 			rootLogger.WithError(err).Fatal("gRPC server error")
 		}
 	},

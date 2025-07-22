@@ -70,7 +70,7 @@ func (s *ClientService) RemovePendingResponse(commandID string) {
 // notifyRegistryClientConnect notifies registry about client connection
 func (s *ClientService) notifyRegistryClientConnect(clientID string) {
 	if s.registryClient != nil {
-		if err := s.registryClient.SetClientLocation(clientID); err != nil {
+		if err := s.registryClient.NotifyClientConnected(clientID); err != nil {
 			s.logger.Errorf("Failed to notify registry about client connection %s: %v", clientID, err)
 		}
 	}
@@ -108,14 +108,12 @@ func (s *ClientService) RegisterClient(req *pb.RegisterRequest) (*client.ClientI
 	s.clientsMux.Lock()
 	defer s.clientsMux.Unlock()
 
-	// Settings collection'dan token'ı al
 	var settings models.Settings
 	err := s.Context.Client.Collection("settings").FindOne(context.Background(), bson.M{}).Decode(&settings)
 	if err != nil {
 		return nil, "", fmt.Errorf("settings token could not be retrieved: %v", err)
 	}
 
-	// Token kontrolü
 	tokenValid := false
 	for _, t := range settings.Tokens {
 		if t.Token == req.GetToken() {
@@ -159,8 +157,8 @@ func (s *ClientService) UnregisterClient(clientID string) error {
 	delete(s.clients, clientID)
 	s.logger.Debugf("Client unregistered: %s", clientID)
 	
-	// Note: Registry'den silme işlemi yapmıyoruz çünkü client başka controller'a bağlanabilir
-	// Registry kendi cleanup mekanizmasına sahip olmalı
+	// Notify registry about client disconnection
+	s.notifyRegistryClientDisconnect(clientID)
 	
 	return nil
 }
@@ -362,6 +360,18 @@ func (s *ClientService) DisconnectClient(clientID string) {
 		if err != nil {
 			s.logger.Errorf("Client disconnect DB update failed: %v", err)
 		}
+
+		// Notify registry about client disconnection
+		s.notifyRegistryClientDisconnect(clientID)
+	}
+}
+
+// notifyRegistryClientDisconnect notifies registry about client disconnection
+func (s *ClientService) notifyRegistryClientDisconnect(clientID string) {
+	if s.registryClient != nil {
+		if err := s.registryClient.NotifyClientDisconnected(clientID); err != nil {
+			s.logger.Errorf("Failed to notify registry about client disconnection %s: %v", clientID, err)
+		}
 	}
 }
 
@@ -386,6 +396,17 @@ func (s *ClientService) DisconnectAllClients() {
 	}
 	s.pendingMux.Unlock()
 }
+// IsClientConnected checks if a client is connected to this controller
+func (s *ClientService) IsClientConnected(clientID string) bool {
+	s.clientsMux.RLock()
+	defer s.clientsMux.RUnlock()
+
+	if client, exists := s.clients[clientID]; exists {
+		return client.IsConnected()
+	}
+	return false
+}
+
 // GetConnectedClientIDs returns all currently connected client IDs
 func (s *ClientService) GetConnectedClientIDs() []string {
 	s.clientsMux.RLock()

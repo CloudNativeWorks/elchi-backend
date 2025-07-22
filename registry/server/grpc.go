@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CloudNativeWorks/elchi-backend/pkg/helper"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/registry/models"
 	"github.com/CloudNativeWorks/elchi-backend/registry/service"
@@ -15,6 +16,7 @@ import (
 	ext "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/service/ext_proc/v3"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
@@ -23,209 +25,301 @@ import (
 // Constants for header keys
 const (
 	HeaderNodeID         = "nodeid"
+	HeaderClientID       = "clientid"
 	HeaderVersion        = "envoy-version"
 	HeaderTargetCluster  = "x-target-cluster"
 	HeaderRoutingService = "x-routing-service"
+	HeaderPath           = ":path"
+	HeaderMethod         = ":method"
+	HeaderContentType    = "content-type"
+	HeaderGRPCAccept     = "accept"
 )
 
-// RegistryGRPCServer implements the gRPC registry service
-type RegistryGRPCServer struct {
-	pb.UnimplementedControllerServiceServer
-	registryService *service.RegistryService
-	logger          *logger.Logger
+// ExcludedPaths contains paths that should bypass routing
+var ExcludedPaths = []string{
+	"/healthz",
+	"/ready",
+	"/metrics",
+	"/favicon.ico",
+	"/api/v1/metrics",
+	"/api/v1/health",
+	"/opentelemetry.proto.collector.metrics.v1.MetricsService/Export",
 }
 
-// NewRegistryGRPCServer creates a new gRPC server instance
-func NewRegistryGRPCServer(registryService *service.RegistryService, logger *logger.Logger) *RegistryGRPCServer {
-	return &RegistryGRPCServer{
-		registryService: registryService,
-		logger:          logger,
+// ControllerGRPCServer implements the gRPC controller routing service
+type ControllerGRPCServer struct {
+	pb.UnimplementedControllerRoutingServiceServer
+	controllerRoutingService *service.ControllerRoutingService
+	logger                   *logger.Logger
+}
+
+// NewControllerGRPCServer creates a new gRPC server instance for controller routing
+func NewControllerGRPCServer(controllerRoutingService *service.ControllerRoutingService, logger *logger.Logger) *ControllerGRPCServer {
+	return &ControllerGRPCServer{
+		controllerRoutingService: controllerRoutingService,
+		logger:                   logger,
 	}
 }
 
 // RegisterController handles controller registration
-func (s *RegistryGRPCServer) RegisterController(ctx context.Context, req *pb.ControllerInfo) (*pb.ControllerResponse, error) {
+func (s *ControllerGRPCServer) RegisterController(ctx context.Context, req *pb.RegisterControllerRequest) (*pb.RegisterControllerResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request cannot be nil")
 	}
 
+	serviceName := helper.ToK8sServiceName(req.ControllerId, "elchi-stack")
+
 	// Convert proto to internal model
 	controllerInfo := &models.ControllerInfo{
 		ID:          req.ControllerId,
-		GRPCAddress: req.GrpcAddress,
+		Version:     req.Version,
+		HttpAddress: fmt.Sprintf("%s:8099", serviceName),
+		LastSeen:    time.Now(),
 	}
 
-	if err := s.registryService.RegisterController(ctx, controllerInfo); err != nil {
+	if err := s.controllerRoutingService.RegisterController(ctx, controllerInfo); err != nil {
 		s.logger.Errorf("Failed to register controller %s: %v", req.ControllerId, err)
-		return &pb.ControllerResponse{
-			Success: "failed: " + err.Error(),
+		return &pb.RegisterControllerResponse{
+			Success: false,
+			Message: "failed: " + err.Error(),
 		}, nil
 	}
 
-	s.logger.Infof("Controller registered successfully: %s", req.ControllerId)
-	return &pb.ControllerResponse{
-		Success: "controller registered successfully",
+	s.logger.Infof("Controller registered successfully: %s version %s", req.ControllerId, req.Version)
+	return &pb.RegisterControllerResponse{
+		Success: true,
+		Message: "controller registered successfully",
 	}, nil
 }
 
-// GetClientLocation handles client location queries
-func (s *RegistryGRPCServer) GetClientLocation(ctx context.Context, req *pb.ClientLocationRequest) (*pb.ClientLocationResponse, error) {
-	if req == nil || req.ClientId == "" {
-		return nil, status.Error(codes.InvalidArgument, "client ID cannot be empty")
+// GetControllerCluster handles controller cluster routing requests
+func (s *ControllerGRPCServer) GetControllerCluster(ctx context.Context, req *pb.GetControllerClusterRequest) (*pb.GetControllerClusterResponse, error) {
+	if req == nil || req.ClientId == "" || req.Version == "" {
+		return nil, status.Error(codes.InvalidArgument, "client ID and version cannot be empty")
 	}
 
-	location, err := s.registryService.GetClientLocation(ctx, req.ClientId)
+	controller, err := s.controllerRoutingService.GetControllerCluster(ctx, req.ClientId, req.Version)
 	if err != nil {
-		s.logger.Debugf("Client location not found: %s", req.ClientId)
-		return &pb.ClientLocationResponse{
+		s.logger.Errorf("Failed to find controller for client %s version %s: %v", req.ClientId, req.Version, err)
+		return &pb.GetControllerClusterResponse{
 			Found: false,
 		}, nil
 	}
 
-	// Get controller GRPC address
-	controller, err := s.registryService.GetController(ctx, location.ControllerID)
-	if err != nil {
-		s.logger.Errorf("Controller not found for client %s: %v", req.ClientId, err)
-		return &pb.ClientLocationResponse{
-			Found: false,
-		}, nil
-	}
-
-	return &pb.ClientLocationResponse{
-		Found:          true,
-		ControllerId:   location.ControllerID,
-		ControllerFqdn: controller.GRPCAddress,
+	s.logger.Infof("Controller routing decision: %s:%s -> %s", req.ClientId, req.Version, controller.ID)
+	return &pb.GetControllerClusterResponse{
+		Found:        true,
+		ControllerId: controller.ID,
 	}, nil
 }
 
-// SetClientLocation handles setting client location
-func (s *RegistryGRPCServer) SetClientLocation(ctx context.Context, req *pb.SetClientLocationRequest) (*pb.SetClientLocationResponse, error) {
-	if req == nil || req.ClientId == "" || req.ControllerId == "" {
-		return nil, status.Error(codes.InvalidArgument, "client ID and controller ID cannot be empty")
+// NotifyClientConnected handles client connection notifications
+func (s *ControllerGRPCServer) NotifyClientConnected(ctx context.Context, req *pb.NotifyClientConnectedRequest) (*pb.NotifyClientConnectedResponse, error) {
+	if req == nil || req.ControllerId == "" || req.ClientId == "" || req.Version == "" {
+		return nil, status.Error(codes.InvalidArgument, "controller ID, client ID and version cannot be empty")
 	}
 
-	if err := s.registryService.SetClientLocation(ctx, req.ClientId, req.ControllerId); err != nil {
-		s.logger.Errorf("Failed to set client location for %s: %v", req.ClientId, err)
-		return &pb.SetClientLocationResponse{
-			Success: "failed: " + err.Error(),
+	if err := s.controllerRoutingService.NotifyClientConnected(ctx, req.ControllerId, req.ClientId, req.Version); err != nil {
+		s.logger.Errorf("Failed to notify client connected: %v", err)
+		return &pb.NotifyClientConnectedResponse{
+			Success: false,
+			Message: "failed: " + err.Error(),
 		}, nil
 	}
 
-	s.logger.Infof("Client location set: %s -> %s", req.ClientId, req.ControllerId)
-	return &pb.SetClientLocationResponse{
-		Success: "client location set successfully",
+	s.logger.Infof("Client connected notification processed: %s -> %s (version: %s)", req.ControllerId, req.ClientId, req.Version)
+	return &pb.NotifyClientConnectedResponse{
+		Success: true,
+		Message: "client connected notification processed",
 	}, nil
 }
 
-// RequestClientRefresh asks a controller to refresh its client list
-func (s *RegistryGRPCServer) RequestClientRefresh(ctx context.Context, req *pb.ClientRefreshRequest) (*pb.ClientRefreshResponse, error) {
+// NotifyClientDisconnected handles client disconnection notifications
+func (s *ControllerGRPCServer) NotifyClientDisconnected(ctx context.Context, req *pb.NotifyClientDisconnectedRequest) (*pb.NotifyClientDisconnectedResponse, error) {
+	if req == nil || req.ControllerId == "" || req.ClientId == "" || req.Version == "" {
+		return nil, status.Error(codes.InvalidArgument, "controller ID, client ID and version cannot be empty")
+	}
+
+	if err := s.controllerRoutingService.NotifyClientDisconnected(ctx, req.ControllerId, req.ClientId, req.Version); err != nil {
+		s.logger.Errorf("Failed to notify client disconnected: %v", err)
+		return &pb.NotifyClientDisconnectedResponse{
+			Success: false,
+			Message: "failed: " + err.Error(),
+		}, nil
+	}
+
+	s.logger.Infof("Client disconnected notification processed: %s -> %s (version: %s)", req.ControllerId, req.ClientId, req.Version)
+	return &pb.NotifyClientDisconnectedResponse{
+		Success: true,
+		Message: "client disconnected notification processed",
+	}, nil
+}
+
+// UpdateClientList handles bulk client list updates
+func (s *ControllerGRPCServer) UpdateClientList(ctx context.Context, req *pb.UpdateClientListRequest) (*pb.UpdateClientListResponse, error) {
 	if req == nil || req.ControllerId == "" {
 		return nil, status.Error(codes.InvalidArgument, "controller ID cannot be empty")
 	}
 
-	// Verify controller exists
-	controller, err := s.registryService.GetController(ctx, req.ControllerId)
-	if err != nil {
-		s.logger.Errorf("Controller not found for refresh request: %s", req.ControllerId)
-		return &pb.ClientRefreshResponse{
-			Success:     "failed: controller not found",
-			ClientCount: 0,
-		}, nil
+	// Convert proto clients to internal models
+	var clients []*models.ClientInfo
+	for _, client := range req.Clients {
+		clients = append(clients, &models.ClientInfo{
+			ClientID: client.ClientId,
+			Version:  client.Version,
+			LastSeen: time.Now(),
+		})
 	}
 
-	// TODO: This would actually call the controller to refresh its clients
-	// For now, just log and return success
-	s.logger.Infof("Client refresh requested for controller %s at %s", controller.ID, controller.GRPCAddress)
-
-	return &pb.ClientRefreshResponse{
-		Success:     "refresh request sent",
-		ClientCount: 0, // Will be updated when controller responds
-	}, nil
-}
-
-// IsControllerRegistered checks if a controller is registered
-func (s *RegistryGRPCServer) IsControllerRegistered(ctx context.Context, req *pb.IsControllerRegisteredRequest) (*pb.IsControllerRegisteredResponse, error) {
-	if req == nil || req.ControllerId == "" {
-		return nil, status.Error(codes.InvalidArgument, "controller ID cannot be empty")
-	}
-
-	// Check if controller exists
-	_, err := s.registryService.GetController(ctx, req.ControllerId)
-	if err != nil {
-		s.logger.Debugf("Controller registration check failed: %s", req.ControllerId)
-		return &pb.IsControllerRegisteredResponse{
-			Registered: false,
-		}, nil
-	}
-
-	return &pb.IsControllerRegisteredResponse{
-		Registered: true,
-	}, nil
-}
-
-// BulkSetClientLocations sets multiple client locations efficiently
-func (s *RegistryGRPCServer) BulkSetClientLocations(ctx context.Context, req *pb.BulkSetClientLocationsRequest) (*pb.BulkSetClientLocationsResponse, error) {
-	if req == nil || req.ControllerId == "" {
-		return nil, status.Error(codes.InvalidArgument, "controller ID cannot be empty")
-	}
-
-	if len(req.ClientIds) == 0 {
-		return &pb.BulkSetClientLocationsResponse{
-			Success:      true,
-			Error:        "",
-			UpdatedCount: 0,
-		}, nil
-	}
-
-	// Verify controller exists
-	_, err := s.registryService.GetController(ctx, req.ControllerId)
-	if err != nil {
-		s.logger.Errorf("Controller not found for bulk client update: %s", req.ControllerId)
-		return &pb.BulkSetClientLocationsResponse{
+	if err := s.controllerRoutingService.UpdateClientList(ctx, req.ControllerId, clients); err != nil {
+		s.logger.Errorf("Failed to update client list for controller %s: %v", req.ControllerId, err)
+		return &pb.UpdateClientListResponse{
 			Success:      false,
-			Error:        "controller not found",
+			Message:      "failed: " + err.Error(),
 			UpdatedCount: 0,
 		}, nil
 	}
 
-	// Set each client location
-	successCount := int32(0)
-	for _, clientID := range req.ClientIds {
-		if err := s.registryService.SetClientLocation(ctx, clientID, req.ControllerId); err != nil {
-			s.logger.Errorf("Failed to set location for client %s: %v", clientID, err)
-			// Continue with other clients, don't fail completely
-		} else {
-			successCount++
+	s.logger.Infof("Client list updated for controller %s: %d clients", req.ControllerId, len(clients))
+	return &pb.UpdateClientListResponse{
+		Success:      true,
+		Message:      "client list updated successfully",
+		UpdatedCount: int32(len(clients)),
+	}, nil
+}
+
+// HealthCheck handles health check requests
+func (s *ControllerGRPCServer) HealthCheck(ctx context.Context, req *pb.ControllerHealthCheckRequest) (*pb.ControllerHealthCheckResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request cannot be nil")
+	}
+
+	s.logger.Debugf("Controller health check request from: %s", req.Service)
+
+	return &pb.ControllerHealthCheckResponse{
+		Healthy:   true,
+		Message:   "controller routing service is healthy",
+		Timestamp: timestamppb.New(time.Now()),
+	}, nil
+}
+
+// ListControllers handles list controllers requests
+func (s *ControllerGRPCServer) ListControllers(ctx context.Context, req *pb.ListControllersRequest) (*pb.ListControllersResponse, error) {
+	s.logger.Infof("Listing all controllers")
+
+	controllers, err := s.controllerRoutingService.ListControllers(ctx)
+	if err != nil {
+		s.logger.Errorf("Failed to list controllers: %v", err)
+		return nil, status.Errorf(codes.Internal, "failed to list controllers: %v", err)
+	}
+
+	var protoControllers []*pb.ControllerInfo
+	for _, ctrl := range controllers {
+		protoControllers = append(protoControllers, &pb.ControllerInfo{
+			ControllerId: ctrl.ID,
+			Version:      ctrl.Version,
+			HttpAddress:  ctrl.HttpAddress,
+			LastSeen:     timestamppb.New(ctrl.LastSeen),
+		})
+	}
+
+	s.logger.Infof("Found %d controllers", len(protoControllers))
+	return &pb.ListControllersResponse{
+		Controllers: protoControllers,
+	}, nil
+}
+
+// ListClientsByController handles list clients by controller requests
+func (s *ControllerGRPCServer) ListClientsByController(ctx context.Context, req *pb.ListClientsByControllerRequest) (*pb.ListClientsByControllerResponse, error) {
+	if req == nil || req.ControllerId == "" {
+		return nil, status.Error(codes.InvalidArgument, "controller ID cannot be empty")
+	}
+
+	s.logger.Infof("Listing clients for controller: %s", req.ControllerId)
+
+	clients, err := s.controllerRoutingService.ListClientsByController(ctx, req.ControllerId)
+	if err != nil {
+		s.logger.Errorf("Failed to get clients for controller %s: %v", req.ControllerId, err)
+		return nil, status.Errorf(codes.Internal, "failed to get clients: %v", err)
+	}
+
+	var protoClients []*pb.ClientInfo
+	for _, client := range clients {
+		protoClients = append(protoClients, &pb.ClientInfo{
+			ClientId: client.ClientID,
+			Version:  client.Version,
+			LastSeen: timestamppb.New(client.LastSeen),
+		})
+	}
+
+	s.logger.Infof("Found %d clients for controller %s", len(protoClients), req.ControllerId)
+	return &pb.ListClientsByControllerResponse{
+		Clients: protoClients,
+	}, nil
+}
+
+// GetAllRegistryData handles get all controller registry data requests
+func (s *ControllerGRPCServer) GetAllRegistryData(ctx context.Context, req *pb.GetAllControllerRegistryDataRequest) (*pb.GetAllControllerRegistryDataResponse, error) {
+	s.logger.Infof("Getting all controller registry data")
+
+	data, err := s.controllerRoutingService.ListAllData(ctx)
+	if err != nil {
+		s.logger.Errorf("Failed to get all controller registry data: %v", err)
+		return nil, status.Errorf(codes.Internal, "failed to get registry data: %v", err)
+	}
+
+	// Convert to proto
+	var protoControllers []*pb.ControllerInfo
+	for _, ctrl := range data.Controllers {
+		protoControllers = append(protoControllers, &pb.ControllerInfo{
+			ControllerId: ctrl.ID,
+			Version:      ctrl.Version,
+			HttpAddress:  ctrl.HttpAddress,
+			LastSeen:     timestamppb.New(ctrl.LastSeen),
+		})
+	}
+
+	clientsByController := make(map[string]*pb.ClientsData)
+	for controllerID, clients := range data.ClientsByController {
+		var protoClients []*pb.ClientInfo
+		for _, client := range clients {
+			protoClients = append(protoClients, &pb.ClientInfo{
+				ClientId: client.ClientID,
+				Version:  client.Version,
+				LastSeen: timestamppb.New(client.LastSeen),
+			})
+		}
+		clientsByController[controllerID] = &pb.ClientsData{
+			Clients: protoClients,
 		}
 	}
 
-	s.logger.Infof("Bulk client location update: %d/%d clients updated for controller %s",
-		successCount, len(req.ClientIds), req.ControllerId)
-
-	return &pb.BulkSetClientLocationsResponse{
-		Success:      true,
-		Error:        "",
-		UpdatedCount: successCount,
+	s.logger.Infof("Returning registry data: %d controllers, %d controller-client mappings", len(protoControllers), len(clientsByController))
+	return &pb.GetAllControllerRegistryDataResponse{
+		Data: &pb.ControllerRegistryData{
+			Controllers:         protoControllers,
+			ClientsByController: clientsByController,
+		},
 	}, nil
 }
 
-// RoutingGRPCServer implements the gRPC routing service
-type RoutingGRPCServer struct {
-	pb.UnimplementedEnvoyRoutingServiceServer
-	routingService *service.RoutingService
-	logger         *logger.Logger
+// ControlPlaneGRPCServer implements the gRPC control-plane routing service
+type ControlPlaneGRPCServer struct {
+	pb.UnimplementedEnvoyRoutingServiceServer // Using legacy proto for now
+	controlPlaneRoutingService                *service.RoutingService
+	logger                                    *logger.Logger
 }
 
-// NewRoutingGRPCServer creates a new gRPC routing server instance
-func NewRoutingGRPCServer(routingService *service.RoutingService, logger *logger.Logger) *RoutingGRPCServer {
-	return &RoutingGRPCServer{
-		routingService: routingService,
-		logger:         logger,
+// NewControlPlaneGRPCServer creates a new gRPC routing server instance
+func NewControlPlaneGRPCServer(controlPlaneRoutingService *service.RoutingService, logger *logger.Logger) *ControlPlaneGRPCServer {
+	return &ControlPlaneGRPCServer{
+		controlPlaneRoutingService: controlPlaneRoutingService,
+		logger:                     logger,
 	}
 }
 
 // RegisterControlPlane handles control plane registration
-func (s *RoutingGRPCServer) RegisterControlPlane(ctx context.Context, req *pb.RegisterControlPlaneRequest) (*pb.RegisterControlPlaneResponse, error) {
+func (s *ControlPlaneGRPCServer) RegisterControlPlane(ctx context.Context, req *pb.RegisterControlPlaneRequest) (*pb.RegisterControlPlaneResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request cannot be nil")
 	}
@@ -237,7 +331,7 @@ func (s *RoutingGRPCServer) RegisterControlPlane(ctx context.Context, req *pb.Re
 		LastSeen: time.Now(),
 	}
 
-	if err := s.routingService.RegisterControlPlane(ctx, controlPlane); err != nil {
+	if err := s.controlPlaneRoutingService.RegisterControlPlane(ctx, controlPlane); err != nil {
 		s.logger.Errorf("Failed to register control plane %s: %v", req.ControlPlaneId, err)
 		return &pb.RegisterControlPlaneResponse{
 			Success: false,
@@ -253,12 +347,12 @@ func (s *RoutingGRPCServer) RegisterControlPlane(ctx context.Context, req *pb.Re
 }
 
 // GetControlPlaneCluster handles routing requests from Envoy
-func (s *RoutingGRPCServer) GetControlPlaneCluster(ctx context.Context, req *pb.GetControlPlaneClusterRequest) (*pb.GetControlPlaneClusterResponse, error) {
+func (s *ControlPlaneGRPCServer) GetControlPlaneCluster(ctx context.Context, req *pb.GetControlPlaneClusterRequest) (*pb.GetControlPlaneClusterResponse, error) {
 	if req == nil || req.NodeId == "" || req.Version == "" {
 		return nil, status.Error(codes.InvalidArgument, "node ID and version cannot be empty")
 	}
 
-	controlPlane, err := s.routingService.GetControlPlaneCluster(ctx, req.NodeId, req.Version)
+	controlPlane, err := s.controlPlaneRoutingService.GetControlPlaneCluster(ctx, req.NodeId, req.Version)
 	if err != nil {
 		s.logger.Errorf("Failed to find control plane for node %s version %s: %v", req.NodeId, req.Version, err)
 		return &pb.GetControlPlaneClusterResponse{
@@ -266,7 +360,7 @@ func (s *RoutingGRPCServer) GetControlPlaneCluster(ctx context.Context, req *pb.
 		}, nil
 	}
 
-	s.logger.Infof("Routing decision: %s:%s -> %s", req.NodeId, req.Version, controlPlane.ID)
+	s.logger.Infof("Control-plane routing decision: %s:%s -> %s", req.NodeId, req.Version, controlPlane.ID)
 	return &pb.GetControlPlaneClusterResponse{
 		Found:          true,
 		ControlPlaneId: controlPlane.ID,
@@ -274,12 +368,12 @@ func (s *RoutingGRPCServer) GetControlPlaneCluster(ctx context.Context, req *pb.
 }
 
 // NotifySnapshotDelivered handles snapshot delivery notifications
-func (s *RoutingGRPCServer) NotifySnapshotDelivered(ctx context.Context, req *pb.NotifySnapshotDeliveredRequest) (*pb.NotifySnapshotDeliveredResponse, error) {
+func (s *ControlPlaneGRPCServer) NotifySnapshotDelivered(ctx context.Context, req *pb.NotifySnapshotDeliveredRequest) (*pb.NotifySnapshotDeliveredResponse, error) {
 	if req == nil || req.ControlPlaneId == "" || req.NodeId == "" || req.Version == "" {
 		return nil, status.Error(codes.InvalidArgument, "control plane ID, node ID and version cannot be empty")
 	}
 
-	if err := s.routingService.NotifySnapshotDelivered(ctx, req.ControlPlaneId, req.NodeId, req.Version); err != nil {
+	if err := s.controlPlaneRoutingService.NotifySnapshotDelivered(ctx, req.ControlPlaneId, req.NodeId, req.Version); err != nil {
 		s.logger.Errorf("Failed to notify snapshot delivered: %v", err)
 		return &pb.NotifySnapshotDeliveredResponse{
 			Success: false,
@@ -295,7 +389,7 @@ func (s *RoutingGRPCServer) NotifySnapshotDelivered(ctx context.Context, req *pb
 }
 
 // UpdateNodeList handles bulk node list updates
-func (s *RoutingGRPCServer) UpdateNodeList(ctx context.Context, req *pb.UpdateNodeListRequest) (*pb.UpdateNodeListResponse, error) {
+func (s *ControlPlaneGRPCServer) UpdateNodeList(ctx context.Context, req *pb.UpdateNodeListRequest) (*pb.UpdateNodeListResponse, error) {
 	if req == nil || req.ControlPlaneId == "" {
 		return nil, status.Error(codes.InvalidArgument, "control plane ID cannot be empty")
 	}
@@ -310,7 +404,7 @@ func (s *RoutingGRPCServer) UpdateNodeList(ctx context.Context, req *pb.UpdateNo
 		})
 	}
 
-	if err := s.routingService.UpdateNodeList(ctx, req.ControlPlaneId, nodes); err != nil {
+	if err := s.controlPlaneRoutingService.UpdateNodeList(ctx, req.ControlPlaneId, nodes); err != nil {
 		s.logger.Errorf("Failed to update node list for control plane %s: %v", req.ControlPlaneId, err)
 		return &pb.UpdateNodeListResponse{
 			Success:      false,
@@ -328,7 +422,7 @@ func (s *RoutingGRPCServer) UpdateNodeList(ctx context.Context, req *pb.UpdateNo
 }
 
 // HealthCheck handles health check requests
-func (s *RoutingGRPCServer) HealthCheck(ctx context.Context, req *pb.HealthCheckRequest) (*pb.HealthCheckResponse, error) {
+func (s *ControlPlaneGRPCServer) HealthCheck(ctx context.Context, req *pb.HealthCheckRequest) (*pb.HealthCheckResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request cannot be nil")
 	}
@@ -337,35 +431,144 @@ func (s *RoutingGRPCServer) HealthCheck(ctx context.Context, req *pb.HealthCheck
 
 	return &pb.HealthCheckResponse{
 		Healthy:   true,
-		Message:   "routing service is healthy",
+		Message:   "control-plane routing service is healthy",
 		Timestamp: timestamppb.New(time.Now()),
+	}, nil
+}
+
+// ListControlPlanes handles list control planes requests
+func (s *ControlPlaneGRPCServer) ListControlPlanes(ctx context.Context, req *pb.ListControlPlanesRequest) (*pb.ListControlPlanesResponse, error) {
+	s.logger.Infof("Listing all control planes")
+
+	controlPlanes, err := s.controlPlaneRoutingService.ListControlPlanes(ctx)
+	if err != nil {
+		s.logger.Errorf("Failed to list control planes: %v", err)
+		return nil, status.Errorf(codes.Internal, "failed to list control planes: %v", err)
+	}
+
+	var protoControlPlanes []*pb.ControlPlaneInfo
+	for _, cp := range controlPlanes {
+		protoControlPlanes = append(protoControlPlanes, &pb.ControlPlaneInfo{
+			ControlPlaneId: cp.ID,
+			Version:        cp.Version,
+			LastSeen:       timestamppb.New(cp.LastSeen),
+		})
+	}
+
+	s.logger.Infof("Found %d control planes", len(protoControlPlanes))
+	return &pb.ListControlPlanesResponse{
+		ControlPlanes: protoControlPlanes,
+	}, nil
+}
+
+// ListNodesByControlPlane handles list nodes by control plane requests
+func (s *ControlPlaneGRPCServer) ListNodesByControlPlane(ctx context.Context, req *pb.ListNodesByControlPlaneRequest) (*pb.ListNodesByControlPlaneResponse, error) {
+	if req == nil || req.ControlPlaneId == "" {
+		return nil, status.Error(codes.InvalidArgument, "control plane ID cannot be empty")
+	}
+
+	s.logger.Infof("Listing nodes for control plane: %s", req.ControlPlaneId)
+
+	nodes, err := s.controlPlaneRoutingService.ListNodesByControlPlane(ctx, req.ControlPlaneId)
+	if err != nil {
+		s.logger.Errorf("Failed to get nodes for control plane %s: %v", req.ControlPlaneId, err)
+		return nil, status.Errorf(codes.Internal, "failed to get nodes: %v", err)
+	}
+
+	var protoNodes []*pb.NodeInfo
+	for _, node := range nodes {
+		protoNodes = append(protoNodes, &pb.NodeInfo{
+			NodeId:   node.NodeID,
+			Version:  node.Version,
+			LastSeen: timestamppb.New(node.LastSeen),
+		})
+	}
+
+	s.logger.Infof("Found %d nodes for control plane %s", len(protoNodes), req.ControlPlaneId)
+	return &pb.ListNodesByControlPlaneResponse{
+		Nodes: protoNodes,
+	}, nil
+}
+
+// GetAllRegistryData handles get all control plane registry data requests
+func (s *ControlPlaneGRPCServer) GetAllRegistryData(ctx context.Context, req *pb.GetAllRegistryDataRequest) (*pb.GetAllRegistryDataResponse, error) {
+	s.logger.Infof("Getting all control plane registry data")
+
+	data, err := s.controlPlaneRoutingService.ListAllData(ctx)
+	if err != nil {
+		s.logger.Errorf("Failed to get all control plane registry data: %v", err)
+		return nil, status.Errorf(codes.Internal, "failed to get registry data: %v", err)
+	}
+
+	// Convert to proto
+	var protoControlPlanes []*pb.ControlPlaneInfo
+	for _, cp := range data.ControlPlanes {
+		protoControlPlanes = append(protoControlPlanes, &pb.ControlPlaneInfo{
+			ControlPlaneId: cp.ID,
+			Version:        cp.Version,
+			LastSeen:       timestamppb.New(cp.LastSeen),
+		})
+	}
+
+	nodesByControlPlane := make(map[string]*pb.NodesData)
+	for controlPlaneID, nodes := range data.NodesByControlPlane {
+		var protoNodes []*pb.NodeInfo
+		for _, node := range nodes {
+			protoNodes = append(protoNodes, &pb.NodeInfo{
+				NodeId:   node.NodeID,
+				Version:  node.Version,
+				LastSeen: timestamppb.New(node.LastSeen),
+			})
+		}
+		nodesByControlPlane[controlPlaneID] = &pb.NodesData{
+			Nodes: protoNodes,
+		}
+	}
+
+	s.logger.Infof("Returning registry data: %d control planes, %d control-plane-node mappings", len(protoControlPlanes), len(nodesByControlPlane))
+	return &pb.GetAllRegistryDataResponse{
+		Data: &pb.RegistryData{
+			ControlPlanes:       protoControlPlanes,
+			NodesByControlPlane: nodesByControlPlane,
+		},
 	}, nil
 }
 
 // ExternalProcessorServer implements Envoy's ext_proc protocol
 type ExternalProcessorServer struct {
 	ext.UnimplementedExternalProcessorServer
-	routingService *service.RoutingService
-	logger         *logger.Logger
+	controllerRoutingService   *service.ControllerRoutingService // For client routing
+	controlPlaneRoutingService *service.RoutingService           // For control-plane routing
+	logger                     *logger.Logger
+	excludedPaths              map[string]bool // For O(1) lookup
 }
 
 // NewExternalProcessorServer creates a new external processor server
-func NewExternalProcessorServer(routingService *service.RoutingService, logger *logger.Logger) *ExternalProcessorServer {
+func NewExternalProcessorServer(controllerRoutingService *service.ControllerRoutingService, controlPlaneRoutingService *service.RoutingService, logger *logger.Logger) *ExternalProcessorServer {
+	// Convert excluded paths slice to map for O(1) lookup
+	excludedPaths := make(map[string]bool)
+	for _, path := range ExcludedPaths {
+		excludedPaths[path] = true
+	}
+
 	return &ExternalProcessorServer{
-		routingService: routingService,
-		logger:         logger,
+		controllerRoutingService:   controllerRoutingService,
+		controlPlaneRoutingService: controlPlaneRoutingService,
+		logger:                     logger,
+		excludedPaths:              excludedPaths,
 	}
 }
 
 // Process handles Envoy's ext_proc bidirectional stream
 func (p *ExternalProcessorServer) Process(stream ext.ExternalProcessor_ProcessServer) error {
-	p.logger.Infof("Started ext_proc stream")
-	defer p.logger.Infof("Ended ext_proc stream")
-
 	for {
 		req, err := stream.Recv()
 		if err != nil {
-			p.logger.Errorf("Error receiving request: %v", err)
+			if err.Error() == "EOF" {
+				p.logger.Debugf("Stream closed normally (EOF)")
+				return nil
+			}
+			p.logger.Warnf("Error receiving request: %v", err)
 			return err
 		}
 
@@ -415,27 +618,145 @@ func (p *ExternalProcessorServer) Process(stream ext.ExternalProcessor_ProcessSe
 
 // handleRequestHeaders processes request headers and adds routing information
 func (p *ExternalProcessorServer) handleRequestHeaders(stream ext.ExternalProcessor_ProcessServer, headers *ext.HttpHeaders) error {
-	p.logger.Debugf("Processing request headers")
+	if headers == nil || headers.Headers == nil {
+		return stream.Send(p.createContinueResponse())
+	}
 
-	// Extract node information from ADS initial_metadata headers
+	// First check path for early exclude
+	var path string
+	for _, header := range headers.Headers.Headers {
+		if header != nil && header.Key == ":path" {
+			path = string(header.RawValue)
+			break
+		}
+	}
+
+	// Early return for excluded paths
+	if path != "" {
+		// First check exact path match
+		if p.excludedPaths[path] {
+			return stream.Send(p.createContinueResponse())
+		}
+
+		// Then check if it's a gRPC service path that should be excluded
+		// gRPC path format: /package.service/method
+		parts := strings.Split(path, "/")
+		if len(parts) > 2 {
+			servicePath := strings.Join(parts[1:len(parts)-1], "/") // Get everything except the method
+			if p.excludedPaths[servicePath] {
+				return stream.Send(p.createContinueResponse())
+			}
+		}
+	}
+
+	// Check if this is a gRPC request
+	contentType := p.getHeaderFromMap(headers.Headers, HeaderContentType)
+	method := p.getHeaderFromMap(headers.Headers, HeaderMethod)
+
+	isGRPC := strings.HasPrefix(contentType, "application/grpc")
+
+	// If not gRPC, continue without processing
+	if !isGRPC {
+		p.logger.Infof("Non-gRPC request received: %s %s - continuing without processing", method, path)
+		return stream.Send(p.createContinueResponse())
+	}
+
+	// For gRPC requests, proceed with routing
+	p.logger.Infof("=== Processing gRPC Request ===")
+	p.logger.Infof("Path: %s", path)
+	p.logger.Infof("Method: %s", method)
+	p.logger.Infof("Content-Type: %s", contentType)
+
+	// Extract routing information from headers
 	nodeID := p.getHeaderFromMap(headers.Headers, HeaderNodeID)
+	clientID := p.getHeaderFromMap(headers.Headers, HeaderClientID)
 	version := p.getHeaderFromMap(headers.Headers, HeaderVersion)
 
-	// Also check for alternative header names that might be used
+	// Also check for alternative header names
 	if nodeID == "" {
-		nodeID = p.getHeaderFromMap(headers.Headers, "x-node-id")
+		nodeID = p.getHeaderFromMap(headers.Headers, "nodeid")
+	}
+	if clientID == "" {
+		clientID = p.getHeaderFromMap(headers.Headers, "client-id")
 	}
 	if version == "" {
-		version = p.getHeaderFromMap(headers.Headers, "x-envoy-version")
+		version = p.getHeaderFromMap(headers.Headers, "envoy-version")
 	}
 
-	p.logger.Infof("Request from NodeID: %s, Version: %s", nodeID, version)
+	p.logger.Infof("NodeID: %s", nodeID)
+	p.logger.Infof("ClientID: %s", clientID)
+	p.logger.Infof("Version: %s", version)
 
-	// Get routing decision
-	targetCluster := p.resolveCluster(version, nodeID)
+	// Determine routing type and get target cluster
+	var targetCluster string
+	if clientID != "" {
+		// Controller routing (client requests)
+		targetCluster = p.resolveControllerCluster(version, clientID)
+		p.logger.Infof("Controller routing: %s:%s -> %s", clientID, version, targetCluster)
+	} else if nodeID != "" && version != "" {
+		// Control-plane routing (envoy node requests)
+		targetCluster = p.resolveControlPlaneCluster(version, nodeID)
+		p.logger.Infof("Control-plane routing: %s:%s -> %s", nodeID, version, targetCluster)
+	}
 
-	// Create response with routing information
-	response := &ext.ProcessingResponse{
+	// Only proceed with mutation if we found a target cluster
+	if targetCluster != "" {
+		p.logger.Infof("=== Adding Routing Header ===")
+		p.logger.Infof("Original headers:")
+		for _, h := range headers.Headers.Headers {
+			if h != nil {
+				p.logger.Infof("  %s: %s", h.Key, string(h.RawValue))
+			}
+		}
+
+		// Create the response with only the new header
+		response := &ext.ProcessingResponse{
+			Response: &ext.ProcessingResponse_RequestHeaders{
+				RequestHeaders: &ext.HeadersResponse{
+					Response: &ext.CommonResponse{
+						Status:          ext.CommonResponse_CONTINUE,
+						ClearRouteCache: true,
+						HeaderMutation: &ext.HeaderMutation{
+							SetHeaders: []*core.HeaderValueOption{
+								{
+									Header: &core.HeaderValue{
+										Key:      HeaderTargetCluster,
+										RawValue: []byte(targetCluster), // Use RawValue instead of Value
+									},
+									// Don't append, just set
+									Append: &wrapperspb.BoolValue{Value: false},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		p.logger.Infof("=== Adding Routing Header ===")
+		p.logger.Infof("Status: CONTINUE")
+		p.logger.Infof("Adding Header: %s = %s (as RawValue)", HeaderTargetCluster, targetCluster)
+		p.logger.Infof("Header Mutation: %+v", response.GetResponse().(*ext.ProcessingResponse_RequestHeaders).RequestHeaders.Response.HeaderMutation)
+		p.logger.Infof("============================")
+
+		// Send the response
+		err := stream.Send(response)
+		if err != nil {
+			p.logger.Errorf("Failed to send response: %v", err)
+			return err
+		}
+
+		p.logger.Infof("Response sent successfully")
+		return nil
+	}
+
+	p.logger.Warnf("No routing decision found for gRPC request, continuing without routing")
+	return stream.Send(p.createContinueResponse())
+}
+
+// createContinueResponse creates a simple continue response without modifications
+func (p *ExternalProcessorServer) createContinueResponse() *ext.ProcessingResponse {
+	return &ext.ProcessingResponse{
 		Response: &ext.ProcessingResponse_RequestHeaders{
 			RequestHeaders: &ext.HeadersResponse{
 				Response: &ext.CommonResponse{
@@ -444,33 +765,6 @@ func (p *ExternalProcessorServer) handleRequestHeaders(stream ext.ExternalProces
 			},
 		},
 	}
-
-	// Only add routing headers if we found a target cluster
-	if targetCluster != "" {
-		response.GetRequestHeaders().Response.HeaderMutation = &ext.HeaderMutation{
-			SetHeaders: []*core.HeaderValueOption{
-				{
-					Header: &core.HeaderValue{
-						Key:   HeaderTargetCluster,
-						Value: targetCluster,
-					},
-					Append: &wrapperspb.BoolValue{Value: false},
-				},
-				{
-					Header: &core.HeaderValue{
-						Key:   HeaderRoutingService,
-						Value: "elchi-registry",
-					},
-					Append: &wrapperspb.BoolValue{Value: false},
-				},
-			},
-		}
-		p.logger.Infof("Sending routing response: cluster=%s for node=%s version=%s", targetCluster, nodeID, version)
-	} else {
-		p.logger.Errorf("No routing decision found for node=%s version=%s, continuing without routing", nodeID, version)
-	}
-
-	return stream.Send(response)
 }
 
 // handleRequestBody processes request body (if needed)
@@ -508,31 +802,16 @@ func (p *ExternalProcessorServer) handleRequestTrailers(stream ext.ExternalProce
 
 // handleResponseHeaders processes response headers
 func (p *ExternalProcessorServer) handleResponseHeaders(stream ext.ExternalProcessor_ProcessServer, _ *ext.HttpHeaders) error {
-	p.logger.Debugf("Processing response headers")
-
-	// Add response processing metadata
-	response := &ext.ProcessingResponse{
+	// Just continue without any processing since response_header_mode is SKIP
+	return stream.Send(&ext.ProcessingResponse{
 		Response: &ext.ProcessingResponse_ResponseHeaders{
 			ResponseHeaders: &ext.HeadersResponse{
 				Response: &ext.CommonResponse{
 					Status: ext.CommonResponse_CONTINUE,
-					HeaderMutation: &ext.HeaderMutation{
-						SetHeaders: []*core.HeaderValueOption{
-							{
-								Header: &core.HeaderValue{
-									Key:   "x-processed-by",
-									Value: "elchi-registry-ext-proc",
-								},
-								Append: &wrapperspb.BoolValue{Value: false},
-							},
-						},
-					},
 				},
 			},
 		},
-	}
-
-	return stream.Send(response)
+	})
 }
 
 // handleResponseBody processes response body
@@ -569,70 +848,114 @@ func (p *ExternalProcessorServer) handleResponseTrailers(stream ext.ExternalProc
 
 // getHeaderFromMap extracts header value from Envoy HeaderMap
 func (p *ExternalProcessorServer) getHeaderFromMap(headers *core.HeaderMap, key string) string {
-	if headers == nil {
+	if headers == nil || headers.Headers == nil {
 		return ""
 	}
 
-	p.logger.Debugf("Looking for header key: %s", key)
-	for _, h := range headers.Headers {
-		p.logger.Debugf("Found header: %s = %s", h.Key, h.Value)
-		if strings.EqualFold(h.Key, key) {
-			p.logger.Debugf("Matched header: %s = %s", h.Key, h.Value)
-			return h.Value
+	// Envoy ext_proc'da header'lar raw_value field'ında geliyor
+	for _, header := range headers.Headers {
+		if header != nil && strings.EqualFold(header.Key, key) {
+			return string(header.RawValue)
 		}
 	}
 
-	p.logger.Debugf("Header key '%s' not found", key)
 	return ""
 }
 
-// resolveCluster determines the target cluster based on version and nodeID
-func (p *ExternalProcessorServer) resolveCluster(version, nodeID string) string {
-	p.logger.Debugf("Resolving cluster for NodeID: %s, Version: %s", nodeID, version)
+// resolveControllerCluster determines the target controller cluster based on client ID and version
+func (p *ExternalProcessorServer) resolveControllerCluster(version, clientID string) string {
+	p.logger.Debugf("Resolving controller cluster for ClientID: %s, Version: %s", clientID, version)
 
-	if version == "" || nodeID == "" {
-		p.logger.Errorf("Missing version or nodeID: version=%s, nodeID=%s", version, nodeID)
+	if clientID == "" {
+		p.logger.Errorf("ClientID cannot be empty")
 		return ""
 	}
 
-	// Use routing service to find appropriate control plane
-	// Priority: 1. Control plane that already has this nodeID
-	//          2. Available control plane with exact version match
+	// Use controller routing service to find appropriate controller
 	ctx := context.Background()
-	controlPlane, err := p.routingService.GetControlPlaneCluster(ctx, nodeID, version)
+
+	// First try to get existing mapping
+	controller, err := p.controllerRoutingService.GetControllerCluster(ctx, clientID, version)
+	if err == nil && controller != nil {
+		p.logger.Infof("Found existing controller mapping: %s -> %s", clientID, controller.ID)
+		return controller.ID
+	}
+
+	// If no mapping exists or error occurred, get least loaded controller
+	controller, err = p.controllerRoutingService.GetLeastLoadedController(ctx, version)
 	if err != nil {
-		p.logger.Errorf("Failed to resolve cluster for %s:%s: %v", nodeID, version, err)
-		// Return empty string to indicate no routing decision
-		// Envoy will handle this as no routing change
+		p.logger.Errorf("Failed to get least loaded controller: %v", err)
 		return ""
 	}
 
-	p.logger.Infof("Routing decision: %s:%s -> %s", nodeID, version, controlPlane.ID)
+	p.logger.Infof("Selected least loaded controller: %s (for new client %s)", controller.ID, clientID)
+	return controller.ID
+}
+
+// resolveControlPlaneCluster determines the target control-plane cluster based on node ID and version
+func (p *ExternalProcessorServer) resolveControlPlaneCluster(version, nodeID string) string {
+	p.logger.Debugf("Resolving control-plane cluster for NodeID: %s, Version: %s", nodeID, version)
+
+	if nodeID == "" {
+		p.logger.Errorf("NodeID cannot be empty")
+		return ""
+	}
+
+	// Use control-plane routing service to find appropriate control plane
+	ctx := context.Background()
+
+	// First try to get existing mapping
+	controlPlane, err := p.controlPlaneRoutingService.GetControlPlaneCluster(ctx, nodeID, version)
+	if err == nil && controlPlane != nil {
+		p.logger.Infof("Found existing control-plane mapping: %s -> %s", nodeID, controlPlane.ID)
+		return controlPlane.ID
+	}
+
+	// If no mapping exists or error occurred, get least loaded control-plane
+	controlPlane, err = p.controlPlaneRoutingService.GetLeastLoadedControlPlane(ctx, version)
+	if err != nil {
+		p.logger.Errorf("Failed to get least loaded control-plane: %v", err)
+		return ""
+	}
+
+	p.logger.Infof("Selected least loaded control-plane: %s (for new node %s)", controlPlane.ID, nodeID)
 	return controlPlane.ID
 }
 
 // StartGRPCServer starts the gRPC server
-func StartGRPCServer(address string, registryService *service.RegistryService, routingService *service.RoutingService, logger *logger.Logger) error {
+func StartGRPCServer(address string, controllerRoutingService *service.ControllerRoutingService, controlPlaneRoutingService *service.RoutingService, logger *logger.Logger) error {
 	lis, err := net.Listen("tcp", address)
 	if err != nil {
 		return fmt.Errorf("failed to listen on address %s: %w", address, err)
 	}
 
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			MaxConnectionIdle:     5 * time.Minute,
+			MaxConnectionAge:      10 * time.Minute,
+			MaxConnectionAgeGrace: 30 * time.Second,
+			Time:                  60 * time.Second,
+			Timeout:               30 * time.Second,
+		}),
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             20 * time.Second, // Client can ping at most every 20 seconds
+			PermitWithoutStream: false,            // Don't allow pings without streams
+		}),
+	)
 
-	// Register registry service
-	registryGRPCServer := NewRegistryGRPCServer(registryService, logger)
-	pb.RegisterControllerServiceServer(grpcServer, registryGRPCServer)
+	// Register controller routing service
+	controllerGRPCServer := NewControllerGRPCServer(controllerRoutingService, logger)
+	pb.RegisterControllerRoutingServiceServer(grpcServer, controllerGRPCServer)
 
-	// Register routing service
-	routingGRPCServer := NewRoutingGRPCServer(routingService, logger)
-	pb.RegisterEnvoyRoutingServiceServer(grpcServer, routingGRPCServer)
+	// Register control-plane routing service
+	controlPlaneGRPCServer := NewControlPlaneGRPCServer(controlPlaneRoutingService, logger)
+	pb.RegisterEnvoyRoutingServiceServer(grpcServer, controlPlaneGRPCServer)
 
 	// Register external processor service (for Envoy ext_proc)
-	extProcessorServer := NewExternalProcessorServer(routingService, logger)
+	extProcessorServer := NewExternalProcessorServer(controllerRoutingService, controlPlaneRoutingService, logger)
 	ext.RegisterExternalProcessorServer(grpcServer, extProcessorServer)
 
-	logger.Infof("gRPC server starting on address %s (Registry + Routing + ExternalProcessor services)", address)
+	logger.Infof("gRPC server starting on address %s (Controller + Control-Plane + ExternalProcessor services)", address)
 
 	if err := grpcServer.Serve(lis); err != nil {
 		return fmt.Errorf("failed to serve gRPC: %w", err)

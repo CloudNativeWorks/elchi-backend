@@ -40,9 +40,9 @@ func NewGRPCClient(appCtx *db.AppContext) (*grpc.ClientConn, error) {
 		grpc.WithContextDialer(ipv4Dialer),
 		grpc.WithDisableServiceConfig(),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:                10 * time.Second,
-			Timeout:             5 * time.Second,
-			PermitWithoutStream: true,
+			Time:                30 * time.Second,
+			Timeout:             10 * time.Second,
+			PermitWithoutStream: false,           
 		}),
 		grpc.WithAuthority(appCtx.Config.ElchiAddress),
 		grpc.WithDefaultCallOptions(

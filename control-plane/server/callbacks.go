@@ -91,6 +91,11 @@ func (c *Callbacks) OnDeltaStreamClosed(id int64, node *core.Node) {
 		return
 	}
 
+	// Remove node from routing manager's version tracking
+	if c.routingManager != nil {
+		c.routingManager.RemoveNode(node.Id)
+	}
+
 	// Node will be removed from tracking when it's not seen for a while
 	// (handled by the periodic UpdateNodeList which only sends active nodes)
 

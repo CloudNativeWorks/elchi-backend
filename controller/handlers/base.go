@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/CloudNativeWorks/elchi-backend/controller/api/settings"
@@ -87,6 +89,20 @@ func (h *Handler) handleOpRequest(c *gin.Context, opFunc OpFunc) {
 	requestDetails.ClientID = getParamOrQuery(c, "client_id")
 	requestDetails.ServiceID = getParamOrQuery(c, "service_id")
 	requestDetails.FromClient = c.Query("from_client")
+	
+	// Extract forwarding-related headers and tokens
+	requestDetails.Token = c.GetHeader("token")
+	requestDetails.RefreshToken = c.GetHeader("refresh-token")
+	requestDetails.IsForwarded = c.GetHeader("X-Forwarded-Request") == "true"
+	
+	// Capture original request body for forwarding
+	if c.Request.Method == "POST" || c.Request.Method == "PUT" {
+		if bodyBytes, err := c.GetRawData(); err == nil {
+			requestDetails.OriginalBody = bodyBytes
+			// Reset the request body so it can be read again by dynamicOpFuncs
+			c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+		}
+	}
 
 
 	if err := checkRole(c, userDetails); err != nil {
@@ -101,6 +117,37 @@ func (h *Handler) handleOpRequest(c *gin.Context, opFunc OpFunc) {
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+// GetRegistryData returns all registry data (control planes and controllers) as JSON
+func (h *Handler) GetRegistryData(c *gin.Context) {
+	ctx := c.Request.Context()
+	
+	// Registry'ye bağlanmak için client handler'ın registry client'ını kullan
+	registryClient := h.Client.RegistryClient
+	
+	if registryClient == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"message": "Registry client not available",
+			"data":    nil,
+		})
+		return
+	}
+
+	// Registry'den veri al
+	registryData, err := registryClient.GetRegistryData(ctx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"message": fmt.Sprintf("Failed to get registry data: %v", err),
+			"data":    nil,
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "OK",
+		"data":    registryData,
+	})
 }
 
 func (h *Handler) getRequestDetails(c *gin.Context) (models.RequestDetails, models.UserDetails) {

@@ -18,6 +18,11 @@ type RequestDetails struct {
 	ServiceID      string
 	FromClient     string
 	ForMetrics     string
+	// Forward support fields
+	Token          string
+	RefreshToken   string
+	IsForwarded    bool
+	OriginalBody   []byte
 }
 
 type UserDetails struct {

@@ -17,9 +17,15 @@ type NodeMapping struct {
 	LastSeen       time.Time `json:"last_seen"`
 }
 
-// NodeInfo represents a node connected to a control plane
+// NodeInfo represents information about a connected node
 type NodeInfo struct {
 	NodeID   string    `json:"node_id"`
 	Version  string    `json:"version"`
 	LastSeen time.Time `json:"last_seen"`
+}
+
+// RegistryData represents all data in the registry for reporting
+type RegistryData struct {
+	ControlPlanes        []*ControlPlane               `json:"control_planes"`
+	NodesByControlPlane  map[string][]*NodeInfo        `json:"nodes_by_control_plane"`
 } 

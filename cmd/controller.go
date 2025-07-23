@@ -59,6 +59,8 @@ var restCmd = &cobra.Command{
 		}
 		fullAddress := fmt.Sprintf("%s:%d", registryAddress, appConfig.RegistryPort)
 
+		rootLogger.Infof("Controller starting with registry at: %s (port: %d)", registryAddress, appConfig.RegistryPort)
+
 		registryClient, err := registry.NewRegistryClient(fullAddress, rootLogger)
 		if err != nil {
 			rootLogger.Fatalf("Failed to create registry client: %v", err)
@@ -99,7 +101,7 @@ var restCmd = &cobra.Command{
 		serviceHandler := service.NewServiceHandler(appContext)
 		clientHandler := client.NewClientHandler(appContext, xdsHandler)
 
-		// Pass registry client to client handler
+		// Pass registry client to client handler (even before connection is established)
 		clientHandler.SetRegistryClient(registryClient)
 
 		// Sync all existing clients with registry after client handler is set up

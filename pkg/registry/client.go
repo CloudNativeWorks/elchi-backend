@@ -225,19 +225,24 @@ func (r *RegistryClient) GetClientLocation(clientID string) (*pb.GetControllerCl
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	r.logger.Infof("Getting client location from registry: clientID=%s (searching all versions)", clientID)
+
 	req := &pb.GetControllerClusterRequest{
 		ClientId:  clientID,
-		Version:   r.version,
+		Version:   "", // Empty version to search across all versions
 		Timestamp: timestamppb.New(time.Now()),
 	}
 
 	resp, err := r.controllerClient.GetControllerCluster(ctx, req)
 	if err != nil {
+		r.logger.Errorf("Registry GetControllerCluster failed: %v", err)
 		return nil, fmt.Errorf("failed to get client location: %v", err)
 	}
 
+	r.logger.Infof("Registry response: Found=%v, ControllerId=%s", resp.Found, resp.ControllerId)
+
 	if !resp.Found {
-		return nil, fmt.Errorf("client location not found: %s", clientID)
+		return nil, fmt.Errorf("client location not found: %s (searched all versions)", clientID)
 	}
 
 	return resp, nil
@@ -301,6 +306,7 @@ func (r *RegistryClient) GetRegistryData(ctx context.Context) (map[string]interf
 
 // GetControllerID returns the controller ID
 func (r *RegistryClient) GetControllerID() string {
+	r.logger.Debugf("Getting controller ID: %s", r.controllerID)
 	return r.controllerID
 }
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"math/rand"
 	"time"
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/helper"
@@ -48,54 +47,48 @@ func (s *ControllerRoutingService) RegisterController(ctx context.Context, contr
 	return s.storage.RegisterController(ctx, controller)
 }
 
-// GetControllerCluster finds the appropriate controller for a client (similar to GetControlPlaneCluster)
+// GetControllerCluster finds the appropriate controller for a client (version-agnostic search)
 func (s *ControllerRoutingService) GetControllerCluster(ctx context.Context, clientID, version string) (*models.ControllerInfo, error) {
-	s.logger.Infof("Looking for controller for client: %s version: %s", clientID, version)
+	s.logger.Infof("Looking for controller for client: %s (searching all versions)", clientID)
 
 	if clientID == "" {
 		return nil, fmt.Errorf("client ID cannot be empty")
 	}
 
-	if version == "" {
-		return nil, fmt.Errorf("version cannot be empty")
+	// Search for client across all versions
+	return s.findClientInAnyVersion(ctx, clientID)
+}
+
+// findClientInAnyVersion searches for a client across all versions
+func (s *ControllerRoutingService) findClientInAnyVersion(ctx context.Context, clientID string) (*models.ControllerInfo, error) {
+	// Get all controllers to find which versions exist
+	controllers, err := s.storage.ListControllers(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list controllers: %w", err)
 	}
 
-	// Priority 1: Check if this clientID is already mapped to a controller
-	mapping, err := s.storage.GetClientMapping(ctx, clientID, version)
-	if err == nil {
-		// Found existing mapping, return the controller
-		controller, err := s.storage.GetController(ctx, mapping.ControllerID)
-		if err != nil {
-			s.logger.Errorf("Controller not found for mapping: %v", err)
-			// Fall through to find new controller
-		} else {
-			s.logger.Infof("Found existing mapping: %s -> %s", clientID, mapping.ControllerID)
-			return controller, nil
+	// Extract unique versions
+	versionsMap := make(map[string]bool)
+	for _, ctrl := range controllers {
+		versionsMap[ctrl.Version] = true
+	}
+
+	// Search in each version
+	for version := range versionsMap {
+		s.logger.Debugf("Searching for client %s in version %s", clientID, version)
+
+		mapping, err := s.storage.GetClientMapping(ctx, clientID, version)
+		if err == nil {
+			// Found mapping, get controller
+			controller, err := s.storage.GetController(ctx, mapping.ControllerID)
+			if err == nil {
+				s.logger.Infof("Found client %s in version %s -> controller %s", clientID, version, controller.ID)
+				return controller, nil
+			}
 		}
 	}
 
-	// Priority 2: Find available controller with capacity for this version
-	controller, err := s.findControllerForVersion(ctx, version)
-	if err != nil {
-		return nil, fmt.Errorf("no suitable controller found for version %s: %w", version, err)
-	}
-
-	// Create mapping but don't add client to controller's client list
-	// The controller will handle client registration separately
-	mapping = &models.ClientMapping{
-		ClientID:     clientID,
-		Version:      version,
-		ControllerID: controller.ID,
-		LastSeen:     time.Now(),
-	}
-
-	if err := s.storage.SetClientMapping(ctx, mapping); err != nil {
-		s.logger.Errorf("Failed to create client mapping: %v", err)
-		// Still return the controller even if mapping fails
-	}
-
-	s.logger.Infof("Created new mapping: %s -> %s (client registration will be handled separately)", clientID, controller.ID)
-	return controller, nil
+	return nil, fmt.Errorf("client %s not found in any version", clientID)
 }
 
 // NotifyClientConnected updates client mapping after client connection
@@ -218,38 +211,6 @@ func (s *ControllerRoutingService) UpdateClientList(ctx context.Context, control
 	}
 
 	return s.storage.UpdateClientList(ctx, controllerID, clients)
-}
-
-// findControllerForVersion finds the best controller for a given version
-func (s *ControllerRoutingService) findControllerForVersion(ctx context.Context, version string) (*models.ControllerInfo, error) {
-	// Only exact version match - no prefix or major version matching
-	controllers, err := s.storage.ListControllersByVersion(ctx, version)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list controllers for version %s: %w", version, err)
-	}
-
-	if len(controllers) == 0 {
-		return nil, fmt.Errorf("no controller found for exact version %s", version)
-	}
-
-	// Load balance among exact matches
-	return s.selectController(controllers), nil
-}
-
-// selectController selects a controller using simple random selection
-func (s *ControllerRoutingService) selectController(controllers []*models.ControllerInfo) *models.ControllerInfo {
-	if len(controllers) == 0 {
-		return nil
-	}
-
-	if len(controllers) == 1 {
-		return controllers[0]
-	}
-
-	// Simple random selection for now
-	// In production, you might want weighted round-robin based on load
-	rand.Seed(time.Now().UnixNano())
-	return controllers[rand.Intn(len(controllers))]
 }
 
 // CleanupStaleData removes stale controllers and client mappings with logging

@@ -125,19 +125,24 @@ func (h *Client) sendCommandWithLocationCheck(ctx context.Context, requestDetail
 	}
 
 	// Strategy 2: Client not local, use registry + forwarding (NO validate & transform)
+	h.logger.Infof("Client %s not local, checking registry availability", clientID)
+	
 	if h.registryClient == nil {
 		h.logger.Errorf("Client %s not found locally and no registry client available", clientID)
 		return nil, fmt.Errorf("client %s not found and no registry available", clientID)
 	}
 
-	h.logger.Infof("Client %s not local, forwarding without processing", clientID)
+	h.logger.Infof("Registry client available for client %s", clientID)
 
 	// Get client location from registry
+	h.logger.Infof("Requesting client location from registry for client: %s", clientID)
 	clientLocation, err := h.registryClient.GetClientLocation(clientID)
 	if err != nil {
-		h.logger.Errorf("Failed to get client location from registry: %v", err)
+		h.logger.Errorf("Failed to get client location from registry for client %s: %v", clientID, err)
 		return nil, fmt.Errorf("failed to find client %s: %v", clientID, err)
 	}
+
+	h.logger.Infof("Registry returned location for client %s: controller=%s, found=%v", clientID, clientLocation.ControllerId, clientLocation.Found)
 
 	// Get current controller ID
 	currentControllerID := h.registryClient.GetControllerID()
@@ -158,6 +163,13 @@ func (h *Client) sendCommandWithLocationCheck(ctx context.Context, requestDetail
 	h.logger.Infof("Forwarding raw request for client %s from %s to %s (no validate & transform)", clientID, currentControllerID, clientLocation.ControllerId)
 
 	// Forward raw request via HTTP to target controller
+	h.logger.Infof("=== FORWARD DEBUG ===")
+	h.logger.Infof("Client: %s", clientID)
+	h.logger.Infof("From Controller: %s", currentControllerID)
+	h.logger.Infof("To Controller: %s", clientLocation.ControllerId)
+	h.logger.Infof("Original Body Size: %d bytes", len(requestDetails.OriginalBody))
+	h.logger.Infof("=====================")
+	
 	return h.forwardCommandViaHTTP(ctx, requestDetails, clientLocation.ControllerId, clientID, op.GetTypeNum(), op.GetSubTypeNum(), nil) // Pass nil for payload since we're forwarding raw
 }
 
@@ -168,13 +180,23 @@ func (h *Client) forwardCommandViaHTTP(ctx context.Context, requestDetails model
 	// Create target HTTP URL
 	targetURL := fmt.Sprintf("http://%s:8099/api/op/clients", serviceName)
 
-	h.logger.Infof("Forwarding command to: %s", targetURL)
+	h.logger.Infof("=== HTTP FORWARD ===")
+	h.logger.Infof("Target Controller ID: %s", targetControllerID)
+	h.logger.Infof("Service Name: %s", serviceName)
+	h.logger.Infof("Target URL: %s", targetURL)
+	h.logger.Infof("Client ID: %s", clientID)
+	h.logger.Infof("Has Original Body: %v", len(requestDetails.OriginalBody) > 0)
+	h.logger.Infof("Has Token: %v", requestDetails.Token != "")
+	h.logger.Infof("Is Forwarded: %v", requestDetails.IsForwarded)
+	h.logger.Infof("===================")
 
 	// Use original request body for forwarding
 	var requestBody []byte
 	if len(requestDetails.OriginalBody) > 0 {
 		requestBody = requestDetails.OriginalBody
 		h.logger.Debugf("Forwarding original request body (%d bytes) for client %s", len(requestBody), clientID)
+	} else {
+		h.logger.Warnf("No original request body found for client %s", clientID)
 	}
 
 	// Create HTTP request
@@ -207,27 +229,37 @@ func (h *Client) forwardCommandViaHTTP(ctx context.Context, requestDetails model
 
 	resp, err := client.Do(req)
 	if err != nil {
+		h.logger.Errorf("HTTP forward request failed: %v", err)
 		return nil, fmt.Errorf("failed to forward HTTP request to %s: %v", targetURL, err)
 	}
 	defer resp.Body.Close()
 
+	h.logger.Infof("HTTP forward response received: Status=%d, ContentLength=%d", resp.StatusCode, resp.ContentLength)
+
 	// Read response
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
+		h.logger.Errorf("Failed to read HTTP forward response: %v", err)
 		return nil, fmt.Errorf("failed to read forward response: %v", err)
 	}
 
+	h.logger.Infof("HTTP forward response body size: %d bytes", len(responseBody))
+
 	if resp.StatusCode != http.StatusOK {
+		h.logger.Errorf("HTTP forward failed: Status=%d, Body=%s", resp.StatusCode, string(responseBody))
 		return nil, fmt.Errorf("forward request failed with status %d: %s", resp.StatusCode, string(responseBody))
 	}
 
 	// Parse response as CommandResponse
 	var commandResponse pb.CommandResponse
 	if err := json.Unmarshal(responseBody, &commandResponse); err != nil {
+		h.logger.Errorf("Failed to parse HTTP forward response as CommandResponse: %v", err)
+		h.logger.Errorf("Response body: %s", string(responseBody))
 		return nil, fmt.Errorf("failed to parse forward response: %v", err)
 	}
 
 	h.logger.Infof("Command successfully forwarded via HTTP to %s for client %s", targetURL, clientID)
+	h.logger.Infof("Response parsed successfully as CommandResponse")
 	return &commandResponse, nil
 }
 

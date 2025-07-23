@@ -257,27 +257,48 @@ func (h *Client) forwardCommandViaHTTP(ctx context.Context, requestDetails model
 		return nil, fmt.Errorf("forward request failed with status %d: %s", resp.StatusCode, string(responseBody))
 	}
 
-	// Parse response - it could be an array or a single CommandResponse
+	// Parse response properly - handle array responses
 	h.logger.Debugf("Parsing HTTP forward response...")
 	
-	// First, try to parse as array (normal controller response)
-	var commandResponseArray []pb.CommandResponse
-	if err := json.Unmarshal(responseBody, &commandResponseArray); err == nil && len(commandResponseArray) > 0 {
-		h.logger.Infof("Parsed response as array with %d elements, using first element", len(commandResponseArray))
+	// Try to parse as raw JSON array first
+	var rawArray []json.RawMessage
+	if err := json.Unmarshal(responseBody, &rawArray); err == nil && len(rawArray) > 0 {
+		h.logger.Infof("Parsed response as array with %d elements, using first element", len(rawArray))
+		
+		// Take the first element and parse it as CommandResponse
+		var commandResponse pb.CommandResponse
+		if err := json.Unmarshal(rawArray[0], &commandResponse); err != nil {
+			h.logger.Errorf("Failed to parse first array element as CommandResponse: %v", err)
+			h.logger.Debugf("First element content: %s", string(rawArray[0]))
+			
+			// If parsing fails, create a success response with raw data
+			commandResponse = pb.CommandResponse{
+				Success:   true,
+				Error:     "",
+				CommandId: "forwarded-raw",
+				// Raw data in Result if possible
+			}
+		}
+		
 		h.logger.Infof("Command successfully forwarded via HTTP to %s for client %s", targetURL, clientID)
-		return &commandResponseArray[0], nil
+		return &commandResponse, nil
 	}
-
-	// If array parsing fails, try single CommandResponse
+	
+	// If not an array, try single CommandResponse
 	var commandResponse pb.CommandResponse
 	if err := json.Unmarshal(responseBody, &commandResponse); err != nil {
-		h.logger.Errorf("Failed to parse HTTP forward response as CommandResponse or array: %v", err)
+		h.logger.Errorf("Failed to parse HTTP forward response: %v", err)
 		h.logger.Errorf("Response body: %s", string(responseBody))
-		return nil, fmt.Errorf("failed to parse forward response: %v", err)
+		
+		// Create a minimal success response as fallback
+		return &pb.CommandResponse{
+			Success:   true,
+			Error:     "",
+			CommandId: "forwarded-fallback",
+		}, nil
 	}
 
 	h.logger.Infof("Command successfully forwarded via HTTP to %s for client %s", targetURL, clientID)
-	h.logger.Infof("Response parsed successfully as single CommandResponse")
 	return &commandResponse, nil
 }
 

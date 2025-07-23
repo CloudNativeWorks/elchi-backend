@@ -243,11 +243,13 @@ func (handler *AppHandler) ListUsers(c *gin.Context) {
 	cursor, err := userCollection.Find(ctx, filter, opts)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": "could not find records"})
+		return // Early return to prevent nil cursor usage
 	}
 
 	var records []bson.M
-	if err = cursor.All(ctx, &records); err != nil {
+	if err = helper.HandleCursorResults(ctx, cursor, &records); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": "could not decode records"})
+		return // Early return after error
 	}
 
 	c.JSON(http.StatusOK, records)

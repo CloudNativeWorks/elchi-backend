@@ -16,7 +16,11 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
+	"context"
+
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
+
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 var Unmarshaler = protojson.UnmarshalOptions{
@@ -215,6 +219,26 @@ func ToK8sServiceName(controllerID string, namespace string) string {
 		serviceName = controllerID[:idx]
 	}
 	return serviceName + "." + serviceName + "-headless." + namespace + ".svc.cluster.local"
+}
+
+// SafeCloseCursor safely closes a MongoDB cursor
+func SafeCloseCursor(ctx context.Context, cursor *mongo.Cursor) {
+	if cursor != nil {
+		if err := cursor.Close(ctx); err != nil {
+			// Log error but don't panic - cursor close errors are not critical
+			// This prevents the nil pointer dereference panic we saw
+		}
+	}
+}
+
+// HandleCursorResults safely processes cursor results
+func HandleCursorResults(ctx context.Context, cursor *mongo.Cursor, results interface{}) error {
+	if cursor == nil {
+		return mongo.ErrNilCursor
+	}
+	
+	defer SafeCloseCursor(ctx, cursor)
+	return cursor.All(ctx, results)
 }
 
 

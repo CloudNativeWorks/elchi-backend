@@ -8,6 +8,7 @@ import (
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/helper"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/version"
 	pb "github.com/CloudNativeWorks/elchi-proto/client"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
@@ -35,7 +36,7 @@ type Config struct {
 func NewRegistryClient(registryAddress string, logger *logger.Logger) (*RegistryClient, error) {
 	return NewRegistryClientWithConfig(&Config{
 		RegistryAddress: registryAddress,
-		Version:         "v1.0.0",
+		Version:         version.GetVersion(),
 	}, logger)
 }
 

@@ -128,11 +128,18 @@ func (h *Client) sendCommandWithLocationCheck(ctx context.Context, requestDetail
 	h.logger.Infof("Client %s not local, checking registry availability", clientID)
 	
 	if h.registryClient == nil {
-		h.logger.Errorf("Client %s not found locally and no registry client available", clientID)
+		h.logger.Errorf("Client %s not found locally and no registry client available (nil)", clientID)
 		return nil, fmt.Errorf("client %s not found and no registry available", clientID)
 	}
 
-	h.logger.Infof("Registry client available for client %s", clientID)
+	h.logger.Debugf("Registry client object exists for client %s, checking connection...", clientID)
+
+	if !h.registryClient.IsConnected() {
+		h.logger.Errorf("Client %s not found locally and registry client not connected yet (waiting for connection)", clientID)
+		return nil, fmt.Errorf("client %s not found and registry not connected", clientID)
+	}
+
+	h.logger.Infof("Registry client available and connected for client %s", clientID)
 
 	// Get client location from registry
 	h.logger.Infof("Requesting client location from registry for client: %s", clientID)

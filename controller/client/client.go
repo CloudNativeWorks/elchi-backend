@@ -49,6 +49,7 @@ func NewClientHandler(context *db.AppContext, xdsHandler *xds.AppHandler) *AppHa
 func (h *AppHandler) SetRegistryClient(client *registry.RegistryClient) {
 	h.RegistryClient = client
 	h.Service.SetRegistryClient(client)
+	h.Handler.SetRegistryClient(client) // Handler için de registry client'ı set et
 }
 
 func (h *AppHandler) Start(appConfig *config.AppConfig) {

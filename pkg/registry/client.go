@@ -310,6 +310,11 @@ func (r *RegistryClient) GetControllerID() string {
 	return r.controllerID
 }
 
+// IsConnected checks if the gRPC connection is established
+func (r *RegistryClient) IsConnected() bool {
+	return r.conn != nil && r.controllerClient != nil
+}
+
 // StartHealthMonitor starts periodic health monitoring for registry connection
 func (r *RegistryClient) StartHealthMonitor(getConnectedClients func() []string) {
 	interval := 30 * time.Second

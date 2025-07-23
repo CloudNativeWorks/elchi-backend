@@ -41,11 +41,31 @@ func (h *Client) HandleSendCommand(ctx context.Context, op models.OperationClass
 		}
 	}
 
+	// Track if any forwards are needed for special handling
+	var forwardNeeded bool
+	var forwardResponses []any
+
 	for _, client := range clients {
 		// *** NEW ROUTING LOGIC - CHECK LOCATION FIRST ***
 		// First check where the client is located before doing any processing
 		response, err := h.sendCommandWithLocationCheck(ctx, requestDetails, client, op, processor)
 		if err != nil {
+			// Check if this is a forwarded response with raw JSON
+			if forwardedResp, ok := err.(*ForwardedResponse); ok {
+				h.logger.Infof("Received forwarded response for client %s (%d bytes)", forwardedResp.ClientID, len(forwardedResp.RawJSON))
+
+				// Parse the raw JSON to return it properly
+				var rawResponse json.RawMessage
+				if err := json.Unmarshal(forwardedResp.RawJSON, &rawResponse); err != nil {
+					h.logger.Errorf("Failed to parse forwarded response JSON: %v", err)
+					return nil, fmt.Errorf("failed to parse forwarded response: %v", err)
+				}
+
+				// Return the raw JSON directly - this will be sent to user as-is
+				h.logger.Infof("Returning raw forwarded response to user (%d bytes)", len(forwardedResp.RawJSON))
+				return rawResponse, nil
+			}
+
 			h.logger.WithFields(logger.Fields{
 				"client_id":          client.ClientID,
 				"downstream_address": client.DownstreamAddress,
@@ -55,6 +75,20 @@ func (h *Client) HandleSendCommand(ctx context.Context, op models.OperationClass
 		}
 		// *** END NEW ROUTING LOGIC ***
 
+		// Check if this was a forwarded response
+		if response != nil && response.CommandId == "forwarded" {
+			h.logger.Infof("Detected forwarded response for client %s", client.ClientID)
+			forwardNeeded = true
+			// For forwarded responses, we should return raw data
+			// This is a temporary workaround - ideally should be handled at HTTP level
+			forwardResponses = append(forwardResponses, map[string]interface{}{
+				"message":   "Response was forwarded to another controller",
+				"client_id": client.ClientID,
+				"forwarded": true,
+			})
+			continue
+		}
+
 		responser, exists := h.responser.GetResponser(op.GetType())
 		if !exists {
 			h.logger.Errorf("Unsupported responser command type: %s", op.GetType())
@@ -62,6 +96,12 @@ func (h *Client) HandleSendCommand(ctx context.Context, op models.OperationClass
 		}
 
 		result = append(result, responser.ValidateAndTransform(op, response))
+	}
+
+	// If any forwards happened, return special response indicating forward
+	if forwardNeeded {
+		h.logger.Infof("Returning forwarded response indication for %d clients", len(forwardResponses))
+		return forwardResponses, nil
 	}
 
 	return result, nil
@@ -110,23 +150,23 @@ func (h *Client) executeDirectCommand(_ context.Context, op models.OperationClas
 // sendCommandWithLocationCheck checks client location first, then processes accordingly
 func (h *Client) sendCommandWithLocationCheck(ctx context.Context, requestDetails models.RequestDetails, client models.ServiceClients, op models.OperationClass, processor processor.CommandProcessor) (*pb.CommandResponse, error) {
 	clientID := client.ClientID
-	
+
 	// Strategy 1: Check if client is connected locally first (connection check only)
 	if h.Service.IsClientConnected(clientID) {
 		// Client is local - do validate & transform then send
 		h.logger.Debugf("Client %s is local, processing with validate & transform", clientID)
-		
+
 		processedPayload, err := processor.ValidateAndTransform(op, requestDetails, client)
 		if err != nil {
 			return nil, fmt.Errorf("command validation error for local client %s: %v", clientID, err)
 		}
-		
+
 		return h.Service.SendCommand(clientID, op.GetTypeNum(), op.GetSubTypeNum(), processedPayload)
 	}
 
 	// Strategy 2: Client not local, use registry + forwarding (NO validate & transform)
 	h.logger.Infof("Client %s not local, checking registry availability", clientID)
-	
+
 	if h.registryClient == nil {
 		h.logger.Errorf("Client %s not found locally and no registry client available (nil)", clientID)
 		return nil, fmt.Errorf("client %s not found and no registry available", clientID)
@@ -157,12 +197,12 @@ func (h *Client) sendCommandWithLocationCheck(ctx context.Context, requestDetail
 	// If client is on this controller (somehow missed in direct check), try local processing
 	if clientLocation.ControllerId == currentControllerID {
 		h.logger.Debugf("Client %s is supposed to be local, processing locally", clientID)
-		
+
 		processedPayload, err := processor.ValidateAndTransform(op, requestDetails, client)
 		if err != nil {
 			return nil, fmt.Errorf("command validation error for supposedly local client %s: %v", clientID, err)
 		}
-		
+
 		return h.Service.SendCommand(clientID, op.GetTypeNum(), op.GetSubTypeNum(), processedPayload)
 	}
 
@@ -176,8 +216,19 @@ func (h *Client) sendCommandWithLocationCheck(ctx context.Context, requestDetail
 	h.logger.Infof("To Controller: %s", clientLocation.ControllerId)
 	h.logger.Infof("Original Body Size: %d bytes", len(requestDetails.OriginalBody))
 	h.logger.Infof("=====================")
-	
+
 	return h.forwardCommandViaHTTP(ctx, requestDetails, clientLocation.ControllerId, clientID, op.GetTypeNum(), op.GetSubTypeNum(), nil) // Pass nil for payload since we're forwarding raw
+}
+
+// ForwardedResponse is a special error type that contains the raw forwarded response
+type ForwardedResponse struct {
+	RawJSON    []byte
+	StatusCode int
+	ClientID   string
+}
+
+func (e *ForwardedResponse) Error() string {
+	return fmt.Sprintf("forwarded response for client %s (%d bytes)", e.ClientID, len(e.RawJSON))
 }
 
 // forwardCommandViaHTTP forwards command to another controller via HTTP with authentication
@@ -257,49 +308,15 @@ func (h *Client) forwardCommandViaHTTP(ctx context.Context, requestDetails model
 		return nil, fmt.Errorf("forward request failed with status %d: %s", resp.StatusCode, string(responseBody))
 	}
 
-	// Parse response properly - handle array responses
-	h.logger.Debugf("Parsing HTTP forward response...")
-	
-	// Try to parse as raw JSON array first
-	var rawArray []json.RawMessage
-	if err := json.Unmarshal(responseBody, &rawArray); err == nil && len(rawArray) > 0 {
-		h.logger.Infof("Parsed response as array with %d elements, using first element", len(rawArray))
-		
-		// Take the first element and parse it as CommandResponse
-		var commandResponse pb.CommandResponse
-		if err := json.Unmarshal(rawArray[0], &commandResponse); err != nil {
-			h.logger.Errorf("Failed to parse first array element as CommandResponse: %v", err)
-			h.logger.Debugf("First element content: %s", string(rawArray[0]))
-			
-			// If parsing fails, create a success response with raw data
-			commandResponse = pb.CommandResponse{
-				Success:   true,
-				Error:     "",
-				CommandId: "forwarded-raw",
-				// Raw data in Result if possible
-			}
-		}
-		
-		h.logger.Infof("Command successfully forwarded via HTTP to %s for client %s", targetURL, clientID)
-		return &commandResponse, nil
-	}
-	
-	// If not an array, try single CommandResponse
-	var commandResponse pb.CommandResponse
-	if err := json.Unmarshal(responseBody, &commandResponse); err != nil {
-		h.logger.Errorf("Failed to parse HTTP forward response: %v", err)
-		h.logger.Errorf("Response body: %s", string(responseBody))
-		
-		// Create a minimal success response as fallback
-		return &pb.CommandResponse{
-			Success:   true,
-			Error:     "",
-			CommandId: "forwarded-fallback",
-		}, nil
-	}
-
+	// Return the raw response as a special error that can be handled by caller
 	h.logger.Infof("Command successfully forwarded via HTTP to %s for client %s", targetURL, clientID)
-	return &commandResponse, nil
+	h.logger.Infof("Returning raw forwarded response (%d bytes)", len(responseBody))
+
+	return nil, &ForwardedResponse{
+		RawJSON:    responseBody,
+		StatusCode: resp.StatusCode,
+		ClientID:   clientID,
+	}
 }
 
 // tryDirectSend attempts to send command directly to local client

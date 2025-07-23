@@ -41,29 +41,29 @@ func (h *Client) HandleSendCommand(ctx context.Context, op models.OperationClass
 		}
 	}
 
-	// Track if any forwards are needed for special handling
-	var forwardNeeded bool
-	var forwardResponses []any
+	h.logger.Infof("Processing %d clients for command", len(clients))
 
-	for _, client := range clients {
-		// *** NEW ROUTING LOGIC - CHECK LOCATION FIRST ***
-		// First check where the client is located before doing any processing
+	for i, client := range clients {
+		h.logger.Infof("Processing client %s (%d/%d)", client.ClientID, i+1, len(clients))
+		
+		// Check location and process accordingly
 		response, err := h.sendCommandWithLocationCheck(ctx, requestDetails, client, op, processor)
 		if err != nil {
 			// Check if this is a forwarded response with raw JSON
 			if forwardedResp, ok := err.(*ForwardedResponse); ok {
 				h.logger.Infof("Received forwarded response for client %s (%d bytes)", forwardedResp.ClientID, len(forwardedResp.RawJSON))
-
-				// Parse the raw JSON to return it properly
-				var rawResponse json.RawMessage
-				if err := json.Unmarshal(forwardedResp.RawJSON, &rawResponse); err != nil {
-					h.logger.Errorf("Failed to parse forwarded response JSON: %v", err)
-					return nil, fmt.Errorf("failed to parse forwarded response: %v", err)
+				
+				// Parse the forwarded response - it should be an array of responses
+				var forwardedResults []any
+				if err := json.Unmarshal(forwardedResp.RawJSON, &forwardedResults); err != nil {
+					h.logger.Errorf("Failed to parse forwarded response JSON for client %s: %v", forwardedResp.ClientID, err)
+					return nil, fmt.Errorf("failed to parse forwarded response for client %s: %v", forwardedResp.ClientID, err)
 				}
 
-				// Return the raw JSON directly - this will be sent to user as-is
-				h.logger.Infof("Returning raw forwarded response to user (%d bytes)", len(forwardedResp.RawJSON))
-				return rawResponse, nil
+				// Add all forwarded results to our main result array (flatten)
+				h.logger.Infof("Flattening %d forwarded responses into main result for client %s", len(forwardedResults), forwardedResp.ClientID)
+				result = append(result, forwardedResults...)
+				continue
 			}
 
 			h.logger.WithFields(logger.Fields{
@@ -71,39 +71,23 @@ func (h *Client) HandleSendCommand(ctx context.Context, op models.OperationClass
 				"downstream_address": client.DownstreamAddress,
 				"error":              err,
 			}).Errorf("Command sending error")
-			return nil, fmt.Errorf("command sending error: %v", err)
-		}
-		// *** END NEW ROUTING LOGIC ***
-
-		// Check if this was a forwarded response
-		if response != nil && response.CommandId == "forwarded" {
-			h.logger.Infof("Detected forwarded response for client %s", client.ClientID)
-			forwardNeeded = true
-			// For forwarded responses, we should return raw data
-			// This is a temporary workaround - ideally should be handled at HTTP level
-			forwardResponses = append(forwardResponses, map[string]interface{}{
-				"message":   "Response was forwarded to another controller",
-				"client_id": client.ClientID,
-				"forwarded": true,
-			})
-			continue
+			return nil, fmt.Errorf("command sending error for client %s: %v", client.ClientID, err)
 		}
 
+		// This is a local response - process normally
 		responser, exists := h.responser.GetResponser(op.GetType())
 		if !exists {
 			h.logger.Errorf("Unsupported responser command type: %s", op.GetType())
 			return nil, fmt.Errorf("unsupported responser command type: %s", op.GetType())
 		}
 
-		result = append(result, responser.ValidateAndTransform(op, response))
+		localResponse := responser.ValidateAndTransform(op, response)
+		result = append(result, localResponse)
+		
+		h.logger.Infof("Added local response for client %s to result array", client.ClientID)
 	}
 
-	// If any forwards happened, return special response indicating forward
-	if forwardNeeded {
-		h.logger.Infof("Returning forwarded response indication for %d clients", len(forwardResponses))
-		return forwardResponses, nil
-	}
-
+	h.logger.Infof("Command processing completed. Returning %d total responses", len(result))
 	return result, nil
 }
 
@@ -124,10 +108,14 @@ func (h *Client) executeDirectCommand(_ context.Context, op models.OperationClas
 		}
 	}
 
-	for _, client := range clients {
+	h.logger.Infof("Direct execution for %d clients (forwarded request)", len(clients))
+
+	for i, client := range clients {
+		h.logger.Infof("Processing client %s (%d/%d) - direct execution", client.ClientID, i+1, len(clients))
+		
 		processedPayload, err := processor.ValidateAndTransform(op, requestDetails, client)
 		if err != nil {
-			return nil, fmt.Errorf("command validation error: %v", err)
+			return nil, fmt.Errorf("command validation error for client %s: %v", client.ClientID, err)
 		}
 
 		// Direct send only (no routing)
@@ -141,9 +129,13 @@ func (h *Client) executeDirectCommand(_ context.Context, op models.OperationClas
 			return nil, fmt.Errorf("unsupported responser command type: %s", op.GetType())
 		}
 
-		result = append(result, responser.ValidateAndTransform(op, response))
+		processedResponse := responser.ValidateAndTransform(op, response)
+		result = append(result, processedResponse)
+		
+		h.logger.Infof("Successfully processed client %s via direct execution", client.ClientID)
 	}
 
+	h.logger.Infof("Direct execution completed for %d clients", len(result))
 	return result, nil
 }
 

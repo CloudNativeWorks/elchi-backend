@@ -47,16 +47,35 @@ func (s *ControllerRoutingService) RegisterController(ctx context.Context, contr
 	return s.storage.RegisterController(ctx, controller)
 }
 
-// GetControllerCluster finds the appropriate controller for a client (version-agnostic search)
+// GetControllerCluster finds the appropriate controller for a client
 func (s *ControllerRoutingService) GetControllerCluster(ctx context.Context, clientID, version string) (*models.ControllerInfo, error) {
-	s.logger.Infof("Looking for controller for client: %s (searching all versions)", clientID)
-
 	if clientID == "" {
 		return nil, fmt.Errorf("client ID cannot be empty")
 	}
 
-	// Search for client across all versions
-	return s.findClientInAnyVersion(ctx, clientID)
+	if version == "" {
+		// Version-agnostic search
+		s.logger.Infof("Looking for controller for client: %s (searching all versions)", clientID)
+		return s.findClientInAnyVersion(ctx, clientID)
+	} else {
+		// Version-specific search
+		s.logger.Infof("Looking for controller for client: %s version: %s", clientID, version)
+
+		// Try direct mapping first
+		mapping, err := s.storage.GetClientMapping(ctx, clientID, version)
+		if err == nil {
+			// Found mapping, get controller
+			controller, err := s.storage.GetController(ctx, mapping.ControllerID)
+			if err == nil {
+				s.logger.Infof("Found client mapping: %s:%s -> %s", clientID, version, controller.ID)
+				return controller, nil
+			}
+		}
+
+		// If version-specific search fails, fallback to version-agnostic
+		s.logger.Debugf("Version-specific search failed for %s:%s, trying version-agnostic", clientID, version)
+		return s.findClientInAnyVersion(ctx, clientID)
+	}
 }
 
 // findClientInAnyVersion searches for a client across all versions

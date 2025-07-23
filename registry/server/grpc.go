@@ -98,19 +98,35 @@ func (s *ControllerGRPCServer) RegisterController(ctx context.Context, req *pb.R
 
 // GetControllerCluster handles controller cluster routing requests
 func (s *ControllerGRPCServer) GetControllerCluster(ctx context.Context, req *pb.GetControllerClusterRequest) (*pb.GetControllerClusterResponse, error) {
-	if req == nil || req.ClientId == "" || req.Version == "" {
-		return nil, status.Error(codes.InvalidArgument, "client ID and version cannot be empty")
+	if req == nil || req.ClientId == "" {
+		return nil, status.Error(codes.InvalidArgument, "client ID cannot be empty")
+	}
+
+	// Log the search type
+	if req.Version == "" {
+		s.logger.Infof("Version-agnostic controller search for client: %s", req.ClientId)
+	} else {
+		s.logger.Infof("Version-specific controller search for client: %s version: %s", req.ClientId, req.Version)
 	}
 
 	controller, err := s.controllerRoutingService.GetControllerCluster(ctx, req.ClientId, req.Version)
 	if err != nil {
-		s.logger.Errorf("Failed to find controller for client %s version %s: %v", req.ClientId, req.Version, err)
+		if req.Version == "" {
+			s.logger.Errorf("Failed to find controller for client %s (version-agnostic): %v", req.ClientId, err)
+		} else {
+			s.logger.Errorf("Failed to find controller for client %s version %s: %v", req.ClientId, req.Version, err)
+		}
 		return &pb.GetControllerClusterResponse{
 			Found: false,
 		}, nil
 	}
 
-	s.logger.Infof("Controller routing decision: %s:%s -> %s", req.ClientId, req.Version, controller.ID)
+	if req.Version == "" {
+		s.logger.Infof("Controller routing decision (version-agnostic): %s -> %s", req.ClientId, controller.ID)
+	} else {
+		s.logger.Infof("Controller routing decision: %s:%s -> %s", req.ClientId, req.Version, controller.ID)
+	}
+
 	return &pb.GetControllerClusterResponse{
 		Found:        true,
 		ControllerId: controller.ID,

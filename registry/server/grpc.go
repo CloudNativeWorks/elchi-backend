@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"sync"
+
 	"github.com/CloudNativeWorks/elchi-backend/pkg/helper"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/registry/models"
@@ -50,13 +52,15 @@ var ExcludedPaths = []string{
 type ControllerGRPCServer struct {
 	pb.UnimplementedControllerRoutingServiceServer
 	controllerRoutingService *service.ControllerRoutingService
+	extProcessorServer       *ExternalProcessorServer
 	logger                   *logger.Logger
 }
 
 // NewControllerGRPCServer creates a new gRPC server instance for controller routing
-func NewControllerGRPCServer(controllerRoutingService *service.ControllerRoutingService, logger *logger.Logger) *ControllerGRPCServer {
+func NewControllerGRPCServer(controllerRoutingService *service.ControllerRoutingService, extProcessorServer *ExternalProcessorServer, logger *logger.Logger) *ControllerGRPCServer {
 	return &ControllerGRPCServer{
 		controllerRoutingService: controllerRoutingService,
+		extProcessorServer:       extProcessorServer,
 		logger:                   logger,
 	}
 }
@@ -127,7 +131,11 @@ func (s *ControllerGRPCServer) NotifyClientConnected(ctx context.Context, req *p
 		}, nil
 	}
 
+	// Clear pending assignment now that the client is officially connected
+	s.extProcessorServer.ClearPendingClientAssignment(req.ClientId, req.ControllerId)
+	
 	s.logger.Infof("Client connected notification processed: %s -> %s (version: %s)", req.ControllerId, req.ClientId, req.Version)
+	
 	return &pb.NotifyClientConnectedResponse{
 		Success: true,
 		Message: "client connected notification processed",
@@ -307,13 +315,15 @@ func (s *ControllerGRPCServer) GetAllRegistryData(ctx context.Context, req *pb.G
 type ControlPlaneGRPCServer struct {
 	pb.UnimplementedEnvoyRoutingServiceServer // Using legacy proto for now
 	controlPlaneRoutingService                *service.RoutingService
+	extProcessorServer                        *ExternalProcessorServer
 	logger                                    *logger.Logger
 }
 
 // NewControlPlaneGRPCServer creates a new gRPC routing server instance
-func NewControlPlaneGRPCServer(controlPlaneRoutingService *service.RoutingService, logger *logger.Logger) *ControlPlaneGRPCServer {
+func NewControlPlaneGRPCServer(controlPlaneRoutingService *service.RoutingService, extProcessorServer *ExternalProcessorServer, logger *logger.Logger) *ControlPlaneGRPCServer {
 	return &ControlPlaneGRPCServer{
 		controlPlaneRoutingService: controlPlaneRoutingService,
+		extProcessorServer:         extProcessorServer,
 		logger:                     logger,
 	}
 }
@@ -380,6 +390,9 @@ func (s *ControlPlaneGRPCServer) NotifySnapshotDelivered(ctx context.Context, re
 			Message: "failed: " + err.Error(),
 		}, nil
 	}
+
+	// Clear pending assignment now that the snapshot is delivered
+	s.extProcessorServer.ClearPendingNodeAssignment(req.NodeId, req.ControlPlaneId)
 
 	s.logger.Infof("Snapshot delivered notification processed: %s -> %s", req.ControlPlaneId, req.NodeId)
 	return &pb.NotifySnapshotDeliveredResponse{
@@ -541,6 +554,12 @@ type ExternalProcessorServer struct {
 	controlPlaneRoutingService *service.RoutingService           // For control-plane routing
 	logger                     *logger.Logger
 	excludedPaths              map[string]bool // For O(1) lookup
+	
+	// Mutex for atomic controller assignment
+	assignmentMutex sync.RWMutex
+	// Pending assignments to prevent race conditions
+	pendingClientAssignments map[string]string // clientID -> controllerID
+	pendingNodeAssignments   map[string]string // nodeID -> controlPlaneID
 }
 
 // NewExternalProcessorServer creates a new external processor server
@@ -556,11 +575,16 @@ func NewExternalProcessorServer(controllerRoutingService *service.ControllerRout
 		controlPlaneRoutingService: controlPlaneRoutingService,
 		logger:                     logger,
 		excludedPaths:              excludedPaths,
+		pendingClientAssignments: make(map[string]string),
+		pendingNodeAssignments:   make(map[string]string),
 	}
 }
 
 // Process handles Envoy's ext_proc bidirectional stream
 func (p *ExternalProcessorServer) Process(stream ext.ExternalProcessor_ProcessServer) error {
+	p.logger.Debugf("Started ext_proc stream")
+	defer p.logger.Debugf("Ended ext_proc stream")
+
 	for {
 		req, err := stream.Recv()
 		if err != nil {
@@ -568,6 +592,13 @@ func (p *ExternalProcessorServer) Process(stream ext.ExternalProcessor_ProcessSe
 				p.logger.Debugf("Stream closed normally (EOF)")
 				return nil
 			}
+			
+			// Check if it's a context canceled error (normal when Envoy closes stream)
+			if strings.Contains(err.Error(), "context canceled") || strings.Contains(err.Error(), "Canceled") {
+				p.logger.Debugf("Stream canceled by client/envoy: %v", err)
+				return nil
+			}
+			
 			p.logger.Warnf("Error receiving request: %v", err)
 			return err
 		}
@@ -874,7 +905,17 @@ func (p *ExternalProcessorServer) resolveControllerCluster(version, clientID str
 	// Use controller routing service to find appropriate controller
 	ctx := context.Background()
 
-	// First try to get existing mapping
+	// Atomic assignment with mutex
+	p.assignmentMutex.Lock()
+	defer p.assignmentMutex.Unlock()
+
+	// Check if there's a pending assignment first
+	if pendingController, exists := p.pendingClientAssignments[clientID]; exists {
+		p.logger.Infof("Found pending controller assignment: %s -> %s", clientID, pendingController)
+		return pendingController
+	}
+
+	// Try to get existing mapping
 	controller, err := p.controllerRoutingService.GetControllerCluster(ctx, clientID, version)
 	if err == nil && controller != nil {
 		p.logger.Infof("Found existing controller mapping: %s -> %s", clientID, controller.ID)
@@ -887,6 +928,22 @@ func (p *ExternalProcessorServer) resolveControllerCluster(version, clientID str
 		p.logger.Errorf("Failed to get least loaded controller: %v", err)
 		return ""
 	}
+
+	// Create pending assignment to prevent race conditions
+	p.pendingClientAssignments[clientID] = controller.ID
+	p.logger.Infof("Created pending assignment: %s -> %s (for new client)", clientID, controller.ID)
+
+	// Set timeout to clear pending assignment if not confirmed
+	go func() {
+		time.Sleep(30 * time.Second) // 30 second timeout
+		p.assignmentMutex.Lock()
+		defer p.assignmentMutex.Unlock()
+		
+		if pendingController, exists := p.pendingClientAssignments[clientID]; exists && pendingController == controller.ID {
+			delete(p.pendingClientAssignments, clientID)
+			p.logger.Warnf("Cleared pending assignment due to timeout: %s -> %s", clientID, controller.ID)
+		}
+	}()
 
 	p.logger.Infof("Selected least loaded controller: %s (for new client %s)", controller.ID, clientID)
 	return controller.ID
@@ -904,7 +961,17 @@ func (p *ExternalProcessorServer) resolveControlPlaneCluster(version, nodeID str
 	// Use control-plane routing service to find appropriate control plane
 	ctx := context.Background()
 
-	// First try to get existing mapping
+	// Atomic assignment with mutex
+	p.assignmentMutex.Lock()
+	defer p.assignmentMutex.Unlock()
+
+	// Check if there's a pending assignment first
+	if pendingControlPlane, exists := p.pendingNodeAssignments[nodeID]; exists {
+		p.logger.Infof("Found pending control-plane assignment: %s -> %s", nodeID, pendingControlPlane)
+		return pendingControlPlane
+	}
+
+	// Try to get existing mapping
 	controlPlane, err := p.controlPlaneRoutingService.GetControlPlaneCluster(ctx, nodeID, version)
 	if err == nil && controlPlane != nil {
 		p.logger.Infof("Found existing control-plane mapping: %s -> %s", nodeID, controlPlane.ID)
@@ -918,8 +985,46 @@ func (p *ExternalProcessorServer) resolveControlPlaneCluster(version, nodeID str
 		return ""
 	}
 
+	// Create pending assignment to prevent race conditions
+	p.pendingNodeAssignments[nodeID] = controlPlane.ID
+	p.logger.Infof("Created pending assignment: %s -> %s (for new node)", nodeID, controlPlane.ID)
+
+	// Set timeout to clear pending assignment if not confirmed
+	go func() {
+		time.Sleep(30 * time.Second) // 30 second timeout
+		p.assignmentMutex.Lock()
+		defer p.assignmentMutex.Unlock()
+		
+		if pendingControlPlane, exists := p.pendingNodeAssignments[nodeID]; exists && pendingControlPlane == controlPlane.ID {
+			delete(p.pendingNodeAssignments, nodeID)
+			p.logger.Warnf("Cleared pending assignment due to timeout: %s -> %s", nodeID, controlPlane.ID)
+		}
+	}()
+
 	p.logger.Infof("Selected least loaded control-plane: %s (for new node %s)", controlPlane.ID, nodeID)
 	return controlPlane.ID
+}
+
+// ClearPendingClientAssignment clears a pending client assignment
+func (p *ExternalProcessorServer) ClearPendingClientAssignment(clientID, controllerID string) {
+	p.assignmentMutex.Lock()
+	defer p.assignmentMutex.Unlock()
+	
+	if pendingController, exists := p.pendingClientAssignments[clientID]; exists && pendingController == controllerID {
+		delete(p.pendingClientAssignments, clientID)
+		p.logger.Infof("Cleared pending client assignment: %s -> %s", clientID, controllerID)
+	}
+}
+
+// ClearPendingNodeAssignment clears a pending node assignment
+func (p *ExternalProcessorServer) ClearPendingNodeAssignment(nodeID, controlPlaneID string) {
+	p.assignmentMutex.Lock()
+	defer p.assignmentMutex.Unlock()
+	
+	if pendingControlPlane, exists := p.pendingNodeAssignments[nodeID]; exists && pendingControlPlane == controlPlaneID {
+		delete(p.pendingNodeAssignments, nodeID)
+		p.logger.Infof("Cleared pending node assignment: %s -> %s", nodeID, controlPlaneID)
+	}
 }
 
 // StartGRPCServer starts the gRPC server
@@ -943,16 +1048,18 @@ func StartGRPCServer(address string, controllerRoutingService *service.Controlle
 		}),
 	)
 
-	// Register controller routing service
-	controllerGRPCServer := NewControllerGRPCServer(controllerRoutingService, logger)
+	// Create external processor server first
+	extProcessorServer := NewExternalProcessorServer(controllerRoutingService, controlPlaneRoutingService, logger)
+
+	// Register controller routing service with access to external processor
+	controllerGRPCServer := NewControllerGRPCServer(controllerRoutingService, extProcessorServer, logger)
 	pb.RegisterControllerRoutingServiceServer(grpcServer, controllerGRPCServer)
 
-	// Register control-plane routing service
-	controlPlaneGRPCServer := NewControlPlaneGRPCServer(controlPlaneRoutingService, logger)
+	// Register control-plane routing service with access to external processor
+	controlPlaneGRPCServer := NewControlPlaneGRPCServer(controlPlaneRoutingService, extProcessorServer, logger)
 	pb.RegisterEnvoyRoutingServiceServer(grpcServer, controlPlaneGRPCServer)
 
 	// Register external processor service (for Envoy ext_proc)
-	extProcessorServer := NewExternalProcessorServer(controllerRoutingService, controlPlaneRoutingService, logger)
 	ext.RegisterExternalProcessorServer(grpcServer, extProcessorServer)
 
 	logger.Infof("gRPC server starting on address %s (Controller + Control-Plane + ExternalProcessor services)", address)

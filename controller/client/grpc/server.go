@@ -91,7 +91,7 @@ func (s *Server) CommandStream(stream pb.CommandService_CommandStreamServer) err
 	}
 
 	if err := s.clientService.ValidateSession(clientID, sessionToken); err != nil {
-		s.logger.Errorf("Session validation error (Client ID: %s): %v", clientID, err)
+		s.logger.Errorf("Session validation error (Client ID: %s, Session Token: %s): %v", clientID, sessionToken, err)
 		return fmt.Errorf("session validation error: %v", err)
 	}
 

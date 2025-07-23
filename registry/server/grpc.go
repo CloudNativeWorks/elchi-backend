@@ -131,9 +131,7 @@ func (s *ControllerGRPCServer) NotifyClientConnected(ctx context.Context, req *p
 		}, nil
 	}
 
-	// Clear pending assignment now that the client is officially connected
-	s.extProcessorServer.ClearPendingClientAssignment(req.ClientId, req.ControllerId)
-	
+	// Note: Pending assignment will be cleared automatically when real mapping is found
 	s.logger.Infof("Client connected notification processed: %s -> %s (version: %s)", req.ControllerId, req.ClientId, req.Version)
 	
 	return &pb.NotifyClientConnectedResponse{
@@ -909,17 +907,22 @@ func (p *ExternalProcessorServer) resolveControllerCluster(version, clientID str
 	p.assignmentMutex.Lock()
 	defer p.assignmentMutex.Unlock()
 
-	// Check if there's a pending assignment first
-	if pendingController, exists := p.pendingClientAssignments[clientID]; exists {
-		p.logger.Infof("Found pending controller assignment: %s -> %s", clientID, pendingController)
-		return pendingController
-	}
-
-	// Try to get existing mapping
+	// Try to get existing mapping first (without pending check)
 	controller, err := p.controllerRoutingService.GetControllerCluster(ctx, clientID, version)
 	if err == nil && controller != nil {
 		p.logger.Infof("Found existing controller mapping: %s -> %s", clientID, controller.ID)
+		// Clear any pending assignment since we have a real mapping
+		if _, exists := p.pendingClientAssignments[clientID]; exists {
+			delete(p.pendingClientAssignments, clientID)
+			p.logger.Infof("Cleared pending assignment (found real mapping): %s -> %s", clientID, controller.ID)
+		}
 		return controller.ID
+	}
+
+	// Check if there's a pending assignment
+	if pendingController, exists := p.pendingClientAssignments[clientID]; exists {
+		p.logger.Infof("Found pending controller assignment: %s -> %s", clientID, pendingController)
+		return pendingController
 	}
 
 	// If no mapping exists or error occurred, get least loaded controller

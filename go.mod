@@ -4,8 +4,8 @@ go 1.24.1
 
 require (
 	github.com/CloudNativeWorks/elchi-proto v0.0.0-20250722200702-04a279b5c4eb
-	github.com/CloudNativeWorks/versioned-go-control-plane v0.13.4-envoy1.33.5
-	github.com/CloudNativeWorks/versioned-go-control-plane/envoy v1.33.5
+	github.com/CloudNativeWorks/versioned-go-control-plane v0.13.4-envoy1.34.3
+	github.com/CloudNativeWorks/versioned-go-control-plane/envoy v1.34.3
 	github.com/Masterminds/sprig/v3 v3.3.0
 	github.com/gin-gonic/gin v1.10.0
 	github.com/go-playground/validator/v10 v10.26.0
@@ -28,7 +28,7 @@ require (
 require (
 	cel.dev/expr v0.23.0 // indirect
 	dario.cat/mergo v1.0.1 // indirect
-	github.com/CloudNativeWorks/versioned-go-control-plane/ratelimit v1.33.5 // indirect
+	github.com/CloudNativeWorks/versioned-go-control-plane/ratelimit v1.34.3 // indirect
 	github.com/Masterminds/goutils v1.1.1 // indirect
 	github.com/Masterminds/semver/v3 v3.3.0 // indirect
 	github.com/bytedance/sonic v1.11.6 // indirect

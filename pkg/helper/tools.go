@@ -207,18 +207,26 @@ func GenerateUniqueID(length int) string {
 	return string(result)
 }
 
-// ToK8sServiceName converts a controller ID to its full Kubernetes headless service DNS name
+// ToK8sServiceName converts a controller ID to its full Kubernetes headless service DNS name for StatefulSet
 // Example: elchi-controller-foo-1 -> elchi-controller-foo-1.elchi-controller-foo-headless.elchi-stack.svc.cluster.local
 func ToK8sServiceName(controllerID string, namespace string) string {
-	// Service name: controllerID (örn: elchi-controller-foo-1)
-	// Headless service: {service-name}-headless
-	// Namespace: parametre
-	// Format: {controllerID}.{service-name}-headless.{namespace}.svc.cluster.local
+	// For StatefulSet pods, DNS format is: {pod-name}.{headless-service-name}.{namespace}.svc.cluster.local
+	// Pod name: full controller ID (e.g., elchi-controller-foo-1)
+	// Service name: controller ID without the last digit (e.g., elchi-controller-foo)
+	
+	podName := controllerID
 	serviceName := controllerID
+	
+	// Remove last digit from service name (e.g., -0, -1, -2)
 	if idx := strings.LastIndex(controllerID, "-"); idx > 0 {
-		serviceName = controllerID[:idx]
+		// Check if the last part is a digit (StatefulSet pod ordinal)
+		lastPart := controllerID[idx+1:]
+		if _, err := strconv.Atoi(lastPart); err == nil {
+			serviceName = controllerID[:idx]
+		}
 	}
-	return serviceName + "." + serviceName + "-headless." + namespace + ".svc.cluster.local"
+	
+	return podName + "." + serviceName + "-headless." + namespace + ".svc.cluster.local"
 }
 
 // SafeCloseCursor safely closes a MongoDB cursor

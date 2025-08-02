@@ -33,6 +33,9 @@ func (s *Server) Run(config *config.AppConfig, logger *logrus.Logger) error {
 		Addr:              addr,
 		Handler:           s.Router,
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,  // Allow 30s for reading request
+		WriteTimeout:      45 * time.Second,  // Allow 45s for writing response (includes forward time)
+		IdleTimeout:       60 * time.Second,  // Keep connections alive for 60s
 	}
 	done := make(chan os.Signal, 1)
 	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)

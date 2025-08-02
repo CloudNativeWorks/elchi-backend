@@ -48,7 +48,7 @@ func (e ClientFetchError) Error() string {
 
 // Constants
 const (
-	HTTPTimeout        = 30 * time.Second
+	HTTPTimeout        = 25 * time.Second  // Increased to 25s (less than server WriteTimeout 45s)
 	ControllerHTTPPort = "8099"
 	DevModeEnvVar      = "DEV_MODE"
 	
@@ -65,20 +65,54 @@ const (
 	ForwardTrue     = "true"
 )
 
+// Shared HTTP client with connection pooling for better performance
+var sharedHTTPClient = &http.Client{
+	Timeout: HTTPTimeout,
+	Transport: &http.Transport{
+		MaxIdleConns:        100,               // Total idle connections
+		MaxIdleConnsPerHost: 10,                // Idle connections per host
+		IdleConnTimeout:     90 * time.Second,  // How long idle connections stay open
+		DisableCompression:  false,             // Enable gzip compression
+		ForceAttemptHTTP2:   true,              // Use HTTP/2 when possible
+	},
+}
+
 // handleForwardedResponse processes a forwarded response and adds it to results
 func (h *Client) handleForwardedResponse(forwardedResp *ForwardedResponse, result *[]any) error {
 	h.logger.Infof("Received forwarded response for client %s (%d bytes)", forwardedResp.ClientID, len(forwardedResp.RawJSON))
+	
+	// DEBUG: Log first part of raw JSON for inspection
+	if len(forwardedResp.RawJSON) > 200 {
+		h.logger.Debugf("Raw JSON preview: %s...", string(forwardedResp.RawJSON[:200]))
+	} else {
+		h.logger.Debugf("Raw JSON full: %s", string(forwardedResp.RawJSON))
+	}
 	
 	// Parse the forwarded response - it should be an array of responses
 	var forwardedResults []any
 	if err := json.Unmarshal(forwardedResp.RawJSON, &forwardedResults); err != nil {
 		h.logger.Errorf("Failed to parse forwarded response JSON for client %s: %v", forwardedResp.ClientID, err)
+		h.logger.Errorf("Problematic JSON: %s", string(forwardedResp.RawJSON))
 		return fmt.Errorf("failed to parse forwarded response for client %s: %v", forwardedResp.ClientID, err)
+	}
+
+	h.logger.Infof("Parsed %d forwarded results for client %s", len(forwardedResults), forwardedResp.ClientID)
+	
+	// DEBUG: Log what we're adding
+	for i, item := range forwardedResults {
+		h.logger.Debugf("Adding forwarded result %d: type=%T", i, item)
 	}
 
 	// Add all forwarded results to our main result array (flatten)
 	h.logger.Infof("Flattening %d forwarded responses into main result for client %s", len(forwardedResults), forwardedResp.ClientID)
+	
+	// Store current length for verification
+	beforeLen := len(*result)
 	*result = append(*result, forwardedResults...)
+	afterLen := len(*result)
+	
+	h.logger.Debugf("Result array: before=%d, added=%d, after=%d", beforeLen, len(forwardedResults), afterLen)
+	
 	return nil
 }
 
@@ -91,9 +125,13 @@ func (h *Client) processLocalResponse(op models.OperationClass, response *pb.Com
 	}
 
 	localResponse := responser.ValidateAndTransform(op, response)
+	
+	// Add to result array
 	*result = append(*result, localResponse)
 	
-	h.logger.Infof("Added local response for client %s to result array", clientID)
+	h.logger.Infof("Added local response for client %s (result count: %d)", clientID, len(*result))
+	h.logger.Debugf("Local response type: %T", localResponse)
+	
 	return nil
 }
 
@@ -105,6 +143,135 @@ func (h *Client) validateAndPrepareCommand(op models.OperationClass) (processor.
 		return nil, ProcessorNotFoundError{CommandType: op.GetType()}
 	}
 	return processor, nil
+}
+
+// ClientProcessResult represents result of processing a single client
+type ClientProcessResult struct {
+	ClientID string
+	Result   any
+	Error    error
+	Index    int
+}
+
+// processClientsInParallel processes multiple clients concurrently for better performance
+func (h *Client) processClientsInParallel(ctx context.Context, clients []models.ServiceClients, op models.OperationClass, processor processor.CommandProcessor, requestDetails models.RequestDetails) ([]any, error) {
+	if len(clients) == 0 {
+		return []any{}, nil
+	}
+
+	// For single client, use sequential processing (no overhead)
+	if len(clients) == 1 {
+		return h.processClientSequential(ctx, clients, op, processor, requestDetails)
+	}
+
+	h.logger.Infof("Processing %d clients in parallel", len(clients))
+	
+	// Use indexed results to maintain order
+	results := make([]ClientProcessResult, len(clients))
+	resultChan := make(chan ClientProcessResult, len(clients))
+	
+	// Worker pool size (max 5 concurrent forwards to avoid overwhelming)
+	maxWorkers := 5
+	if len(clients) < maxWorkers {
+		maxWorkers = len(clients)
+	}
+	
+	// Semaphore for limiting concurrent requests
+	semaphore := make(chan struct{}, maxWorkers)
+	
+	// Start goroutines for each client
+	for i, client := range clients {
+		go func(index int, client models.ServiceClients) {
+			// Acquire semaphore
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+			
+			h.logger.Debugf("Processing client %s in parallel (%d/%d)", client.ClientID, index+1, len(clients))
+			
+			// Process single client
+			response, err := h.sendCommandWithLocationCheck(ctx, requestDetails, client, op, processor)
+			
+			resultChan <- ClientProcessResult{
+				ClientID: client.ClientID,
+				Result:   response,
+				Error:    err,
+				Index:    index,
+			}
+		}(i, client)
+	}
+	
+	// Collect results in order
+	for i := 0; i < len(clients); i++ {
+		result := <-resultChan
+		results[result.Index] = result // Store by index to maintain order
+	}
+	
+	// Process results in original order
+	finalResults := make([]any, 0, len(clients))
+	for i, result := range results {
+		h.logger.Debugf("Processing result for client %s at index %d", result.ClientID, i)
+		
+		if result.Error != nil {
+			// Handle forwarded response
+			if forwardedResp, ok := result.Error.(*ForwardedResponse); ok {
+				if err := h.handleForwardedResponse(forwardedResp, &finalResults); err != nil {
+					return nil, err
+				}
+				continue
+			}
+			
+			// Regular error
+			h.logger.WithFields(logger.Fields{
+				"client_id": result.ClientID,
+				"error":     result.Error,
+				"index":     i,
+			}).Errorf("Parallel command processing error")
+			return nil, fmt.Errorf("command sending error for client %s: %v", result.ClientID, result.Error)
+		}
+		
+		// Process local response
+		if response, ok := result.Result.(*pb.CommandResponse); ok {
+			if err := h.processLocalResponse(op, response, result.ClientID, &finalResults); err != nil {
+				return nil, err
+			}
+		}
+	}
+	
+	h.logger.Infof("Parallel processing completed for %d clients, returning %d responses", len(clients), len(finalResults))
+	return finalResults, nil
+}
+
+// processClientSequential processes clients sequentially (fallback for single client)
+func (h *Client) processClientSequential(ctx context.Context, clients []models.ServiceClients, op models.OperationClass, processor processor.CommandProcessor, requestDetails models.RequestDetails) ([]any, error) {
+	result := []any{}
+	for i, client := range clients {
+		h.logger.Infof("Processing client %s (%d/%d)", client.ClientID, i+1, len(clients))
+		
+		response, err := h.sendCommandWithLocationCheck(ctx, requestDetails, client, op, processor)
+		if err != nil {
+			// Check if this is a forwarded response with raw JSON
+			if forwardedResp, ok := err.(*ForwardedResponse); ok {
+				if err := h.handleForwardedResponse(forwardedResp, &result); err != nil {
+					return nil, err
+				}
+				continue
+			}
+
+			// Regular error
+			h.logger.WithFields(logger.Fields{
+				"client_id":          client.ClientID,
+				"downstream_address": client.DownstreamAddress,
+				"error":              err,
+			}).Errorf("Command sending error")
+			return nil, fmt.Errorf("command sending error for client %s: %v", client.ClientID, err)
+		}
+
+		// This is a local response - process normally
+		if err := h.processLocalResponse(op, response, client.ClientID, &result); err != nil {
+			return nil, err
+		}
+	}
+	return result, nil
 }
 
 // buildTargetURL builds the target URL for forwarding based on environment
@@ -148,11 +315,26 @@ func (h *Client) prepareForwardRequest(ctx context.Context, targetURL string, re
 
 // executeForwardRequest executes HTTP request and returns response body
 func (h *Client) executeForwardRequest(req *http.Request, targetURL string) ([]byte, error) {
-	client := &http.Client{
-		Timeout: HTTPTimeout,
+	// Check if we have enough time left in the context
+	if deadline, ok := req.Context().Deadline(); ok {
+		timeLeft := time.Until(deadline)
+		h.logger.Infof("Context deadline check: %v remaining", timeLeft)
+		
+		// If less than HTTPTimeout + 5s buffer, create new context with sufficient time
+		if timeLeft < HTTPTimeout+5*time.Second {
+			h.logger.Warnf("Insufficient time in parent context (%v), creating new context for forward request", timeLeft)
+			
+			// Create new context with sufficient timeout for forward request
+			newCtx, cancel := context.WithTimeout(context.Background(), HTTPTimeout+5*time.Second)
+			defer cancel()
+			
+			// Update request context
+			req = req.WithContext(newCtx)
+			h.logger.Infof("Created new context with %v timeout for forward request", HTTPTimeout+5*time.Second)
+		}
 	}
 
-	resp, err := client.Do(req)
+	resp, err := sharedHTTPClient.Do(req)
 	if err != nil {
 		h.logger.Errorf("HTTP forward request failed: %v", err)
 		return nil, fmt.Errorf("failed to forward HTTP request to %s: %v", targetURL, err)
@@ -179,6 +361,13 @@ func (h *Client) executeForwardRequest(req *http.Request, targetURL string) ([]b
 }
 
 func (h *Client) HandleSendCommand(ctx context.Context, op models.OperationClass, requestDetails models.RequestDetails) (any, error) {
+	// Performance timing
+	startTime := time.Now()
+	defer func() {
+		duration := time.Since(startTime)
+		h.logger.Infof("Command processing took %v", duration)
+	}()
+	
 	// Check if this is a forwarded request to prevent infinite loops
 	if requestDetails.IsForwarded {
 		h.logger.Debugf("Processing forwarded request, using direct execution only")
@@ -194,45 +383,27 @@ func (h *Client) HandleSendCommand(ctx context.Context, op models.OperationClass
 	// Get or fetch clients
 	clients := op.GetClients()
 	if len(clients) == 0 {
+		fetchStart := time.Now()
 		clients, err = h.FetchClients(op)
 		if err != nil {
 			h.logger.Errorf("Failed to fetch clients: %v", err)
 			return nil, ClientFetchError{Operation: op.GetType(), Cause: err}
 		}
+		h.logger.Infof("Client fetch took %v for %d clients", time.Since(fetchStart), len(clients))
 	}
 
 	h.logger.Infof("Processing %d clients for command", len(clients))
 
-	// Process each client
-	result := []any{}
-	for i, client := range clients {
-		h.logger.Infof("Processing client %s (%d/%d)", client.ClientID, i+1, len(clients))
-		
-		// Check location and process accordingly
-		response, err := h.sendCommandWithLocationCheck(ctx, requestDetails, client, op, processor)
-		if err != nil {
-			// Check if this is a forwarded response with raw JSON
-			if forwardedResp, ok := err.(*ForwardedResponse); ok {
-				if err := h.handleForwardedResponse(forwardedResp, &result); err != nil {
-					return nil, err
-				}
-				continue
-			}
-
-			// Regular error
-			h.logger.WithFields(logger.Fields{
-				"client_id":          client.ClientID,
-				"downstream_address": client.DownstreamAddress,
-				"error":              err,
-			}).Errorf("Command sending error")
-			return nil, fmt.Errorf("command sending error for client %s: %v", client.ClientID, err)
-		}
-
-		// This is a local response - process normally
-		if err := h.processLocalResponse(op, response, client.ClientID, &result); err != nil {
-			return nil, err
-		}
+	// Use parallel processing for better performance
+	processStart := time.Now()
+	result, err := h.processClientsInParallel(ctx, clients, op, processor, requestDetails)
+	if err != nil {
+		return nil, err
 	}
+	
+	processDuration := time.Since(processStart)
+	h.logger.Infof("Client processing took %v for %d clients (%v per client)", 
+		processDuration, len(clients), processDuration/time.Duration(len(clients)))
 
 	h.logger.Infof("Command processing completed. Returning %d total responses", len(result))
 	return result, nil
@@ -240,9 +411,9 @@ func (h *Client) HandleSendCommand(ctx context.Context, op models.OperationClass
 
 // executeDirectCommand executes command directly without routing (for forwarded requests)
 func (h *Client) executeDirectCommand(_ context.Context, op models.OperationClass, requestDetails models.RequestDetails) (any, error) {
-	h.logger.Infof("=== DIRECT EXECUTION START ===")
-	h.logger.Infof("Is Forwarded Request: %v", requestDetails.IsForwarded)
-	h.logger.Infof("Original Body Size: %d bytes", len(requestDetails.OriginalBody))
+	h.logger.Debugf("=== DIRECT EXECUTION START ===")
+	h.logger.Debugf("Is Forwarded Request: %v", requestDetails.IsForwarded)
+	h.logger.Debugf("Original Body Size: %d bytes", len(requestDetails.OriginalBody))
 	
 	clients := op.GetClients()
 	result := []any{}
@@ -289,7 +460,7 @@ func (h *Client) executeDirectCommand(_ context.Context, op models.OperationClas
 	}
 
 	h.logger.Infof("Direct execution completed for %d clients, returning %d responses", len(clients), len(result))
-	h.logger.Infof("=== DIRECT EXECUTION END ===")
+	h.logger.Debugf("=== DIRECT EXECUTION END ===")
 	return result, nil
 }
 
@@ -356,12 +527,12 @@ func (h *Client) sendCommandWithLocationCheck(ctx context.Context, requestDetail
 	h.logger.Infof("Forwarding raw request for client %s from %s to %s (no validate & transform)", clientID, currentControllerID, clientLocation.ControllerId)
 
 	// Forward raw request via HTTP to target controller
-	h.logger.Infof("=== FORWARD DEBUG ===")
-	h.logger.Infof("Client: %s", clientID)
-	h.logger.Infof("From Controller: %s", currentControllerID)
-	h.logger.Infof("To Controller: %s", clientLocation.ControllerId)
-	h.logger.Infof("Original Body Size: %d bytes", len(requestDetails.OriginalBody))
-	h.logger.Infof("=====================")
+	h.logger.Debugf("=== FORWARD DEBUG ===")
+	h.logger.Debugf("Client: %s", clientID)
+	h.logger.Debugf("From Controller: %s", currentControllerID)
+	h.logger.Debugf("To Controller: %s", clientLocation.ControllerId)
+	h.logger.Debugf("Original Body Size: %d bytes", len(requestDetails.OriginalBody))
+	h.logger.Debugf("=====================")
 
 	return h.forwardCommandViaHTTP(ctx, requestDetails, clientLocation.ControllerId, clientID, op.GetTypeNum(), op.GetSubTypeNum(), nil) // Pass nil for payload since we're forwarding raw
 }
@@ -382,26 +553,26 @@ func (h *Client) forwardCommandViaHTTP(ctx context.Context, requestDetails model
 	// Build target URL
 	targetURL := h.buildTargetURL(targetControllerID)
 
-	h.logger.Infof("=== HTTP FORWARD ===")
-	h.logger.Infof("Target Controller ID: %s", targetControllerID)
-	h.logger.Infof("Target URL: %s", targetURL)
-	h.logger.Infof("Client ID: %s", clientID)
-	h.logger.Infof("Has Original Body: %v", len(requestDetails.OriginalBody) > 0)
-	h.logger.Infof("Has Token: %v", requestDetails.Token != "")
-	h.logger.Infof("Is Forwarded: %v", requestDetails.IsForwarded)
-	h.logger.Infof("===================")
+	h.logger.Debugf("=== HTTP FORWARD ===")
+	h.logger.Debugf("Target Controller ID: %s", targetControllerID)
+	h.logger.Debugf("Target URL: %s", targetURL)
+	h.logger.Debugf("Client ID: %s", clientID)
+	h.logger.Debugf("Has Original Body: %v", len(requestDetails.OriginalBody) > 0)
+	h.logger.Debugf("Has Token: %v", requestDetails.Token != "")
+	h.logger.Debugf("Is Forwarded: %v", requestDetails.IsForwarded)
+	h.logger.Debugf("===================")
 
 	// Filter original request body to only include the specific client
 	var requestBody []byte
 	if len(requestDetails.OriginalBody) > 0 {
-		h.logger.Infof("About to filter request body for client %s...", clientID)
+		h.logger.Debugf("About to filter request body for client %s...", clientID)
 		filteredBody, err := h.filterRequestBodyForClient(requestDetails.OriginalBody, clientID)
 		if err != nil {
 			h.logger.Errorf("Failed to filter request body for client %s: %v", clientID, err)
 			return nil, fmt.Errorf("failed to filter request body for client %s: %v", clientID, err)
 		}
 		requestBody = filteredBody
-		h.logger.Infof("Successfully filtered request body for client %s: original=%d bytes, filtered=%d bytes", clientID, len(requestDetails.OriginalBody), len(requestBody))
+		h.logger.Debugf("Successfully filtered request body for client %s: original=%d bytes, filtered=%d bytes", clientID, len(requestDetails.OriginalBody), len(requestBody))
 	} else {
 		h.logger.Warnf("No original request body found for client %s", clientID)
 	}
@@ -419,8 +590,8 @@ func (h *Client) forwardCommandViaHTTP(ctx context.Context, requestDetails model
 	}
 
 	// Return the raw response as a special error that can be handled by caller
-	h.logger.Infof("Command successfully forwarded via HTTP to %s for client %s", targetURL, clientID)
-	h.logger.Infof("Returning raw forwarded response (%d bytes)", len(responseBody))
+	h.logger.Debugf("Command successfully forwarded via HTTP to %s for client %s", targetURL, clientID)
+	h.logger.Debugf("Returning raw forwarded response (%d bytes)", len(responseBody))
 
 	return nil, &ForwardedResponse{
 		RawJSON:    responseBody,
@@ -431,12 +602,12 @@ func (h *Client) forwardCommandViaHTTP(ctx context.Context, requestDetails model
 
 // filterRequestBodyForClient filters the original request body to only include the specified client
 func (h *Client) filterRequestBodyForClient(originalBody []byte, targetClientID string) ([]byte, error) {
-	h.logger.Infof("=== FILTER REQUEST BODY ===")
-	h.logger.Infof("Target Client ID: %s", targetClientID)
-	h.logger.Infof("Original Body Size: %d bytes", len(originalBody))
+	h.logger.Debugf("=== FILTER REQUEST BODY ===")
+	h.logger.Debugf("Target Client ID: %s", targetClientID)
+	h.logger.Debugf("Original Body Size: %d bytes", len(originalBody))
 	
 	// Parse as generic JSON to avoid type conversion issues
-	var jsonData map[string]interface{}
+	var jsonData map[string]any
 	if err := json.Unmarshal(originalBody, &jsonData); err != nil {
 		h.logger.Errorf("Failed to parse original request body as JSON: %v", err)
 		return nil, fmt.Errorf("failed to parse original request body as JSON: %v", err)
@@ -455,7 +626,7 @@ func (h *Client) filterRequestBodyForClient(originalBody []byte, targetClientID 
 		shouldAddTargetClient = true
 	} else {
 		// Check if it's an empty array
-		clientsArray, ok := clients.([]interface{})
+		clientsArray, ok := clients.([]any)
 		if !ok {
 			h.logger.Errorf("Clients field is not an array")
 			return nil, fmt.Errorf("clients field is not an array")
@@ -467,10 +638,10 @@ func (h *Client) filterRequestBodyForClient(originalBody []byte, targetClientID 
 	}
 	
 	if shouldAddTargetClient {
-		h.logger.Infof("Adding target client info for forwarding")
+		h.logger.Debugf("Adding target client info for forwarding")
 		
 		// Add the target client to the JSON
-		jsonData["clients"] = []map[string]interface{}{
+		jsonData["clients"] = []map[string]any{
 			{
 				"client_id":          targetClientID,
 				"downstream_address": "", // Target controller will resolve this
@@ -484,23 +655,20 @@ func (h *Client) filterRequestBodyForClient(originalBody []byte, targetClientID 
 			return nil, fmt.Errorf("failed to marshal updated request body: %v", err)
 		}
 		
-		h.logger.Infof("Created filtered body with target client: %d bytes", len(updatedBody))
+		h.logger.Debugf("Created filtered body with target client: %d bytes", len(updatedBody))
 		return updatedBody, nil
 	}
 	
-	// If clients array exists, filter it
-	clientsArray, ok := clients.([]interface{})
-	if !ok {
-		h.logger.Errorf("Clients field is not an array")
-		return nil, fmt.Errorf("clients field is not an array")
-	}
+	// If clients array exists, filter it efficiently
+	clientsArray := clients.([]any)
+	h.logger.Debugf("Original request contains %d clients", len(clientsArray))
 	
-	h.logger.Infof("Original request contains %d clients", len(clientsArray))
+	// Pre-allocate slice for better performance
+	filteredClients := make([]map[string]any, 0, 1) // Usually just one client
 	
 	// Filter clients to only include the target client
-	var filteredClients []map[string]interface{}
 	for _, client := range clientsArray {
-		clientMap, ok := client.(map[string]interface{})
+		clientMap, ok := client.(map[string]any)
 		if !ok {
 			h.logger.Errorf("Unexpected client format in original request body")
 			return nil, fmt.Errorf("unexpected client format in original request body")
@@ -508,9 +676,10 @@ func (h *Client) filterRequestBodyForClient(originalBody []byte, targetClientID 
 
 		if clientMap["client_id"] == targetClientID {
 			filteredClients = append(filteredClients, clientMap)
-			h.logger.Infof("✓ Including client %s in filtered request", clientMap["client_id"])
+			h.logger.Debugf("✓ Including client %s in filtered request", clientMap["client_id"])
+			break // Found target client, no need to continue
 		} else {
-			h.logger.Infof("✗ Excluding client %s from filtered request", clientMap["client_id"])
+			h.logger.Debugf("✗ Excluding client %s from filtered request", clientMap["client_id"])
 		}
 	}
 
@@ -520,20 +689,19 @@ func (h *Client) filterRequestBodyForClient(originalBody []byte, targetClientID 
 	}
 
 	// Create new operations struct with filtered clients
-	filteredOp := jsonData
-	filteredOp["clients"] = filteredClients
+	jsonData["clients"] = filteredClients
 
-	h.logger.Infof("Filtered request contains %d clients (target: %s)", len(filteredClients), targetClientID)
+	h.logger.Debugf("Filtered request contains %d clients (target: %s)", len(filteredClients), targetClientID)
 
 	// Marshal back to JSON
-	filteredBody, err := json.Marshal(filteredOp)
+	filteredBody, err := json.Marshal(jsonData)
 	if err != nil {
 		h.logger.Errorf("Failed to marshal filtered request: %v", err)
 		return nil, fmt.Errorf("failed to marshal filtered request: %v", err)
 	}
 
-	h.logger.Infof("Filtered Body Size: %d bytes", len(filteredBody))
-	h.logger.Infof("==============================")
+	h.logger.Debugf("Filtered Body Size: %d bytes", len(filteredBody))
+	h.logger.Debugf("==============================")
 	return filteredBody, nil
 }
 

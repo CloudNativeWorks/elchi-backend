@@ -1,0 +1,82 @@
+syntax = "proto3";
+
+package bridge;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/any.proto";
+
+option go_package = ".;bridge";
+
+service SnapshotService {
+  rpc GetSnapshotKeys(Empty) returns (SnapshotKeyList);
+  rpc GetSnapshotResources(SnapshotKey) returns (SnapshotResourceList);
+}
+
+service PokeService {
+  rpc Poke(PokeRequest) returns (PokeResponse); 
+}
+
+service ResourceService {
+  rpc ValidateResource(ValidateResourceRequest) returns (ValidateResourceResponse);
+}
+
+message Client {
+  string server_address = 1;
+  string node_id = 2;
+  int64 first_connected = 3;
+  int64 last_seen = 4;
+  int64 connection_count = 5;
+  string client_addr = 6;
+  string local_addr = 7;
+  repeated int64 stream_ids = 8;
+  repeated ErrorEntry errors = 9;
+  int64 request_count = 10;
+}
+
+message ErrorEntry {
+  string message = 1;
+  string resource_id = 2;
+  string response_nonce = 3;
+  int32 count = 4;
+  bool resolved = 5;
+  string timestamp = 6;
+}
+
+message NodeErrorResponse {
+  repeated ErrorEntry errors = 1;
+}
+
+message PokeRequest {
+  string nodeID = 1;
+  string project = 2;
+  string version = 3;
+  string downstream_address = 4;
+}
+
+message PokeResponse { string message = 1; }
+
+message Empty {}
+
+message SnapshotKey { string key = 1; }
+
+message SnapshotKeyList { repeated string keys = 1; }
+
+message SnapshotResource {
+  string type = 1;
+  google.protobuf.Struct data = 2;
+}
+
+message SnapshotResourceList {
+  repeated SnapshotResource resources = 1;
+  int64 num_watches = 2;
+  string last_watch = 3;
+}
+
+message ValidateResourceRequest {
+  string gtype = 1;
+  google.protobuf.Any resource = 2;
+}
+
+message ValidateResourceResponse {
+  string error = 1;
+}

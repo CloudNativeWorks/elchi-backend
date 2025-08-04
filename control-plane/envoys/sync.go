@@ -174,15 +174,24 @@ func (e *EnvoyConnTracker) updateDownstreamsWithCount(downstreams []bson.M, down
 
 func (e *EnvoyConnTracker) DisconnectNodeIDWithCount(ctx context.Context, dbClient *mongo.Database, nodeID string, connCount int, isUndeploy bool, logger *logger.Logger) {
 	name, project, downstreamAddress := GetNodeIDParts(nodeID)
-	if downstreamAddress == "" {
+	
+	fmt.Printf("🔍 DEBUG: DisconnectNodeIDWithCount - nodeID=%s, name=%s, project=%s, downstreamAddress='%s', isUndeploy=%t\n", 
+		nodeID, name, project, downstreamAddress, isUndeploy)
+	
+	if name == "" || project == "" {
+		fmt.Printf("🔍 DEBUG: DisconnectNodeIDWithCount - invalid nodeID format, skipping\n")
+		logger.Errorf("Invalid nodeID format: %s", nodeID)
 		return
 	}
+	
+	// downstreamAddress empty olabilir, bu normal
 	collection := dbClient.Collection("envoys")
 	filter := bson.M{"name": name, "project": project}
 
 	var existing bson.M
 	err := collection.FindOne(ctx, filter).Decode(&existing)
 	if err != nil {
+		fmt.Printf("🔍 DEBUG: DisconnectNodeIDWithCount - error reading envoys: %v\n", err)
 		logger.Errorf("Error reading envoys stream: %v", err)
 		return
 	}
@@ -196,7 +205,10 @@ func (e *EnvoyConnTracker) DisconnectNodeIDWithCount(ctx context.Context, dbClie
 	update := bson.M{"$set": updateFields}
 	_, err = collection.UpdateOne(ctx, filter, update)
 	if err != nil {
+		fmt.Printf("🔍 DEBUG: DisconnectNodeIDWithCount - error updating: %v\n", err)
 		logger.Errorf("Error removing node ID: %v", err)
+	} else {
+		fmt.Printf("🔍 DEBUG: DisconnectNodeIDWithCount - successfully updated MongoDB\n")
 	}
 }
 

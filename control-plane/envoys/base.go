@@ -19,6 +19,7 @@ type dbOperation struct {
 	downAddress string
 	clientName  string
 	logger      *logger.Logger
+	isUndeploy  bool
 }
 
 type EnvoyConnTracker struct {
@@ -44,7 +45,7 @@ func (e *EnvoyConnTracker) processDBOperations() {
 		case "inc":
 			e.AddOrUpdateEnvoy(ctx, op.dbClient, op.address, op.nodeID, op.version, op.downAddress, op.clientName, op.count, op.logger)
 		case "dec":
-			e.DisconnectNodeIDWithCount(ctx, op.dbClient, op.nodeID, op.count, op.logger)
+			e.DisconnectNodeIDWithCount(ctx, op.dbClient, op.nodeID, op.count, op.isUndeploy, op.logger)
 		}
 		cancel()
 	}
@@ -72,4 +73,22 @@ func (e *EnvoyConnTracker) Count(nodeID string) int {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.Counter[nodeID]
+}
+
+func (e *EnvoyConnTracker) TrackUndeploy(dbClient *mongo.Database, nodeID string, logger *logger.Logger) {
+	// Counter'ı güncelle (undeploy durumunda 0 yap)
+	e.mu.Lock()
+	e.Counter[nodeID] = 0
+	e.mu.Unlock()
+	
+	// Async olarak undeploy işlemini yap
+	e.dbOpChan <- dbOperation{
+		nodeID:     nodeID,
+		count:      0,
+		op:         "dec",
+		dbClient:   dbClient,
+		logger:     logger,
+		isUndeploy: true, // Bu undeploy işlemi
+	}
+	logger.Infof("Undeploy scheduled for NodeID %s", nodeID)
 }

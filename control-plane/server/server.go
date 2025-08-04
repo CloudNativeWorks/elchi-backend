@@ -19,6 +19,7 @@ import (
 	routeservice "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/service/route/v3"
 	"github.com/CloudNativeWorks/versioned-go-control-plane/pkg/server/v3"
 
+	"github.com/CloudNativeWorks/elchi-backend/control-plane/envoys"
 	serverBridge "github.com/CloudNativeWorks/elchi-backend/control-plane/server/bridge"
 	"github.com/CloudNativeWorks/elchi-backend/control-plane/server/snapshot"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/bridge"
@@ -37,24 +38,26 @@ const (
 )
 
 type Server struct {
-	xdsServer      server.Server
-	port           uint
-	logger         *logger.Logger
-	context        *snapshot.Context
-	healthServer   *health.Server
-	routingManager *registry.ControlPlaneManager
+	xdsServer        server.Server
+	port             uint
+	logger           *logger.Logger
+	context          *snapshot.Context
+	healthServer     *health.Server
+	routingManager   *registry.ControlPlaneManager
+	envoyConnTracker *envoys.EnvoyConnTracker
 }
 
-func NewServer(xdsServer server.Server, port uint, context *snapshot.Context) *Server {
+func NewServer(xdsServer server.Server, port uint, context *snapshot.Context, envoyConnTracker *envoys.EnvoyConnTracker) *Server {
 	logger := logger.NewLogger("control-plane/server")
 
 	return &Server{
-		xdsServer:      xdsServer,
-		port:           port,
-		logger:         logger,
-		context:        context,
-		healthServer:   health.NewServer(),
-		routingManager: nil, // Will be set from cmd if provided
+		xdsServer:        xdsServer,
+		port:             port,
+		logger:           logger,
+		context:          context,
+		healthServer:     health.NewServer(),
+		routingManager:   nil, // Will be set from cmd if provided
+		envoyConnTracker: envoyConnTracker,
 	}
 }
 
@@ -127,7 +130,7 @@ func (s *Server) registerServer(grpcServer *grpc.Server, db *db.AppContext) {
 	// bridge grpc services
 	bridge.RegisterSnapshotServiceServer(grpcServer, serverBridge.NewSnapshotServiceServer(s.context))
 	bridge.RegisterResourceServiceServer(grpcServer, serverBridge.NewResourceServiceServer(s.context))
-	bridge.RegisterPokeServiceServer(grpcServer, serverBridge.NewPokeServiceServer(s.context, db))
+	bridge.RegisterPokeServiceServer(grpcServer, serverBridge.NewPokeServiceServer(s.context, db, s.envoyConnTracker))
 
 	// health check
 	grpc_health_v1.RegisterHealthServer(grpcServer, s.healthServer)

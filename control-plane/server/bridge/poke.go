@@ -46,6 +46,19 @@ func (pss *PokeServiceServer) Poke(ctx context.Context, req *bridge.PokeRequest)
 	return response, nil
 }
 
+// YENİ: NotifyUndeploy RPC implementation
+func (pss *PokeServiceServer) NotifyUndeploy(ctx context.Context, req *bridge.UndeployRequest) (*bridge.UndeployResponse, error) {
+	pss.Logger.Infof("Undeploy notification received for NodeID: %s, Service: %s", req.NodeID, req.ServiceName)
+	
+	// Thread-safe async undeploy işlemi
+	pss.EnvoyConnTracker.TrackUndeploy(pss.AppContext.Client, req.NodeID, pss.Logger)
+	
+	pss.Logger.Infof("Undeploy processed successfully for NodeID: %s", req.NodeID)
+	
+	response := &bridge.UndeployResponse{Message: "Undeploy notification processed successfully"}
+	return response, nil
+}
+
 func (ps *PokeService) CheckSnapshot(node string) bool {
 	snapshot, err := ps.Snapshot.Cache.Cache.GetSnapshot(node)
 	if err != nil {

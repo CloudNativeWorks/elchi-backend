@@ -71,7 +71,7 @@ func (e *EnvoyConnTracker) AddOrUpdateEnvoy(ctx context.Context, dbClient *mongo
 
 	updateFields := bson.M{}
 	downstreams := getDownstreams(existing)
-	downstreams = e.updateDownstreamsWithCount(downstreams, downstreamAddress, nodeID, version, clientName, source_address, connCount)
+	downstreams = e.updateDownstreamsWithCount(downstreams, downstreamAddress, nodeID, version, clientName, source_address, connCount, false)
 	updateFields["envoys"] = downstreams
 	updateFields["status"] = determineStatus(downstreams)
 
@@ -83,11 +83,11 @@ func (e *EnvoyConnTracker) AddOrUpdateEnvoy(ctx context.Context, dbClient *mongo
 	}
 }
 
-func (e *EnvoyConnTracker) updateDownstreamsWithCount(downstreams []bson.M, downstreamAddress, nodeID, version, clientName, source_address string, connCount int) []bson.M {
+func (e *EnvoyConnTracker) updateDownstreamsWithCount(downstreams []bson.M, downstreamAddress, nodeID, version, clientName, source_address string, connCount int, isUndeploy bool) []bson.M {
 	connected := connCount > 0
 
-	// Eğer connCount 0 ise, downstream'i listeden sil
-	if connCount == 0 {
+	// Eğer undeploy ise downstream'i listeden tamamen sil
+	if isUndeploy {
 		filteredDownstreams := []bson.M{}
 		for _, m := range downstreams {
 			if m["downstream_address"] != downstreamAddress {
@@ -97,6 +97,7 @@ func (e *EnvoyConnTracker) updateDownstreamsWithCount(downstreams []bson.M, down
 		return filteredDownstreams
 	}
 
+	// Normal işlem: connCount = 0 ise connected = false yap ama listede tut
 	found := false
 	for _, m := range downstreams {
 		if m["downstream_address"] == downstreamAddress {
@@ -116,7 +117,7 @@ func (e *EnvoyConnTracker) updateDownstreamsWithCount(downstreams []bson.M, down
 		}
 	}
 
-	if !found {
+	if !found && !isUndeploy {
 		entry := bson.M{
 			"connected":   connected,
 			"nodeid":      nodeID,
@@ -146,7 +147,7 @@ func (e *EnvoyConnTracker) updateDownstreamsWithCount(downstreams []bson.M, down
 	return downstreams
 }
 
-func (e *EnvoyConnTracker) DisconnectNodeIDWithCount(ctx context.Context, dbClient *mongo.Database, nodeID string, connCount int, logger *logger.Logger) {
+func (e *EnvoyConnTracker) DisconnectNodeIDWithCount(ctx context.Context, dbClient *mongo.Database, nodeID string, connCount int, isUndeploy bool, logger *logger.Logger) {
 	name, project, downstreamAddress := GetNodeIDParts(nodeID)
 	if downstreamAddress == "" {
 		return
@@ -163,7 +164,7 @@ func (e *EnvoyConnTracker) DisconnectNodeIDWithCount(ctx context.Context, dbClie
 
 	updateFields := bson.M{}
 	downstreams := getDownstreams(existing)
-	downstreams = e.updateDownstreamsWithCount(downstreams, downstreamAddress, nodeID, "", "", "", connCount)
+	downstreams = e.updateDownstreamsWithCount(downstreams, downstreamAddress, nodeID, "", "", "", connCount, isUndeploy)
 	updateFields["envoys"] = downstreams
 	updateFields["status"] = determineStatus(downstreams)
 

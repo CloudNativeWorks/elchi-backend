@@ -159,7 +159,8 @@ var SnapshotService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	PokeService_Poke_FullMethodName = "/bridge.PokeService/Poke"
+	PokeService_Poke_FullMethodName           = "/bridge.PokeService/Poke"
+	PokeService_NotifyUndeploy_FullMethodName = "/bridge.PokeService/NotifyUndeploy"
 )
 
 // PokeServiceClient is the client API for PokeService service.
@@ -167,6 +168,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type PokeServiceClient interface {
 	Poke(ctx context.Context, in *PokeRequest, opts ...grpc.CallOption) (*PokeResponse, error)
+	NotifyUndeploy(ctx context.Context, in *UndeployRequest, opts ...grpc.CallOption) (*UndeployResponse, error)
 }
 
 type pokeServiceClient struct {
@@ -187,11 +189,22 @@ func (c *pokeServiceClient) Poke(ctx context.Context, in *PokeRequest, opts ...g
 	return out, nil
 }
 
+func (c *pokeServiceClient) NotifyUndeploy(ctx context.Context, in *UndeployRequest, opts ...grpc.CallOption) (*UndeployResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UndeployResponse)
+	err := c.cc.Invoke(ctx, PokeService_NotifyUndeploy_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PokeServiceServer is the server API for PokeService service.
 // All implementations must embed UnimplementedPokeServiceServer
 // for forward compatibility.
 type PokeServiceServer interface {
 	Poke(context.Context, *PokeRequest) (*PokeResponse, error)
+	NotifyUndeploy(context.Context, *UndeployRequest) (*UndeployResponse, error)
 	mustEmbedUnimplementedPokeServiceServer()
 }
 
@@ -204,6 +217,9 @@ type UnimplementedPokeServiceServer struct{}
 
 func (UnimplementedPokeServiceServer) Poke(context.Context, *PokeRequest) (*PokeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Poke not implemented")
+}
+func (UnimplementedPokeServiceServer) NotifyUndeploy(context.Context, *UndeployRequest) (*UndeployResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method NotifyUndeploy not implemented")
 }
 func (UnimplementedPokeServiceServer) mustEmbedUnimplementedPokeServiceServer() {}
 func (UnimplementedPokeServiceServer) testEmbeddedByValue()                     {}
@@ -244,6 +260,24 @@ func _PokeService_Poke_Handler(srv interface{}, ctx context.Context, dec func(in
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PokeService_NotifyUndeploy_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UndeployRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PokeServiceServer).NotifyUndeploy(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PokeService_NotifyUndeploy_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PokeServiceServer).NotifyUndeploy(ctx, req.(*UndeployRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PokeService_ServiceDesc is the grpc.ServiceDesc for PokeService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -254,6 +288,10 @@ var PokeService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Poke",
 			Handler:    _PokeService_Poke_Handler,
+		},
+		{
+			MethodName: "NotifyUndeploy",
+			Handler:    _PokeService_NotifyUndeploy_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

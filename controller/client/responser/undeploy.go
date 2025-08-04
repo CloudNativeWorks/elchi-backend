@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/CloudNativeWorks/elchi-backend/controller/crud/xds"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/bridge"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 	pb "github.com/CloudNativeWorks/elchi-proto/client"
@@ -43,6 +44,13 @@ func (p *UnDeployResponser) ValidateAndTransform(op models.OperationClass, respo
 		p.Logger.Errorf("Error while removing service from envoys: %v", err)
 	} else {
 		p.Logger.Infof("Service: %s successfully removed from envoys", serviceName)
+	}
+
+	// Control-plane undeploy notification send
+	if err := p.notifyControlPlaneUndeploy(serviceName, projectName, downstreamAddress); err != nil {
+		p.Logger.Errorf("Error while notifying control-plane about undeploy: %v", err)
+	} else {
+		p.Logger.Infof("Control-plane notified about undeploy: %s", serviceName)
 	}
 
 	return response
@@ -143,4 +151,22 @@ func (p *UnDeployResponser) removeServiceFromEnvoys(serviceName, projectName, cl
 	}
 
 	return nil
+}
+
+func (p *UnDeployResponser) notifyControlPlaneUndeploy(serviceName, projectName, downstreamAddress string) error {
+	// NodeID oluştur: name::project::downstream_address formatında
+	nodeID := fmt.Sprintf("%s::%s::%s", serviceName, projectName, downstreamAddress)
+	
+	// UndeployRequest oluştur
+	request := &bridge.UndeployRequest{
+		NodeID:            nodeID,
+		Project:           projectName,
+		ServiceName:       serviceName,
+		DownstreamAddress: downstreamAddress,
+	}
+	
+	// Control-plane'e undeploy notification gönder
+	ctx := context.Background()
+	_, err := (*p.XDSHandler.PokeService).NotifyUndeploy(ctx, request)
+	return err
 }

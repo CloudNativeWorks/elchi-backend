@@ -13,7 +13,8 @@ service SnapshotService {
 }
 
 service PokeService {
-  rpc Poke(PokeRequest) returns (PokeResponse); 
+  rpc Poke(PokeRequest) returns (PokeResponse);
+  rpc NotifyUndeploy(UndeployRequest) returns (UndeployResponse);
 }
 
 service ResourceService {
@@ -54,6 +55,15 @@ message PokeRequest {
 }
 
 message PokeResponse { string message = 1; }
+
+message UndeployRequest {
+  string nodeID = 1;
+  string project = 2;
+  string serviceName = 3;
+  string downstreamAddress = 4;
+}
+
+message UndeployResponse { string message = 1; }
 
 message Empty {}
 

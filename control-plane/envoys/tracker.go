@@ -28,11 +28,12 @@ func (e *EnvoyConnTracker) TrackClientUp(dbClient *mongo.Database, nodeID, addre
 func (e *EnvoyConnTracker) TrackClientDown(dbClient *mongo.Database, cache cache.SnapshotCache, nodeID string, streamID int64, logger *logger.Logger) {
 	count := e.DecAndGet(nodeID)
 	e.dbOpChan <- dbOperation{
-		nodeID:   nodeID,
-		count:    count,
-		op:       "dec",
-		dbClient: dbClient,
-		logger:   logger,
+		nodeID:     nodeID,
+		count:      count,
+		op:         "dec",
+		dbClient:   dbClient,
+		logger:     logger,
+		isUndeploy: false, // Bu sadece normal disconnect, undeploy değil
 	}
 	logger.Infof("Client with NodeID %s removed", nodeID)
 }

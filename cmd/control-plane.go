@@ -81,7 +81,7 @@ var grpcCmd = &cobra.Command{
 		callbacks := grpcserver.NewCallbacks(pokeService, ctxCache, appContext, envoyConnTracker, routingManager)
 		srv := server.NewServer(context.Background(), ctxCache.Cache.Cache, callbacks)
 
-		grpcServer := grpcserver.NewServer(srv, port, ctxCache)
+		grpcServer := grpcserver.NewServer(srv, port, ctxCache, envoyConnTracker)
 		grpcServer.Run(appContext)
 	},
 }

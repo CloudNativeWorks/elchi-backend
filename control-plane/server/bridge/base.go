@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"github.com/CloudNativeWorks/elchi-backend/control-plane/envoys"
 	"github.com/CloudNativeWorks/elchi-backend/control-plane/server/snapshot"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/bridge"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
@@ -39,15 +40,17 @@ func NewSnapshotServiceServer(context *snapshot.Context) *SnapshotServiceServer 
 type PokeServiceServer struct {
 	bridge.UnimplementedPokeServiceServer
 	*BaseServiceServer
-	AppContext *db.AppContext
-	Logger     *logger.Logger
+	AppContext       *db.AppContext
+	Logger           *logger.Logger
+	EnvoyConnTracker *envoys.EnvoyConnTracker
 }
 
-func NewPokeServiceServer(context *snapshot.Context, db *db.AppContext) *PokeServiceServer {
+func NewPokeServiceServer(context *snapshot.Context, db *db.AppContext, envoyConnTracker *envoys.EnvoyConnTracker) *PokeServiceServer {
 	return &PokeServiceServer{
 		BaseServiceServer: &BaseServiceServer{context: context},
 		AppContext:        db,
 		Logger:            logger.NewLogger("control-plane/pokeServer"),
+		EnvoyConnTracker:  envoyConnTracker,
 	}
 }
 

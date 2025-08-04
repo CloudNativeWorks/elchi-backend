@@ -1,0 +1,69 @@
+version: '3.8'
+
+services:
+  # Controller 1
+  controller-1:
+    build:
+      context: .
+      dockerfile: Dockerfile-release
+      args:
+        ENVOY_VERSION: v1.33.5
+        ELCHI_CONTROL_PLANE_VERSION: v1.0.0
+    command: ["elchi-controller", "--config", "/app/.configs/controller-dev-1.yaml"]
+    hostname: controller-1  # Set explicit hostname for registry registration
+    ports:
+      - "8099:8099"   # External:Internal - HTTP API
+      - "50051:50051" # External:Internal - Control-plane gRPC
+    volumes:
+      - ./.configs:/app/.configs
+    networks:
+      - elchi-dev
+    environment:
+      - DEV_MODE=true  # Only for forwarding logic
+    restart: unless-stopped
+
+  # Controller 2
+  controller-2:
+    build:
+      context: .
+      dockerfile: Dockerfile-release
+      args:
+        ENVOY_VERSION: v1.33.5
+        ELCHI_CONTROL_PLANE_VERSION: v1.0.0
+    command: ["elchi-controller", "--config", "/app/.configs/controller-dev-2.yaml"]
+    hostname: controller-2  # Set explicit hostname for registry registration
+    ports:
+      - "8100:8099"   # External:Internal - HTTP API 
+      - "50052:50051" # External:Internal - Control-plane gRPC
+    volumes:
+      - ./.configs:/app/.configs
+    networks:
+      - elchi-dev
+    environment:
+      - DEV_MODE=true  # Only for forwarding logic
+    restart: unless-stopped
+
+  # Controller 3  
+  controller-3:
+    build:
+      context: .
+      dockerfile: Dockerfile-release
+      args:
+        ENVOY_VERSION: v1.33.5
+        ELCHI_CONTROL_PLANE_VERSION: v1.0.0
+    command: ["elchi-controller", "--config", "/app/.configs/controller-dev-3.yaml"]
+    hostname: controller-3  # Set explicit hostname for registry registration
+    ports:
+      - "8101:8099"   # External:Internal - HTTP API
+      - "50053:50051" # External:Internal - Control-plane gRPC
+    volumes:
+      - ./.configs:/app/.configs
+    networks:
+      - elchi-dev
+    environment:
+      - DEV_MODE=true  # Only for forwarding logic
+    restart: unless-stopped
+
+networks:
+  elchi-dev:
+    driver: bridge 

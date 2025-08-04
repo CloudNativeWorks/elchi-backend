@@ -35,23 +35,22 @@ func determineStatus(downstreams []bson.M) string {
 		return "Offline"
 	}
 
-	allConnected := true
-	anyConnected := false
+	connectedCount := 0
+	totalCount := len(downstreams)
+	
 	for _, d := range downstreams {
 		if connected, ok := d["connected"].(bool); ok && connected {
-			anyConnected = true
-		} else {
-			allConnected = false
+			connectedCount++
 		}
 	}
 
-	if allConnected {
+	if connectedCount == totalCount {
 		return "Live"
-	} else if anyConnected {
+	} else if connectedCount > 0 {
 		return "Partial"
+	} else {
+		return "Offline"
 	}
-
-	return "Offline"
 }
 
 func (e *EnvoyConnTracker) AddOrUpdateEnvoy(ctx context.Context, dbClient *mongo.Database, source_address, nodeID, version, downstreamAddress, clientName string, connCount int, logger *logger.Logger) {

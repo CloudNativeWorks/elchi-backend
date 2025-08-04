@@ -40,17 +40,18 @@ func (p *UnDeployResponser) ValidateAndTransform(op models.OperationClass, respo
 		p.Logger.Infof("Client ID: %s, Service: %s successfully removed", clientID, serviceName)
 	}
 
-	if err := p.removeServiceFromEnvoys(serviceName, projectName, clientName, downstreamAddress); err != nil {
-		p.Logger.Errorf("Error while removing service from envoys: %v", err)
-	} else {
-		p.Logger.Infof("Service: %s successfully removed from envoys", serviceName)
-	}
-
-	// Control-plane undeploy notification send
+	// Control-plane'e undeploy notification gönder (ÖNCE!)
 	if err := p.notifyControlPlaneUndeploy(serviceName, projectName, downstreamAddress); err != nil {
 		p.Logger.Errorf("Error while notifying control-plane about undeploy: %v", err)
 	} else {
 		p.Logger.Infof("Control-plane notified about undeploy: %s", serviceName)
+	}
+
+	// MongoDB'den silme işlemi (SONRA!)
+	if err := p.removeServiceFromEnvoys(serviceName, projectName, clientName, downstreamAddress); err != nil {
+		p.Logger.Errorf("Error while removing service from envoys: %v", err)
+	} else {
+		p.Logger.Infof("Service: %s successfully removed from envoys", serviceName)
 	}
 
 	return response

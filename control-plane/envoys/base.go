@@ -81,14 +81,11 @@ func (e *EnvoyConnTracker) TrackUndeploy(dbClient *mongo.Database, nodeID string
 	e.Counter[nodeID] = 0
 	e.mu.Unlock()
 	
-	// Async olarak undeploy işlemini yap
-	e.dbOpChan <- dbOperation{
-		nodeID:     nodeID,
-		count:      0,
-		op:         "dec",
-		dbClient:   dbClient,
-		logger:     logger,
-		isUndeploy: true, // Bu undeploy işlemi
-	}
-	logger.Infof("Undeploy scheduled for NodeID %s", nodeID)
+	// Synchronous undeploy işlemi (async değil!)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	
+	e.DisconnectNodeIDWithCount(ctx, dbClient, nodeID, 0, true, logger)
+	
+	logger.Infof("Undeploy completed synchronously for NodeID %s", nodeID)
 }

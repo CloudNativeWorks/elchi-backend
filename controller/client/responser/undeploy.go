@@ -158,6 +158,9 @@ func (p *UnDeployResponser) notifyControlPlaneUndeploy(serviceName, projectName,
 	// NodeID oluştur: name::project::downstream_address formatında
 	nodeID := fmt.Sprintf("%s::%s::%s", serviceName, projectName, downstreamAddress)
 	
+	fmt.Printf("🔍 DEBUG: notifyControlPlaneUndeploy called - nodeID=%s, serviceName=%s, project=%s, downstream=%s\n", 
+		nodeID, serviceName, projectName, downstreamAddress)
+	
 	// UndeployRequest oluştur
 	request := &bridge.UndeployRequest{
 		NodeID:            nodeID,
@@ -166,8 +169,17 @@ func (p *UnDeployResponser) notifyControlPlaneUndeploy(serviceName, projectName,
 		DownstreamAddress: downstreamAddress,
 	}
 	
+	fmt.Printf("🔍 DEBUG: Calling NotifyUndeploy RPC...\n")
+	
 	// Control-plane'e undeploy notification gönder
 	ctx := context.Background()
-	_, err := (*p.XDSHandler.PokeService).NotifyUndeploy(ctx, request)
-	return err
+	response, err := (*p.XDSHandler.PokeService).NotifyUndeploy(ctx, request)
+	
+	if err != nil {
+		fmt.Printf("🔍 DEBUG: NotifyUndeploy RPC failed: %v\n", err)
+		return err
+	}
+	
+	fmt.Printf("🔍 DEBUG: NotifyUndeploy RPC successful: %s\n", response.Message)
+	return nil
 }

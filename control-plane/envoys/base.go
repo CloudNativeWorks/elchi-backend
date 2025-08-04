@@ -2,6 +2,7 @@ package envoys
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -76,16 +77,24 @@ func (e *EnvoyConnTracker) Count(nodeID string) int {
 }
 
 func (e *EnvoyConnTracker) TrackUndeploy(dbClient *mongo.Database, nodeID string, logger *logger.Logger) {
+	fmt.Printf("🔍 DEBUG: TrackUndeploy called for nodeID: %s\n", nodeID)
+	
 	// Counter'ı güncelle (undeploy durumunda 0 yap)
 	e.mu.Lock()
 	e.Counter[nodeID] = 0
 	e.mu.Unlock()
 	
+	fmt.Printf("🔍 DEBUG: TrackUndeploy - counter set to 0 for nodeID: %s\n", nodeID)
+	
 	// Synchronous undeploy işlemi (async değil!)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	
+	fmt.Printf("🔍 DEBUG: TrackUndeploy - calling DisconnectNodeIDWithCount with isUndeploy=true\n")
+	
 	e.DisconnectNodeIDWithCount(ctx, dbClient, nodeID, 0, true, logger)
+	
+	fmt.Printf("🔍 DEBUG: TrackUndeploy - DisconnectNodeIDWithCount completed for nodeID: %s\n", nodeID)
 	
 	logger.Infof("Undeploy completed synchronously for NodeID %s", nodeID)
 }

@@ -34,6 +34,14 @@ type (
 	}
 )
 
+// ClientProcessResult represents result of processing a single client
+type ClientProcessResult struct {
+	ClientID string
+	Result   any
+	Error    error
+	Index    int
+}
+
 func (e ProcessorNotFoundError) Error() string {
 	return fmt.Sprintf("unsupported processor command type: %s", e.CommandType)
 }
@@ -145,14 +153,6 @@ func (h *Client) validateAndPrepareCommand(op models.OperationClass) (processor.
 	return processor, nil
 }
 
-// ClientProcessResult represents result of processing a single client
-type ClientProcessResult struct {
-	ClientID string
-	Result   any
-	Error    error
-	Index    int
-}
-
 // processClientsInParallel processes multiple clients concurrently for better performance
 func (h *Client) processClientsInParallel(ctx context.Context, clients []models.ServiceClients, op models.OperationClass, processor processor.CommandProcessor, requestDetails models.RequestDetails) ([]any, error) {
 	if len(clients) == 0 {
@@ -171,10 +171,7 @@ func (h *Client) processClientsInParallel(ctx context.Context, clients []models.
 	resultChan := make(chan ClientProcessResult, len(clients))
 	
 	// Worker pool size (max 5 concurrent forwards to avoid overwhelming)
-	maxWorkers := 5
-	if len(clients) < maxWorkers {
-		maxWorkers = len(clients)
-	}
+	maxWorkers := min(5, len(clients))
 	
 	// Semaphore for limiting concurrent requests
 	semaphore := make(chan struct{}, maxWorkers)

@@ -86,6 +86,17 @@ func (e *EnvoyConnTracker) AddOrUpdateEnvoy(ctx context.Context, dbClient *mongo
 func (e *EnvoyConnTracker) updateDownstreamsWithCount(downstreams []bson.M, downstreamAddress, nodeID, version, clientName, source_address string, connCount int) []bson.M {
 	connected := connCount > 0
 
+	// Eğer connCount 0 ise, downstream'i listeden sil
+	if connCount == 0 {
+		filteredDownstreams := []bson.M{}
+		for _, m := range downstreams {
+			if m["downstream_address"] != downstreamAddress {
+				filteredDownstreams = append(filteredDownstreams, m)
+			}
+		}
+		return filteredDownstreams
+	}
+
 	found := false
 	for _, m := range downstreams {
 		if m["downstream_address"] == downstreamAddress {

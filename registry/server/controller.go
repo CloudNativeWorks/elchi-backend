@@ -109,7 +109,7 @@ func (s *ControllerGRPCServer) NotifyClientConnected(ctx context.Context, req *p
 		return nil, status.Error(codes.InvalidArgument, "controller ID, client ID and version cannot be empty")
 	}
 
-	if err := s.controllerRoutingService.NotifyClientConnected(ctx, req.ControllerId, req.ClientId, req.Version); err != nil {
+	if err := s.controllerRoutingService.NotifyClientConnected(ctx, req.ControllerId, req.ClientId, req.Version, s.appConfig.ElchiNamespace); err != nil {
 		s.logger.Errorf("Failed to notify client connected: %v", err)
 		return &pb.NotifyClientConnectedResponse{
 			Success: false,
@@ -163,7 +163,7 @@ func (s *ControllerGRPCServer) UpdateClientList(ctx context.Context, req *pb.Upd
 		})
 	}
 
-	if err := s.controllerRoutingService.UpdateClientList(ctx, req.ControllerId, clients); err != nil {
+	if err := s.controllerRoutingService.UpdateClientList(ctx, req.ControllerId, clients, s.appConfig.ElchiNamespace); err != nil {
 		s.logger.Errorf("Failed to update client list for controller %s: %v", req.ControllerId, err)
 		return &pb.UpdateClientListResponse{
 			Success:      false,

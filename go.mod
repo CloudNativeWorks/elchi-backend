@@ -20,13 +20,13 @@ require (
 	go.mongodb.org/mongo-driver v1.17.3
 	golang.org/x/crypto v0.38.0
 	golang.org/x/exp v0.0.0-20230905200255-921286631fa9
-	google.golang.org/grpc v1.73.0
+	google.golang.org/grpc v1.74.2
 	google.golang.org/protobuf v1.36.6
 	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
-	cel.dev/expr v0.23.0 // indirect
+	cel.dev/expr v0.24.0 // indirect
 	dario.cat/mergo v1.0.1 // indirect
 	github.com/CloudNativeWorks/versioned-go-control-plane/ratelimit v1.33.5 // indirect
 	github.com/Masterminds/goutils v1.1.1 // indirect

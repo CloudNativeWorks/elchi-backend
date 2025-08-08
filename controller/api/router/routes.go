@@ -105,6 +105,10 @@ func initSettingRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		{"POST", "/claude-token", h.Settings.SetClaudeToken},
 		{"PUT", "/claude-token", h.Settings.UpdateClaudeToken},
 		{"DELETE", "/claude-token", h.Settings.DeleteClaudeToken},
+
+		{"GET", "/discovery-token", h.Settings.GetDiscoveryToken},
+		{"DELETE", "/discovery-token", h.Settings.DeleteDiscoveryToken},
+		{"POST", "/discovery-token/generate", h.Settings.GenerateDiscoveryToken},
 	}
 
 	initRoutes(rg, routes)
@@ -230,6 +234,19 @@ func initAIRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 	}{
 		{"POST", "/analyze", h.AnalyzeResourceConfigWithAI},
 		{"POST", "/analyze-logs", h.AnalyzeLogsWithConfig},
+	}
+
+	initRoutes(rg, routes)
+}
+
+func initDiscoveryRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
+	routes := []struct {
+		method  string
+		path    string
+		handler gin.HandlerFunc
+	}{
+		{"POST", "/k8s", h.HandleK8sDiscovery},
+		{"GET", "/clusters", h.GetClusters},
 	}
 
 	initRoutes(rg, routes)

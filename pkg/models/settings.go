@@ -1,9 +1,10 @@
 package models
 
 type Settings struct {
-	Project     string `bson:"project"`
-	Tokens      []Token `bson:"tokens"`
-	ClaudeToken string  `bson:"claude_token,omitempty"`
+	Project        string `bson:"project"`
+	Tokens         []Token `bson:"tokens"`
+	ClaudeToken    string  `bson:"claude_token,omitempty"`
+	DiscoveryToken string  `bson:"discovery_token,omitempty"`
 }
 
 type Token struct {

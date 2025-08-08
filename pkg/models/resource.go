@@ -59,7 +59,7 @@ type General struct {
 	Permissions     Permissions        `json:"permissions" bson:"permissions"`
 	ConfigDiscovery []*ConfigDiscovery `json:"config_discovery,omitempty" bson:"config_discovery,omitempty"`
 	TypedConfig     []*TypedConfig     `json:"typed_config,omitempty" bson:"typed_config,omitempty"`
-	ElchiDiscovery  *ElchiDiscovery    `json:"elchi_discovery,omitempty" bson:"elchi_discovery,omitempty"`
+	ElchiDiscovery  []*ElchiDiscovery  `json:"elchi_discovery,omitempty" bson:"elchi_discovery,omitempty"`
 	CreatedAt       primitive.DateTime `json:"created_at,omitempty" bson:"created_at,omitempty"`
 	UpdatedAt       primitive.DateTime `json:"updated_at,omitempty" bson:"updated_at,omitempty"`
 }
@@ -67,6 +67,7 @@ type General struct {
 type ElchiDiscovery struct {
 	ClusterName string `json:"cluster_name,omitempty" bson:"cluster_name,omitempty"`
 	Port        int32  `json:"port,omitempty" bson:"port,omitempty"`
+	Protocol    string `json:"protocol,omitempty" bson:"protocol,omitempty"`
 }
 
 type Permissions struct {

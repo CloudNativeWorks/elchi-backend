@@ -15,6 +15,7 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/controller/crud/scenario"
 	"github.com/CloudNativeWorks/elchi-backend/controller/crud/xds"
 	"github.com/CloudNativeWorks/elchi-backend/controller/dependency"
+	"github.com/CloudNativeWorks/elchi-backend/controller/discovery"
 	"github.com/CloudNativeWorks/elchi-backend/controller/service"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/errstr"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
@@ -44,9 +45,10 @@ type Handler struct {
 	Scenario   *scenario.AppHandler
 	Client     *client.AppHandler
 	Service    *service.AppHandler
+	Discovery  *discovery.DiscoveryHandler
 }
 
-func NewHandler(xds *xds.AppHandler, extension *extension.AppHandler, custom *custom.AppHandler, settings *settings.AppHandler, dependency *dependency.AppHandler, stats *bridge.AppHandler, scenario *scenario.AppHandler, client *client.AppHandler, service *service.AppHandler) *Handler {
+func NewHandler(xds *xds.AppHandler, extension *extension.AppHandler, custom *custom.AppHandler, settings *settings.AppHandler, dependency *dependency.AppHandler, stats *bridge.AppHandler, scenario *scenario.AppHandler, client *client.AppHandler, service *service.AppHandler, discovery *discovery.DiscoveryHandler) *Handler {
 	return &Handler{
 		XDS:        xds,
 		Extension:  extension,
@@ -57,6 +59,7 @@ func NewHandler(xds *xds.AppHandler, extension *extension.AppHandler, custom *cu
 		Scenario:   scenario,
 		Client:     client,
 		Service:    service,
+		Discovery:  discovery,
 	}
 }
 
@@ -148,6 +151,16 @@ func (h *Handler) GetRegistryData(c *gin.Context) {
 		"message": "OK",
 		"data":    registryData,
 	})
+}
+
+// HandleK8sDiscovery delegates to discovery handler
+func (h *Handler) HandleK8sDiscovery(c *gin.Context) {
+	h.Discovery.HandleK8sDiscovery(c)
+}
+
+// GetClusters delegates to discovery handler
+func (h *Handler) GetClusters(c *gin.Context) {
+	h.Discovery.GetClusters(c)
 }
 
 func (h *Handler) getRequestDetails(c *gin.Context) (models.RequestDetails, models.UserDetails) {

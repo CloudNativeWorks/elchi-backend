@@ -359,3 +359,112 @@ func (handler *AppHandler) DeleteClaudeToken(c *gin.Context) {
 		"project": project,
 	})
 }
+
+// GetDiscoveryToken retrieves the discovery token for a project
+func (handler *AppHandler) GetDiscoveryToken(c *gin.Context) {
+	ctx := context.Background()
+	var settingsCollection *mongo.Collection = handler.Context.Client.Collection("settings")
+
+	project := c.Query("project")
+	if project == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "project parameter is required"})
+		return
+	}
+
+	filter := bson.M{"project": project}
+	
+	var settings bson.M
+	err := settingsCollection.FindOne(ctx, filter).Decode(&settings)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			c.JSON(http.StatusOK, gin.H{"discovery_token": "", "message": "no discovery token set for this project"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "could not get discovery token"})
+		return
+	}
+
+	discoveryToken := ""
+	if token, ok := settings["discovery_token"].(string); ok {
+		// Return full token without masking so agents can parse project information
+		discoveryToken = token
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"discovery_token": discoveryToken,
+		"project":        project,
+	})
+}
+
+
+// DeleteDiscoveryToken deletes the discovery token for a project
+func (handler *AppHandler) DeleteDiscoveryToken(c *gin.Context) {
+	ctx := context.Background()
+	var settingsCollection *mongo.Collection = handler.Context.Client.Collection("settings")
+
+	project := c.Query("project")
+	if project == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "project parameter is required"})
+		return
+	}
+
+	filter := bson.M{"project": project}
+	update := bson.M{
+		"$unset": bson.M{"discovery_token": ""},
+	}
+
+	result, err := settingsCollection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "could not delete discovery token"})
+		return
+	}
+
+	if result.MatchedCount == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"message": "project not found in settings"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Discovery token deleted successfully",
+		"project": project,
+	})
+}
+
+// GenerateDiscoveryToken generates a new UUID-based discovery token for a project
+func (handler *AppHandler) GenerateDiscoveryToken(c *gin.Context) {
+	ctx := context.Background()
+	var settingsCollection *mongo.Collection = handler.Context.Client.Collection("settings")
+
+	project := c.Query("project")
+	if project == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "project parameter is required"})
+		return
+	}
+
+	// Generate new UUID-based token (no need to embed project, comes in request body)
+	newToken := uuid.New().String()
+
+	projectFilter := bson.M{"project": project}
+	update := bson.M{
+		"$set": bson.M{"discovery_token": newToken},
+	}
+
+	opts := options.Update().SetUpsert(true)
+	result, err := settingsCollection.UpdateOne(ctx, projectFilter, update, opts)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "could not generate discovery token"})
+		return
+	}
+
+	response := gin.H{
+		"message":         "Discovery token generated successfully",
+		"project":         project,
+		"discovery_token": newToken,
+	}
+
+	if result.UpsertedID != nil {
+		response["created_new_document"] = true
+	}
+
+	c.JSON(http.StatusOK, response)
+}

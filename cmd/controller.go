@@ -18,6 +18,7 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/controller/crud/scenario"
 	"github.com/CloudNativeWorks/elchi-backend/controller/crud/xds"
 	"github.com/CloudNativeWorks/elchi-backend/controller/dependency"
+	"github.com/CloudNativeWorks/elchi-backend/controller/discovery"
 	"github.com/CloudNativeWorks/elchi-backend/controller/handlers"
 	"github.com/CloudNativeWorks/elchi-backend/controller/service"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/config"
@@ -89,6 +90,7 @@ var restCmd = &cobra.Command{
 
 		serviceHandler := service.NewServiceHandler(appContext)
 		clientHandler := client.NewClientHandler(appContext, xdsHandler)
+		discoveryHandler := discovery.NewDiscoveryHandler(appContext, &bridgeHandler.Poke)
 
 		// Pass registry client to client handler (even before connection is established)
 		clientHandler.SetRegistryClient(registryClient)
@@ -134,6 +136,7 @@ var restCmd = &cobra.Command{
 			scenarioHandler,
 			clientHandler,
 			serviceHandler,
+			discoveryHandler,
 		)
 
 		r := router.InitRouter(h)

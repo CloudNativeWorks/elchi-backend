@@ -43,6 +43,7 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 	apiService := op.Group("/services")
 	apiRegistry := v3.Group("/registry")
 	apiAI := v3.Group("/ai")
+	apiDiscovery := api.Group("/discovery")
 
 	initAuthRoutes(apiAuth, h)
 	initSettingRoutes(apiSettings, h)
@@ -56,6 +57,7 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 	initServiceRoutes(apiService, h)
 	initRegistryRoutes(apiRegistry, h)
 	initAIRoutes(apiAI, h)
+	initDiscoveryRoutes(apiDiscovery, h)
 
 	logRoutes(e)
 	return e

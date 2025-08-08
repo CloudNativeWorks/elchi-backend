@@ -25,6 +25,7 @@ var AllowedEndpoints = []string{
 	"/api/v3/setting/permissions/:kind/:type/:id",
 	"/api/v3/setting/tokens",
 	"/api/v3/setting/tokens/:token_id",
+	"/api/v3/setting/claude-token",
 	"/api/v3/xds/secrets",
 	"/api/v3/xds/secrets/:name",
 	"/api/v3/xds/bootstrap",
@@ -64,4 +65,7 @@ var AllowedEndpoints = []string{
 	"/api/op/services",
 	"/api/op/services/:service_id",
 	"/api/op/services/envoys/:service_id",
+	"/api/v3/ai/analyze",
+	"/api/v3/ai/analyze-logs",
+	"/api/v3/ai/status",
 }

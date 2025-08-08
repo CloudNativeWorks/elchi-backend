@@ -13,8 +13,11 @@ const (
 	CDS        KnownTYPES = "cluster"
 	LDS        KnownTYPES = "listener"
 	ROUTE      KnownTYPES = "route"
+	VHDS       KnownTYPES = "virtual_host"
 	EXTENSIONS KnownTYPES = "extensions"
 	FILTERS    KnownTYPES = "filters"
+	SECRETS    KnownTYPES = "secret"
+	TLS        KnownTYPES = "tls"
 	ACCESSLOG  KnownTYPES = "access_log"
 )
 

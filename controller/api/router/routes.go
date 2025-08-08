@@ -100,6 +100,11 @@ func initSettingRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		{"GET", "/tokens", h.Settings.GetTokens},
 		{"POST", "/tokens", h.Settings.SetToken},
 		{"DELETE", "/tokens/:token_id", h.Settings.DeleteToken},
+
+		{"GET", "/claude-token", h.Settings.GetClaudeToken},
+		{"POST", "/claude-token", h.Settings.SetClaudeToken},
+		{"PUT", "/claude-token", h.Settings.UpdateClaudeToken},
+		{"DELETE", "/claude-token", h.Settings.DeleteClaudeToken},
 	}
 
 	initRoutes(rg, routes)
@@ -212,6 +217,19 @@ func initRegistryRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		handler gin.HandlerFunc
 	}{
 		{"GET", "/data", h.GetRegistryData},
+	}
+
+	initRoutes(rg, routes)
+}
+
+func initAIRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
+	routes := []struct {
+		method  string
+		path    string
+		handler gin.HandlerFunc
+	}{
+		{"POST", "/analyze", h.AnalyzeResourceConfigWithAI},
+		{"POST", "/analyze-logs", h.AnalyzeLogsWithConfig},
 	}
 
 	initRoutes(rg, routes)

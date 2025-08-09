@@ -37,3 +37,11 @@ helm/
 .configs/controller-dev-3.yaml
 docker-compose.dev.yaml
 TODO
+elchi-backend-medium-article.md
+FRONTEND_INTEGRATION_GUIDE.md
+AI_CONFIG_USAGE.md
+ai_optimization_comparison.md
+architecture-diagram.md
+CLAUDE.md
+DEVELOPMENT.md
+docker-compose.dev.yml

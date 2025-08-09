@@ -516,7 +516,7 @@ func (ca *ConfigAnalyzer) analyzeWithAI(req ConfigAnalyzerRequest, result *Confi
 		System: []ClaudeSystemBlock{
 			{
 				Type: "text",
-				Text: ca.systemPrompt, // Cache'lenmiş system prompt kullan
+				Text: ca.systemPrompt,
 				CacheControl: &ClaudeCacheControl{
 					Type: "ephemeral",
 				},
@@ -530,7 +530,6 @@ func (ca *ConfigAnalyzer) analyzeWithAI(req ConfigAnalyzerRequest, result *Confi
 		},
 	}
 
-	// AI client'tan response al
 	response, inputTokens, outputTokens, err := ca.callClaudeAPI(claudeReq)
 	if err != nil {
 		return "", nil, 0, 0, err
@@ -648,6 +647,161 @@ You are an expert assistant for the Elchi Envoy proxy management system. You can
 - "What is load balancing?" → Explain load balancing concepts
 - "Analyze this listener configuration" → Focus on Envoy config analysis
 - "How to configure HTTPS in Envoy?" → Provide Elchi UI steps
+
+## ELCHI-SPECIFIC ADVANCED KNOWLEDGE:
+
+### **🔧 Complete GTypes Catalog:**
+**Core Resources:**
+- Listener: envoy.config.listener.v3.Listener
+- Cluster: envoy.config.cluster.v3.Cluster 
+- Route: envoy.config.route.v3.RouteConfiguration
+- Endpoint: envoy.config.endpoint.v3.ClusterLoadAssignment
+- VirtualHost: envoy.config.route.v3.VirtualHost
+
+**HTTP Filters (60+ supported):**
+- HCM: envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+- Router: envoy.extensions.filters.http.router.v3.Router
+- RBAC: envoy.extensions.filters.http.rbac.v3.RBAC
+- CORS: envoy.extensions.filters.http.cors.v3.Cors
+- BasicAuth: envoy.extensions.filters.http.basic_auth.v3.BasicAuth
+- BandwidthLimit: envoy.extensions.filters.http.bandwidth_limit.v3.BandwidthLimit
+- Compressor: envoy.extensions.filters.http.compressor.v3.Compressor (Gzip/Brotli/Zstd)
+- Lua: envoy.extensions.filters.http.lua.v3.Lua
+- Buffer: envoy.extensions.filters.http.buffer.v3.Buffer
+- AdaptiveConcurrency: envoy.extensions.filters.http.adaptive_concurrency.v3.AdaptiveConcurrency
+- AdmissionControl: envoy.extensions.filters.http.admission_control.v3.AdmissionControl
+- StatefulSession: envoy.extensions.filters.http.stateful_session.v3.StatefulSession
+- CSRF: envoy.extensions.filters.http.csrf.v3.CsrfPolicy
+- LocalRateLimit: envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+- OAuth2: envoy.extensions.filters.http.oauth2.v3.OAuth2
+
+**Network Filters:**
+- TCPProxy: envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
+- NetworkRBAC: envoy.extensions.filters.network.rbac.v3.RBAC
+- ConnectionLimit: envoy.extensions.filters.network.connection_limit.v3.ConnectionLimit
+- NetworkLocalRateLimit: envoy.extensions.filters.network.local_ratelimit.v3.LocalRateLimit
+
+**Listener Filters:**
+- HTTPInspector: envoy.extensions.filters.listener.http_inspector.v3.HttpInspector
+- TLSInspector: envoy.extensions.filters.listener.tls_inspector.v3.TlsInspector
+- ProxyProtocol: envoy.extensions.filters.listener.proxy_protocol.v3.ProxyProtocol
+- OriginalDestination: envoy.extensions.filters.listener.original_dst.v3.OriginalDst
+- OriginalSrc: envoy.extensions.filters.listener.original_src.v3.OriginalSrc
+- ListenerLocalRateLimit: envoy.extensions.filters.listener.local_ratelimit.v3.LocalRateLimit
+
+**TLS & Security:**
+- DownstreamTLS: envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+- UpstreamTLS: envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+- TLSCertificate: envoy.extensions.transport_sockets.tls.v3.TlsCertificate
+- CertificateValidation: envoy.extensions.transport_sockets.tls.v3.CertificateValidationContext
+- GenericSecret: envoy.extensions.transport_sockets.tls.v3.GenericSecret
+
+**Access Loggers:**
+- FileAccessLog: envoy.extensions.access_loggers.file.v3.FileAccessLog
+- FluentdAccessLog: envoy.extensions.access_loggers.fluentd.v3.FluentdAccessLogConfig
+- StdoutAccessLog: envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+- StderrAccessLog: envoy.extensions.access_loggers.stream.v3.StderrAccessLog
+
+### **🏗️ Elchi Configuration Patterns:**
+
+**Environment Variables:**
+- ELCHI_ADDRESS, ELCHI_PORT, ELCHI_TLS_ENABLED
+- MONGODB_HOSTS, MONGODB_USERNAME, MONGODB_PASSWORD
+- REGISTRY_ADDRESS, REGISTRY_PORT
+- LOGGING_LEVEL, LOGGING_FORMAT
+
+**Version Support:** 
+- Supported Envoy versions: v1.24.x - v1.34.x
+- Version-based xDS compatibility
+- Control-plane routing by version
+
+**Multi-tenancy:**
+- Project-based resource isolation
+- User groups and permissions
+- Resource-level access control
+- JWT-based authentication
+
+### **📱 React UI Structure (Frontend Integration):**
+
+**Technology Stack:**
+- React 18 with TypeScript
+- Vite build system
+- Ant Design (antd) components
+- Redux Toolkit + React Query
+- Monaco Editor for code editing
+- ECharts for metrics visualization
+
+**Component Organization:**
+- src/elchi/components/ → Core Envoy configuration components
+- src/elchi/components/resources/ → Resource-specific forms (listeners, clusters, etc.)
+- src/pages/ → Main page components
+- src/hooks/ → Custom React hooks
+- src/redux/ → State management
+- src/common/ → Shared utilities and types
+
+**Form Component Workflow:**
+1. Version selection (required first step)
+2. Resource name input (required)
+3. Tag-based form sections (checkable tags show/hide sections)
+4. Conditional field rendering based on selections
+5. Array management for multiple items
+6. Validation and submission
+
+### **🎯 Common Error Patterns & Solutions:**
+
+**Configuration Issues:**
+- Missing required fields → Check tag selections
+- Invalid GType references → Verify supported filter types
+- Route configuration conflicts → Check inline vs separate route resources
+- TLS certificate problems → Verify secret configurations
+- Cluster health check failures → Check endpoint configurations
+
+**Performance Optimization:**
+- Use EDS for dynamic endpoint updates
+- Enable outlier detection for failing endpoints
+- Configure appropriate health checks
+- Use connection pooling settings
+- Set timeout values appropriately
+
+**Security Best Practices:**
+- Always use TLS for production
+- Configure RBAC policies properly
+- Validate certificates in TLS contexts
+- Use proper authentication methods
+- Avoid exposing admin endpoints
+
+**Troubleshooting Patterns:**
+- Check logs in Observability → Logs section
+- Verify client connections in Administration → Clients
+- Monitor metrics in Observability → Metrics
+- Review resource dependencies
+- Validate xDS delivery from Control-Plane
+
+### **🔄 Advanced Troubleshooting Guide:**
+
+**When Routes Don't Work:**
+1. Check if routes are defined in HCM filter (inline) vs separate Route resource
+2. Verify virtual host matching patterns
+3. Ensure cluster references are valid
+4. Check for conflicting route rules
+
+**When TLS Fails:**
+1. Verify certificate chain completeness
+2. Check SAN/CN matching
+3. Validate certificate expiration
+4. Ensure private key matches certificate
+
+**When Load Balancing Issues:**
+1. Check endpoint health status
+2. Verify cluster load balancing policy
+3. Review health check configuration
+4. Monitor outlier detection settings
+
+**When Filters Don't Apply:**
+1. Verify filter order in filter chain
+2. Check per-route filter overrides
+3. Ensure proper filter configuration
+4. Validate filter compatibility with HTTP version
 
 ## SUPPORTED ENVOY FEATURES IN ELCHI UI:
 
@@ -845,19 +999,16 @@ func (ca *ConfigAnalyzer) buildAnalysisUserPrompt(req ConfigAnalyzerRequest, res
 	
 	prompt.WriteString(fmt.Sprintf("## %s CONFIGURATION:\n", strings.ToUpper(req.Collection)))
 	
-	// Resource config'ini JSON olarak ekle
 	resourceJSON, _ := json.MarshalIndent(result.ResourceConfig, "", "  ")
 	prompt.WriteString("```json\n")
 	prompt.WriteString(string(resourceJSON))
 	prompt.WriteString("\n```\n\n")
 
-	// Dependencies varsa ekle
 	if result.Dependencies != nil && len(result.Dependencies.Nodes) > 0 {
 		prompt.WriteString("## DEPENDENCY GRAPH:\n")
 		prompt.WriteString(fmt.Sprintf("- **Total Nodes**: %d\n", len(result.Dependencies.Nodes)))
 		prompt.WriteString(fmt.Sprintf("- **Total Edges**: %d\n", len(result.Dependencies.Edges)))
 		
-		// Node'ları listele
 		for _, node := range result.Dependencies.Nodes {
 			prompt.WriteString(fmt.Sprintf("- **%s/%s** (%s)\n", node.Data.Category, node.Data.Label, node.Data.Gtype))
 		}
@@ -880,7 +1031,6 @@ func (ca *ConfigAnalyzer) buildAnalysisUserPrompt(req ConfigAnalyzerRequest, res
 		}
 	}
 
-	// Kullanıcının sorusunu ekle
 	prompt.WriteString("## USER QUESTION:\n")
 	prompt.WriteString(req.Question)
 	prompt.WriteString("\n\n")

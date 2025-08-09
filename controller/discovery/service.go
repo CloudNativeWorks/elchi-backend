@@ -35,17 +35,22 @@ func NewDiscoveryService(dbContext *db.AppContext, pokeService *bridge.PokeServi
 }
 
 // ProcessK8sDiscovery processes incoming K8s discovery data and updates endpoints
-func (ds *DiscoveryService) ProcessK8sDiscovery(ctx context.Context, request K8sDiscoveryRequest, project string) (*DiscoveryProcessResult, error) {
-	// If initial is true, register or update cluster in discovery collection
-	if request.Data.Initial {
+func (ds *DiscoveryService) ProcessK8sDiscovery(
+    ctx context.Context,
+    request K8sDiscoveryRequest,
+    project string,
+    isInitial bool,
+) (*DiscoveryProcessResult, error) {
+    // If initial (from header) is true, register or update cluster in discovery collection
+    if isInitial {
 		if err := ds.registerCluster(ctx, request, project); err != nil {
 			log.Printf("Failed to register cluster: %v", err)
 		}
-	} else {
-		// For non-initial requests, update last_seen timestamp efficiently
-		if err := ds.updateClusterLastSeen(ctx, request.Data.ClusterInfo.ClusterName, project); err != nil {
-			log.Printf("Failed to update cluster last_seen: %v", err)
-		}
+	}
+	
+	// Always update last_seen timestamp for every request (respects cache timing)
+	if err := ds.updateClusterLastSeen(ctx, request.Data.ClusterInfo.ClusterName, project, false); err != nil {
+		log.Printf("Failed to update cluster last_seen: %v", err)
 	}
 	result := &DiscoveryProcessResult{
 		ProcessedAt:    time.Now(),
@@ -93,12 +98,16 @@ func (ds *DiscoveryService) ProcessK8sDiscovery(ctx context.Context, request K8s
 
 	result.EndpointsFound = len(endpoints)
 
+	// Track if any endpoints changed
+	endpointsChanged := false
+	
 	// Process each endpoint
 	for _, endpoint := range endpoints {
 		updateResult := ds.updateEndpointFromNodes(ctx, endpoint, request.Data.Nodes, request.Data.ClusterInfo.ClusterName)
 		result.Updates = append(result.Updates, updateResult)
 
 		if updateResult.Changed {
+			endpointsChanged = true
 			// Update the endpoint in database
 			if err := ds.updateEndpointInDB(ctx, endpoint); err != nil {
 				log.Printf("Failed to update endpoint %s: %v", endpoint.General.Name, err)
@@ -110,6 +119,18 @@ func (ds *DiscoveryService) ProcessK8sDiscovery(ctx context.Context, request K8s
 				// Trigger snapshot update for all affected listeners
 				ds.triggerSnapshotUpdate(ctx, endpoint, project)
 			}
+		}
+	}
+	
+	// If endpoints changed, update discovery collection with new node data and force last_seen update
+	if endpointsChanged {
+		if err := ds.updateClusterNodeIPs(ctx, request, project); err != nil {
+			log.Printf("Failed to update cluster node IPs in discovery: %v", err)
+		}
+		
+		// Force immediate last_seen update when endpoints change (bypass cache)
+		if err := ds.updateClusterLastSeen(ctx, request.Data.ClusterInfo.ClusterName, project, true); err != nil {
+			log.Printf("Failed to force update cluster last_seen after endpoint change: %v", err)
 		}
 	}
 
@@ -148,10 +169,16 @@ func (ds *DiscoveryService) updateEndpointFromNodes(ctx context.Context, endpoin
 	currentIPs := ds.extractCurrentIPsForCluster(endpoint, clusterName)
 
 	// Build new IP list from K8s nodes
+	// Use ExternalIP for cross-VM communication, fallback to InternalIP if not available
 	newIPs := []string{}
 	for _, node := range nodes {
 		if node.Status == "Ready" {
-			if internalIP, exists := node.Addresses["InternalIP"]; exists && internalIP != "" {
+			// Prefer ExternalIP for cross-VM access
+			if externalIP, exists := node.Addresses["ExternalIP"]; exists && externalIP != "" {
+				newIPs = append(newIPs, externalIP)
+				updateResult.UpdatedIPs = append(updateResult.UpdatedIPs, externalIP)
+			} else if internalIP, exists := node.Addresses["InternalIP"]; exists && internalIP != "" {
+				// Fallback to InternalIP if ExternalIP not available
 				newIPs = append(newIPs, internalIP)
 				updateResult.UpdatedIPs = append(updateResult.UpdatedIPs, internalIP)
 			}
@@ -374,12 +401,6 @@ func (ds *DiscoveryService) ValidateDiscoveryToken(ctx context.Context, token, p
 func (ds *DiscoveryService) registerCluster(ctx context.Context, request K8sDiscoveryRequest, project string) error {
 	discoveryCollection := ds.dbContext.Client.Collection("discovery")
 	
-	// Get endpoint names that match this cluster
-	endpointNames, err := ds.getEndpointNamesForCluster(ctx, request.Data.ClusterInfo.ClusterName, project)
-	if err != nil {
-		return fmt.Errorf("failed to get endpoint names: %v", err)
-	}
-	
 	now := time.Now()
 	
 	// Check if cluster already exists
@@ -389,7 +410,7 @@ func (ds *DiscoveryService) registerCluster(ctx context.Context, request K8sDisc
 	}
 	
 	var existingCluster ClusterDiscovery
-	err = discoveryCollection.FindOne(ctx, filter).Decode(&existingCluster)
+	err := discoveryCollection.FindOne(ctx, filter).Decode(&existingCluster)
 	if err != nil && err != mongo.ErrNoDocuments {
 		return fmt.Errorf("failed to check existing cluster: %v", err)
 	}
@@ -397,15 +418,17 @@ func (ds *DiscoveryService) registerCluster(ctx context.Context, request K8sDisc
 	if err == mongo.ErrNoDocuments {
 		// Create new cluster record
 		newCluster := ClusterDiscovery{
-			ClusterName:    request.Data.ClusterInfo.ClusterName,
-			Project:        project,
-			EndpointList:   endpointNames,
-			Status:         "active",
-			LastSeen:       now,
-			CreatedAt:      now,
-			UpdatedAt:      now,
-			NodeCount:      request.Data.NodeCount,
-			ClusterVersion: request.Data.ClusterInfo.ClusterVersion,
+			ClusterName:       request.Data.ClusterInfo.ClusterName,
+			Project:           project,
+			Nodes:            request.Data.Nodes,
+			Status:           "active",
+			LastSeen:         now,
+			CreatedAt:        now,
+			UpdatedAt:        now,
+			NodeCount:        request.Data.NodeCount,
+			ClusterVersion:   request.Data.ClusterInfo.ClusterVersion,
+			DiscoveryDuration: request.Data.DiscoveryDuration,
+			LastRequestTime:  request.Data.Timestamp,
 		}
 		
 		_, err = discoveryCollection.InsertOne(ctx, newCluster)
@@ -413,17 +436,19 @@ func (ds *DiscoveryService) registerCluster(ctx context.Context, request K8sDisc
 			return fmt.Errorf("failed to insert cluster: %v", err)
 		}
 		
-		log.Printf("Registered new cluster: %s for project: %s", request.Data.ClusterInfo.ClusterName, project)
+		log.Printf("Registered new cluster: %s for project: %s with %d nodes", request.Data.ClusterInfo.ClusterName, project, len(request.Data.Nodes))
 	} else {
 		// Update existing cluster
 		update := bson.M{
 			"$set": bson.M{
-				"endpoint_list":    endpointNames,
-				"status":          "active",
-				"last_seen":       now,
-				"updated_at":      now,
-				"node_count":      request.Data.NodeCount,
-				"cluster_version": request.Data.ClusterInfo.ClusterVersion,
+				"nodes":              request.Data.Nodes,
+				"status":             "active",
+				"last_seen":          now,
+				"updated_at":         now,
+				"node_count":         request.Data.NodeCount,
+				"cluster_version":    request.Data.ClusterInfo.ClusterVersion,
+				"discovery_duration": request.Data.DiscoveryDuration,
+				"last_request_time":  request.Data.Timestamp,
 			},
 		}
 		
@@ -432,48 +457,12 @@ func (ds *DiscoveryService) registerCluster(ctx context.Context, request K8sDisc
 			return fmt.Errorf("failed to update cluster: %v", err)
 		}
 		
-		log.Printf("Updated cluster: %s for project: %s", request.Data.ClusterInfo.ClusterName, project)
+		log.Printf("Updated cluster: %s for project: %s with %d nodes", request.Data.ClusterInfo.ClusterName, project, len(request.Data.Nodes))
 	}
 	
 	return nil
 }
 
-// getEndpointNamesForCluster gets endpoint names that reference this cluster
-func (ds *DiscoveryService) getEndpointNamesForCluster(ctx context.Context, clusterName, project string) ([]string, error) {
-	endpointsCollection := ds.dbContext.Client.Collection("endpoints")
-	
-	filter := bson.M{
-		"general.project": project,
-		"general.elchi_discovery": bson.M{
-			"$elemMatch": bson.M{
-				"cluster_name": clusterName,
-			},
-		},
-	}
-	
-	cursor, err := endpointsCollection.Find(ctx, filter, options.Find().SetProjection(bson.M{"general.name": 1}))
-	if err != nil {
-		return nil, err
-	}
-	defer cursor.Close(ctx)
-	
-	var endpointNames []string
-	for cursor.Next(ctx) {
-		var endpoint struct {
-			General struct {
-				Name string `bson:"name"`
-			} `bson:"general"`
-		}
-		
-		if err := cursor.Decode(&endpoint); err != nil {
-			continue
-		}
-		
-		endpointNames = append(endpointNames, endpoint.General.Name)
-	}
-	
-	return endpointNames, nil
-}
 
 // GetClusters returns all registered clusters for a project
 func (ds *DiscoveryService) GetClusters(ctx context.Context, project string) ([]ClusterDiscovery, error) {
@@ -496,18 +485,22 @@ func (ds *DiscoveryService) GetClusters(ctx context.Context, project string) ([]
 
 // updateClusterLastSeen updates only the last_seen timestamp efficiently
 // Uses in-memory cache to minimize MongoDB load - only updates every 2 minutes max per cluster
-func (ds *DiscoveryService) updateClusterLastSeen(ctx context.Context, clusterName, project string) error {
+// forceUpdate bypasses cache when endpoints change
+func (ds *DiscoveryService) updateClusterLastSeen(ctx context.Context, clusterName, project string, forceUpdate bool) error {
 	cacheKey := fmt.Sprintf("%s:%s", clusterName, project)
 	now := time.Now()
 	
-	// Check cache to see if we recently updated this cluster
-	ds.lastSeenCacheMux.RLock()
-	lastUpdate, exists := ds.lastSeenCache[cacheKey]
-	ds.lastSeenCacheMux.RUnlock()
-	
-	// If we updated this cluster recently, skip MongoDB update
-	if exists && now.Sub(lastUpdate) < ds.lastSeenThreshold {
-		return nil
+	// Skip cache check if forceUpdate is true (when endpoints change)
+	if !forceUpdate {
+		// Check cache to see if we recently updated this cluster
+		ds.lastSeenCacheMux.RLock()
+		lastUpdate, exists := ds.lastSeenCache[cacheKey]
+		ds.lastSeenCacheMux.RUnlock()
+		
+		// If we updated this cluster recently, skip MongoDB update
+		if exists && now.Sub(lastUpdate) < ds.lastSeenThreshold {
+			return nil
+		}
 	}
 	
 	// Proceed with MongoDB update
@@ -576,4 +569,52 @@ func (ds *DiscoveryService) triggerSnapshotUpdate(ctx context.Context, endpoint 
 		log.Printf("Triggered snapshot update for endpoint %s, affected listeners: %v", 
 			endpoint.General.Name, processed.Listeners)
 	}
+}
+
+// extractNodeIPsFromRequest extracts all node IPs from the request
+// Prefers ExternalIP for cross-VM communication, fallback to InternalIP
+func (ds *DiscoveryService) extractNodeIPsFromRequest(request K8sDiscoveryRequest) []string {
+	var nodeIPs []string
+	for _, node := range request.Data.Nodes {
+		if node.Status == "Ready" {
+			// Prefer ExternalIP for cross-VM access
+			if externalIP, exists := node.Addresses["ExternalIP"]; exists && externalIP != "" {
+				nodeIPs = append(nodeIPs, externalIP)
+			} else if internalIP, exists := node.Addresses["InternalIP"]; exists && internalIP != "" {
+				// Fallback to InternalIP if ExternalIP not available
+				nodeIPs = append(nodeIPs, internalIP)
+			}
+		}
+	}
+	return nodeIPs
+}
+
+// updateClusterNodeIPs updates nodes in discovery collection when endpoints change
+func (ds *DiscoveryService) updateClusterNodeIPs(ctx context.Context, request K8sDiscoveryRequest, project string) error {
+	discoveryCollection := ds.dbContext.Client.Collection("discovery")
+	
+	filter := bson.M{
+		"cluster_name": request.Data.ClusterInfo.ClusterName,
+		"project":      project,
+	}
+	
+	update := bson.M{
+		"$set": bson.M{
+			"nodes":              request.Data.Nodes,
+			"updated_at":         time.Now(),
+			"node_count":         request.Data.NodeCount,
+			"cluster_version":    request.Data.ClusterInfo.ClusterVersion,
+			"discovery_duration": request.Data.DiscoveryDuration,
+			"last_request_time":  request.Data.Timestamp,
+		},
+	}
+	
+	_, err := discoveryCollection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return fmt.Errorf("failed to update cluster nodes: %v", err)
+	}
+	
+	nodeIPs := ds.extractNodeIPsFromRequest(request)
+	log.Printf("Updated cluster %s nodes in discovery: %v", request.Data.ClusterInfo.ClusterName, nodeIPs)
+	return nil
 }

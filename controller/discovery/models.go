@@ -63,14 +63,16 @@ type DiscoveryProcessResult struct {
 
 // ClusterDiscovery represents cluster registration in discovery collection
 type ClusterDiscovery struct {
-	ID             string    `json:"id,omitempty" bson:"_id,omitempty"`
-	ClusterName    string    `json:"cluster_name" bson:"cluster_name"`
-	Project        string    `json:"project" bson:"project"`
-	EndpointList   []string  `json:"endpoint_list" bson:"endpoint_list"`
-	Status         string    `json:"status" bson:"status"`
-	LastSeen       time.Time `json:"last_seen" bson:"last_seen"`
-	CreatedAt      time.Time `json:"created_at" bson:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at" bson:"updated_at"`
-	NodeCount      int       `json:"node_count" bson:"node_count"`
-	ClusterVersion string    `json:"cluster_version" bson:"cluster_version"`
+	ID               string        `json:"id,omitempty" bson:"_id,omitempty"`
+	ClusterName      string        `json:"cluster_name" bson:"cluster_name"`
+	Project          string        `json:"project" bson:"project"`
+	Nodes            []NodeInfo    `json:"nodes" bson:"nodes"`
+	Status           string        `json:"status" bson:"status"`
+	LastSeen         time.Time     `json:"last_seen" bson:"last_seen"`
+	CreatedAt        time.Time     `json:"created_at" bson:"created_at"`
+	UpdatedAt        time.Time     `json:"updated_at" bson:"updated_at"`
+	NodeCount        int           `json:"node_count" bson:"node_count"`
+	ClusterVersion   string        `json:"cluster_version" bson:"cluster_version"`
+	DiscoveryDuration string       `json:"discovery_duration" bson:"discovery_duration"`
+	LastRequestTime  time.Time     `json:"last_request_time" bson:"last_request_time"`
 }

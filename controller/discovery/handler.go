@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -104,11 +105,20 @@ func (dh *DiscoveryHandler) HandleK8sDiscovery(c *gin.Context) {
 		return
 	}
 
-	// Process discovery
-	log.Printf("Processing K8s discovery for cluster: %s, project: %s, nodes: %d",
-		discoveryRequest.Data.ClusterInfo.ClusterName, discoveryRequest.Project, len(discoveryRequest.Data.Nodes))
+    // Read initial flag from header ("true"/"false")
+    initialHeader := c.GetHeader("initial")
+    isInitial := false
+    if initialHeader != "" {
+        if parsed, err := strconv.ParseBool(initialHeader); err == nil {
+            isInitial = parsed
+        }
+    }
 
-	result, err := dh.service.ProcessK8sDiscovery(ctx, discoveryRequest, discoveryRequest.Project)
+    // Process discovery
+    log.Printf("Processing K8s discovery for cluster: %s, project: %s, nodes: %d, initial: %t",
+        discoveryRequest.Data.ClusterInfo.ClusterName, discoveryRequest.Project, len(discoveryRequest.Data.Nodes), isInitial)
+
+    result, err := dh.service.ProcessK8sDiscovery(ctx, discoveryRequest, discoveryRequest.Project, isInitial)
 	if err != nil {
 		log.Printf("Discovery processing failed: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{

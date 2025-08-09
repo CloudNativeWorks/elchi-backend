@@ -70,6 +70,11 @@ var AllowedEndpoints = []string{
 	"/api/v3/ai/analyze",
 	"/api/v3/ai/analyze-logs",
 	"/api/v3/ai/status",
+	"/api/v3/ai/usage",
+	"/api/v3/ai/usage/stats",
+	"/api/v3/ai/usage/recent",
+	"/api/v3/ai/usage/status",
+	"/api/v3/ai/usage/cleanup",
 	"/api/discovery/k8s",
 	"/api/discovery/clusters",
 }

@@ -234,6 +234,11 @@ func initAIRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 	}{
 		{"POST", "/analyze", h.AnalyzeResourceConfigWithAI},
 		{"POST", "/analyze-logs", h.AnalyzeLogsWithConfig},
+		{"GET", "/status", h.GetAIStatus},
+		{"GET", "/usage/stats", h.GetAIUsageStats},
+		{"GET", "/usage/recent", h.GetRecentAIUsage},
+		{"GET", "/usage/status", h.GetAIUsageStatus},
+		{"DELETE", "/usage/cleanup", h.CleanupOldAIUsage},
 	}
 
 	initRoutes(rg, routes)

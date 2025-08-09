@@ -32,9 +32,7 @@ kind
 scripts/
 helm/
 .cursor
-.configs/controller-dev-1.yaml
-.configs/controller-dev-2.yaml
-.configs/controller-dev-3.yaml
+.configs/controller-dev-*
 docker-compose.dev.yaml
 TODO
 elchi-backend-medium-article.md
@@ -45,3 +43,4 @@ architecture-diagram.md
 CLAUDE.md
 DEVELOPMENT.md
 docker-compose.dev.yml
+doc/runtime_flags.md

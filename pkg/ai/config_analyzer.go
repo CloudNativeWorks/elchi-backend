@@ -94,8 +94,8 @@ type LogAnalyzerRequest struct {
 	// Log data
 	Logs string `json:"logs" validate:"required"`
 	
-	// User question about logs
-	Question string `json:"question" validate:"required"`
+	// User question about logs (optional - if empty, general analysis will be performed)
+	Question string `json:"question,omitempty"`
 	
 	// Optional context
 	IncludeDependencies bool `json:"include_dependencies,omitempty"`
@@ -111,7 +111,16 @@ type ConfigAnalysisResult struct {
 	Suggestions      []string                       `json:"suggestions,omitempty"`
 	Warnings         []string                       `json:"warnings,omitempty"`
 	ProcessedAt      time.Time                     `json:"processed_at"`
+	TokenUsage       TokenUsage                    `json:"token_usage"`
 }
+
+type TokenUsage struct {
+	InputTokens  int     `json:"input_tokens"`
+	OutputTokens int     `json:"output_tokens"`
+	TotalTokens  int     `json:"total_tokens"`
+	CostUSD      float64 `json:"cost_usd"`
+}
+
 
 // LogAnalysisResult represents log analysis result
 type LogAnalysisResult struct {
@@ -125,6 +134,7 @@ type LogAnalysisResult struct {
 	ErrorsDetected   []string                       `json:"errors_detected,omitempty"`
 	LogLineCount     int                            `json:"log_line_count"`
 	ProcessedAt      time.Time                     `json:"processed_at"`
+	TokenUsage       TokenUsage                    `json:"token_usage"`
 }
 
 // ConfigAnalyzer analyzes resources and their dependencies
@@ -134,14 +144,17 @@ type ConfigAnalyzer struct {
 	aiClient          *ClaudeAPIClient
 	logger            *logrus.Logger
 	systemPrompt      string // Cached system prompt
+	usageTracker      *UsageTracker
 }
 
 func NewConfigAnalyzer(dbContext *db.AppContext, aiClient *ClaudeAPIClient, logger *logrus.Logger) *ConfigAnalyzer {
 	dependencyHandler := dependency.NewDependencyHandler(dbContext)
+	usageTracker := NewUsageTracker(dbContext)
 	
 	analyzer := &ConfigAnalyzer{
 		dbContext:         dbContext,
 		dependencyHandler: dependencyHandler,
+		usageTracker:      usageTracker,
 		aiClient:          aiClient,
 		logger:            logger,
 	}
@@ -153,8 +166,19 @@ func NewConfigAnalyzer(dbContext *db.AppContext, aiClient *ClaudeAPIClient, logg
 	return analyzer
 }
 
+// recordUsage records AI usage statistics
+func (ca *ConfigAnalyzer) recordUsage(ctx context.Context, record AIUsageRecord) {
+	// Non-blocking usage recording
+	go func() {
+		if err := ca.usageTracker.RecordUsage(ctx, record); err != nil {
+			ca.logger.Errorf("Failed to record AI usage: %v", err)
+		}
+	}()
+}
+
 // AnalyzeResourceConfig analyzes any resource and its dependencies using AI
-func (ca *ConfigAnalyzer) AnalyzeResourceConfig(ctx context.Context, req ConfigAnalyzerRequest) (*ConfigAnalysisResult, error) {
+func (ca *ConfigAnalyzer) AnalyzeResourceConfig(ctx context.Context, req ConfigAnalyzerRequest, userID string) (*ConfigAnalysisResult, error) {
+	startTime := time.Now()
 	// 1. Get resource from MongoDB
 	resource, err := ca.getResourceFromDB(ctx, req.Collection, req.ResourceName, req.Project, req.Version)
 	if err != nil {
@@ -180,19 +204,50 @@ func (ca *ConfigAnalyzer) AnalyzeResourceConfig(ctx context.Context, req ConfigA
 	}
 
 	// 3. Analyze with AI
-	analysis, suggestions, err := ca.analyzeWithAI(req, result)
+	analysis, suggestions, inputTokens, outputTokens, err := ca.analyzeWithAI(req, result)
 	if err != nil {
+		// Record failed usage
+		ca.recordUsage(ctx, AIUsageRecord{
+			Project:      req.Project,
+			UserID:       userID,
+			RequestType:  "analyze",
+			ResourceName: req.ResourceName,
+			Collection:   req.Collection,
+			Success:      false,
+			ErrorMessage: err.Error(),
+			Duration:     time.Since(startTime).Milliseconds(),
+		})
 		return nil, fmt.Errorf("AI analysis failed: %w", err)
 	}
 
 	result.Analysis = analysis
 	result.Suggestions = suggestions
+	result.TokenUsage = TokenUsage{
+		InputTokens:  inputTokens,
+		OutputTokens: outputTokens,
+		TotalTokens:  inputTokens + outputTokens,
+		CostUSD:      calculateTokenCost(inputTokens, outputTokens),
+	}
+
+	// Record successful usage
+	ca.recordUsage(ctx, AIUsageRecord{
+		Project:      req.Project,
+		UserID:       userID,
+		RequestType:  "analyze",
+		ResourceName: req.ResourceName,
+		Collection:   req.Collection,
+		InputTokens:  inputTokens,
+		OutputTokens: outputTokens,
+		Success:      true,
+		Duration:     time.Since(startTime).Milliseconds(),
+	})
 
 	return result, nil
 }
 
 // AnalyzeLogsWithConfig analyzes Envoy logs with resource context using AI
-func (ca *ConfigAnalyzer) AnalyzeLogsWithConfig(ctx context.Context, req LogAnalyzerRequest) (*LogAnalysisResult, error) {
+func (ca *ConfigAnalyzer) AnalyzeLogsWithConfig(ctx context.Context, req LogAnalyzerRequest, userID string) (*LogAnalysisResult, error) {
+	startTime := time.Now()
 	// 1. Validate log line count (max 500 lines)
 	logLines := strings.Split(strings.TrimSpace(req.Logs), "\n")
 	if len(logLines) > 500 {
@@ -225,8 +280,19 @@ func (ca *ConfigAnalyzer) AnalyzeLogsWithConfig(ctx context.Context, req LogAnal
 	}
 
 	// 4. Analyze logs with AI
-	analysis, suggestions, errors, logSummary, err := ca.analyzeLogsWithAI(req, result)
+	analysis, suggestions, errors, logSummary, inputTokens, outputTokens, err := ca.analyzeLogsWithAI(req, result)
 	if err != nil {
+		// Record failed usage
+		ca.recordUsage(ctx, AIUsageRecord{
+			Project:      req.Project,
+			UserID:       userID,
+			RequestType:  "analyze-logs",
+			ResourceName: req.ResourceName,
+			Collection:   req.Collection,
+			Success:      false,
+			ErrorMessage: err.Error(),
+			Duration:     time.Since(startTime).Milliseconds(),
+		})
 		return nil, fmt.Errorf("AI log analysis failed: %w", err)
 	}
 
@@ -234,6 +300,25 @@ func (ca *ConfigAnalyzer) AnalyzeLogsWithConfig(ctx context.Context, req LogAnal
 	result.Suggestions = suggestions
 	result.ErrorsDetected = errors
 	result.LogSummary = logSummary
+	result.TokenUsage = TokenUsage{
+		InputTokens:  inputTokens,
+		OutputTokens: outputTokens,
+		TotalTokens:  inputTokens + outputTokens,
+		CostUSD:      calculateTokenCost(inputTokens, outputTokens),
+	}
+
+	// Record successful usage
+	ca.recordUsage(ctx, AIUsageRecord{
+		Project:      req.Project,
+		UserID:       userID,
+		RequestType:  "analyze-logs",
+		ResourceName: req.ResourceName,
+		Collection:   req.Collection,
+		InputTokens:  inputTokens,
+		OutputTokens: outputTokens,
+		Success:      true,
+		Duration:     time.Since(startTime).Milliseconds(),
+	})
 
 	return result, nil
 }
@@ -420,7 +505,7 @@ func (ca *ConfigAnalyzer) discoverDependenciesForLog(ctx context.Context, req Lo
 }
 
 // analyzeWithAI performs AI configuration analysis
-func (ca *ConfigAnalyzer) analyzeWithAI(req ConfigAnalyzerRequest, result *ConfigAnalysisResult) (string, []string, error) {
+func (ca *ConfigAnalyzer) analyzeWithAI(req ConfigAnalyzerRequest, result *ConfigAnalysisResult) (string, []string, int, int, error) {
 	// Create user prompt (system prompt already cached)
 	userPrompt := ca.buildAnalysisUserPrompt(req, result)
 
@@ -446,19 +531,19 @@ func (ca *ConfigAnalyzer) analyzeWithAI(req ConfigAnalyzerRequest, result *Confi
 	}
 
 	// AI client'tan response al
-	response, err := ca.callClaudeAPI(claudeReq)
+	response, inputTokens, outputTokens, err := ca.callClaudeAPI(claudeReq)
 	if err != nil {
-		return "", nil, err
+		return "", nil, 0, 0, err
 	}
 
 	// Parse response
 	analysis, suggestions := ca.parseAnalysisResponse(response)
 	
-	return analysis, suggestions, nil
+	return analysis, suggestions, inputTokens, outputTokens, nil
 }
 
 // analyzeLogsWithAI analyzes Envoy logs with configuration context using AI
-func (ca *ConfigAnalyzer) analyzeLogsWithAI(req LogAnalyzerRequest, result *LogAnalysisResult) (string, []string, []string, string, error) {
+func (ca *ConfigAnalyzer) analyzeLogsWithAI(req LogAnalyzerRequest, result *LogAnalysisResult) (string, []string, []string, string, int, int, error) {
 	// Build user prompt for log analysis (system prompt is already cached)
 	userPrompt := ca.buildLogAnalysisUserPrompt(req, result)
 
@@ -484,20 +569,20 @@ func (ca *ConfigAnalyzer) analyzeLogsWithAI(req LogAnalyzerRequest, result *LogA
 	}
 
 	// Get response from AI client
-	response, err := ca.callClaudeAPI(claudeReq)
+	response, inputTokens, outputTokens, err := ca.callClaudeAPI(claudeReq)
 	if err != nil {
-		return "", nil, nil, "", err
+		return "", nil, nil, "", 0, 0, err
 	}
 
 	// Parse response
 	analysis, suggestions, errors, logSummary := ca.parseLogAnalysisResponse(response)
 	
-	return analysis, suggestions, errors, logSummary, nil
+	return analysis, suggestions, errors, logSummary, inputTokens, outputTokens, nil
 }
 
 // buildAnalysisSystemPrompt creates system prompt for AI analysis
 func (ca *ConfigAnalyzer) buildAnalysisSystemPrompt() string {
-	return `You are an Envoy Proxy configuration expert using the Elchi management system. You will analyze configurations and provide UI-based instructions.
+	return `You are a helpful AI assistant for the Elchi Envoy proxy management system. You can answer general questions about networking, domains, proxies, and other technical topics. When users specifically ask about Envoy configurations, you will provide detailed analysis and UI-based instructions.
 
 ## ELCHI SYSTEM ARCHITECTURE:
 
@@ -546,12 +631,23 @@ func (ca *ConfigAnalyzer) buildAnalysisSystemPrompt() string {
 - **users, groups, projects, settings** → User management
 - **envoys** → Connected Envoy instances and status
 
-## YOUR TASKS:
-1. **CONFIG ANALYSIS**: Analyze the given resource and its dependencies in detail
-2. **UI-BASED ANSWERS**: Provide step-by-step UI instructions instead of raw JSON
-3. **PRACTICAL SUGGESTIONS**: Offer actionable UI-based suggestions
-4. **IDENTIFY PROBLEMS**: Detect potential issues and security vulnerabilities
-5. **SYSTEM CONTEXT**: Consider how changes affect the 3-component architecture
+## YOUR ROLE:
+You are an expert assistant for the Elchi Envoy proxy management system. You can help users with:
+
+1. **GENERAL QUESTIONS**: Answer any question about networking, domains, proxy concepts, or technical topics
+2. **CONFIG ANALYSIS**: When specifically asked, analyze Envoy resources and their dependencies
+3. **UI GUIDANCE**: Provide step-by-step UI instructions when users need help with the interface
+4. **PROBLEM SOLVING**: Help troubleshoot issues and provide practical solutions
+5. **SYSTEM ARCHITECTURE**: Explain how the 3-component Elchi system works
+
+**IMPORTANT**: Only focus on Envoy configuration when the user specifically asks about Envoy configs, listeners, clusters, routes, etc. For general questions about domains, networking, or other topics, provide general helpful answers.
+
+**EXAMPLES:**
+- "What is a domain?" → Answer generally about domains and DNS
+- "How do HTTP requests work?" → Explain HTTP protocol concepts  
+- "What is load balancing?" → Explain load balancing concepts
+- "Analyze this listener configuration" → Focus on Envoy config analysis
+- "How to configure HTTPS in Envoy?" → Provide Elchi UI steps
 
 ## SUPPORTED ENVOY FEATURES IN ELCHI UI:
 
@@ -789,21 +885,21 @@ func (ca *ConfigAnalyzer) buildAnalysisUserPrompt(req ConfigAnalyzerRequest, res
 	prompt.WriteString(req.Question)
 	prompt.WriteString("\n\n")
 
-	prompt.WriteString("Based on this information, answer the user's question and analyze the configuration.")
+	prompt.WriteString("Based on this information, answer the user's question directly and helpfully. Only focus on Envoy configuration if the user specifically asks about it.")
 
 	return prompt.String()
 }
 
 // callClaudeAPI calls the Claude API
-func (ca *ConfigAnalyzer) callClaudeAPI(req ClaudeRequest) (string, error) {
+func (ca *ConfigAnalyzer) callClaudeAPI(req ClaudeRequest) (string, int, int, error) {
 	bodyBytes, err := json.Marshal(req)
 	if err != nil {
-		return "", fmt.Errorf("marshal request: %w", err)
+		return "", 0, 0, fmt.Errorf("marshal request: %w", err)
 	}
 
 	httpReq, err := http.NewRequest("POST", ca.aiClient.BaseURL, strings.NewReader(string(bodyBytes)))
 	if err != nil {
-		return "", fmt.Errorf("create request: %w", err)
+		return "", 0, 0, fmt.Errorf("create request: %w", err)
 	}
 
 	// Set headers
@@ -813,24 +909,24 @@ func (ca *ConfigAnalyzer) callClaudeAPI(req ClaudeRequest) (string, error) {
 
 	resp, err := ca.aiClient.HTTPClient.Do(httpReq)
 	if err != nil {
-		return "", fmt.Errorf("http request: %w", err)
+		return "", 0, 0, fmt.Errorf("http request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("API error: status %d", resp.StatusCode)
+		return "", 0, 0, fmt.Errorf("API error: status %d", resp.StatusCode)
 	}
 
 	var response ClaudeResponse
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return "", fmt.Errorf("decode response: %w", err)
+		return "", 0, 0, fmt.Errorf("decode response: %w", err)
 	}
 
 	if len(response.Content) == 0 {
-		return "", fmt.Errorf("empty response content")
+		return "", 0, 0, fmt.Errorf("empty response content")
 	}
 
-	return response.Content[0].Text, nil
+	return response.Content[0].Text, response.Usage.InputTokens, response.Usage.OutputTokens, nil
 }
 
 // parseAnalysisResponse parses AI response
@@ -1055,12 +1151,17 @@ func (ca *ConfigAnalyzer) buildLogAnalysisUserPrompt(req LogAnalyzerRequest, res
 	prompt.WriteString(req.Logs)
 	prompt.WriteString("\n```\n\n")
 
-	// User's question
-	prompt.WriteString("## USER QUESTION:\n")
-	prompt.WriteString(req.Question)
-	prompt.WriteString("\n\n")
-
-	prompt.WriteString("Based on this information, analyze the logs and answer the user's question. Correlate log entries with the configuration and provide actionable solutions.")
+	// User's question or default task
+	if req.Question != "" && req.Question != "Analyze these logs and identify any issues, errors, or important information." {
+		prompt.WriteString("## USER QUESTION:\n")
+		prompt.WriteString(req.Question)
+		prompt.WriteString("\n\n")
+		prompt.WriteString("Based on this information, analyze the logs and answer the user's question. Correlate log entries with the configuration and provide actionable solutions.")
+	} else {
+		prompt.WriteString("## TASK:\n")
+		prompt.WriteString("Perform a comprehensive analysis of these logs. Identify any issues, errors, warnings, or important information. Correlate log entries with the configuration and provide actionable solutions.\n\n")
+		prompt.WriteString("Based on this information, analyze the logs thoroughly and provide insights about the system's behavior, any problems detected, and recommendations for improvement.")
+	}
 
 	return prompt.String()
 }

@@ -399,8 +399,13 @@ func (h *Client) HandleSendCommand(ctx context.Context, op models.OperationClass
 	}
 	
 	processDuration := time.Since(processStart)
-	h.logger.Infof("Client processing took %v for %d clients (%v per client)", 
-		processDuration, len(clients), processDuration/time.Duration(len(clients)))
+	if len(clients) > 0 {
+		h.logger.Infof("Client processing took %v for %d clients (%v per client)", 
+			processDuration, len(clients), processDuration/time.Duration(len(clients)))
+	} else {
+		h.logger.Infof("Client processing took %v for %d clients (no clients found)", 
+			processDuration, len(clients))
+	}
 
 	h.logger.Infof("Command processing completed. Returning %d total responses", len(result))
 	return result, nil

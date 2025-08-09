@@ -8,11 +8,12 @@ import (
 	"strings"
 	"time"
 
+	"log"
+
 	"github.com/CloudNativeWorks/elchi-backend/pkg/ai"
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
-	"log"
 )
 
 // AnalyzeResourceConfigWithAI herhangi bir resource'u AI ile analiz eder
@@ -91,7 +92,13 @@ func (h *Handler) AnalyzeResourceConfigWithAI(c *gin.Context) {
 
 	log.Printf("Analyzing %s config: name=%s, project=%s, version=%s", req.Collection, req.ResourceName, req.Project, req.Version)
 
-	analysisResult, err := configAnalyzer.AnalyzeResourceConfig(ctx, req)
+	// Get user ID from context (from JWT middleware)
+	userID, exists := c.Get("user_id")
+	if !exists {
+		userID = "unknown" // fallback
+	}
+	
+	analysisResult, err := configAnalyzer.AnalyzeResourceConfig(ctx, req, userID.(string))
 	if err != nil {
 		log.Printf("ERROR: Failed to analyze %s config: %v", req.Collection, err)
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -109,16 +116,39 @@ func (h *Handler) AnalyzeResourceConfigWithAI(c *gin.Context) {
 		"message":          fmt.Sprintf("%s configuration analyzed successfully", strings.ToUpper(req.Collection)),
 		"dependency_count":  len(analysisResult.Dependencies.Nodes),
 		"resource_count":    len(analysisResult.RelatedResources),
+		"token_usage": gin.H{
+			"input_tokens":  analysisResult.TokenUsage.InputTokens,
+			"output_tokens": analysisResult.TokenUsage.OutputTokens,
+			"total_tokens":  analysisResult.TokenUsage.TotalTokens,
+			"cost_usd":      analysisResult.TokenUsage.CostUSD,
+		},
 	})
 }
 
 
 // GetAIStatus AI sistemi durumunu döndürür
 func (h *Handler) GetAIStatus(c *gin.Context) {
-	// AI API key kontrolü
+	project := c.Query("project")
+	
+	// Project parameter kontrolü
+	if project == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "project parameter is required",
+		})
+		return
+	}
+	
+	// AI API key kontrolü - önce header, sonra settings, sonra environment
 	claudeKey := c.GetHeader("x-claude-token")
 	if claudeKey == "" {
-		claudeKey = os.Getenv("CLAUDE_API_KEY")
+		// Settings'den Claude token'ını al
+		settingsKey, err := h.getClaudeTokenFromSettings(project)
+		if err == nil && settingsKey != "" {
+			claudeKey = settingsKey
+		} else {
+			// Son çare environment variable
+			claudeKey = os.Getenv("CLAUDE_API_KEY")
+		}
 	}
 	
 	openaiKey := c.GetHeader("x-openai-token")
@@ -134,17 +164,16 @@ func (h *Handler) GetAIStatus(c *gin.Context) {
 		},
 		"default_model": "claude-3-5-sonnet-20241022",
 		"supported_features": []string{
-			"config_generation",
-			"resource_validation",
-			"backend_api_integration",
-			"concurrent_resource_creation",
+			"analyze",
+			"analyze-logs",
 		},
 		"status": "online",
+		"project": project,
 	}
 	
 	if !status["available"].(bool) {
 		status["status"] = "no_api_key"
-		status["message"] = "No AI API key configured. Set x-claude-token or x-openai-token header."
+		status["message"] = "No AI API key configured. Set via x-claude-token header, project settings, or CLAUDE_API_KEY environment variable"
 	}
 	
 	c.JSON(http.StatusOK, status)
@@ -185,11 +214,16 @@ func (h *Handler) AnalyzeLogsWithConfig(c *gin.Context) {
 	}
 
 	// Request validation
-	if req.ResourceName == "" || req.Collection == "" || req.Project == "" || req.Question == "" || req.Logs == "" {
+	if req.ResourceName == "" || req.Collection == "" || req.Project == "" || req.Logs == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "resource_name, collection, project, question and logs are required",
+			"error": "resource_name, collection, project and logs are required",
 		})
 		return
+	}
+	
+	// If question is empty, set default question for general log analysis
+	if req.Question == "" {
+		req.Question = "Analyze these logs and identify any issues, errors, or important information."
 	}
 
 	// Collection validation
@@ -210,11 +244,11 @@ func (h *Handler) AnalyzeLogsWithConfig(c *gin.Context) {
 
 	// Log line count validation (max 500 lines)
 	logLines := strings.Split(strings.TrimSpace(req.Logs), "\n")
-	if len(logLines) > 500 {
+	if len(logLines) > 999 {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":   "Log too large",
-			"message": fmt.Sprintf("Provided log has %d lines. Maximum 500 lines allowed.", len(logLines)),
-			"max_lines": 500,
+			"message": fmt.Sprintf("Provided log has %d lines. Maximum 999 lines allowed.", len(logLines)),
+			"max_lines": 999,
 			"current_lines": len(logLines),
 		})
 		return
@@ -261,7 +295,13 @@ func (h *Handler) AnalyzeLogsWithConfig(c *gin.Context) {
 
 	log.Printf("Analyzing logs for %s config: name=%s, project=%s, log_lines=%d", req.Collection, req.ResourceName, req.Project, len(logLines))
 
-	analysisResult, err := configAnalyzer.AnalyzeLogsWithConfig(ctx, req)
+	// Get user ID from context (from JWT middleware)
+	userID, exists := c.Get("user_id")
+	if !exists {
+		userID = "unknown" // fallback
+	}
+
+	analysisResult, err := configAnalyzer.AnalyzeLogsWithConfig(ctx, req, userID.(string))
 	if err != nil {
 		log.Printf("ERROR: Failed to analyze logs with %s config: %v", req.Collection, err)
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -281,6 +321,12 @@ func (h *Handler) AnalyzeLogsWithConfig(c *gin.Context) {
 		"errors_detected":   len(analysisResult.ErrorsDetected),
 		"dependency_count":  len(analysisResult.Dependencies.Nodes),
 		"resource_count":    len(analysisResult.RelatedResources),
+		"token_usage": gin.H{
+			"input_tokens":  analysisResult.TokenUsage.InputTokens,
+			"output_tokens": analysisResult.TokenUsage.OutputTokens,
+			"total_tokens":  analysisResult.TokenUsage.TotalTokens,
+			"cost_usd":      analysisResult.TokenUsage.CostUSD,
+		},
 	})
 }
 

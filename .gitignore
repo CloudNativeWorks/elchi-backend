@@ -44,3 +44,4 @@ CLAUDE.md
 DEVELOPMENT.md
 docker-compose.dev.yml
 doc/runtime_flags.md
+claude_notes/*

@@ -421,7 +421,6 @@ func (ds *DiscoveryService) registerCluster(ctx context.Context, request K8sDisc
 			ClusterName:       request.Data.ClusterInfo.ClusterName,
 			Project:           project,
 			Nodes:            request.Data.Nodes,
-			Status:           "active",
 			LastSeen:         now,
 			CreatedAt:        now,
 			UpdatedAt:        now,
@@ -442,7 +441,6 @@ func (ds *DiscoveryService) registerCluster(ctx context.Context, request K8sDisc
 		update := bson.M{
 			"$set": bson.M{
 				"nodes":              request.Data.Nodes,
-				"status":             "active",
 				"last_seen":          now,
 				"updated_at":         now,
 				"node_count":         request.Data.NodeCount,

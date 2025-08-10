@@ -67,7 +67,6 @@ type ClusterDiscovery struct {
 	ClusterName      string        `json:"cluster_name" bson:"cluster_name"`
 	Project          string        `json:"project" bson:"project"`
 	Nodes            []NodeInfo    `json:"nodes" bson:"nodes"`
-	Status           string        `json:"status" bson:"status"`
 	LastSeen         time.Time     `json:"last_seen" bson:"last_seen"`
 	CreatedAt        time.Time     `json:"created_at" bson:"created_at"`
 	UpdatedAt        time.Time     `json:"updated_at" bson:"updated_at"`

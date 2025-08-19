@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/CloudNativeWorks/elchi-backend/controller/crud/common"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/authorization"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -16,9 +17,21 @@ import (
 func (extension *AppHandler) GetExtensions(ctx context.Context, _ models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
 	var records []bson.M
 	filter := bson.M{"general.type": requestDetails.Type, "general.project": requestDetails.Project}
-	filterWithRestriction := common.AddUserFilter(requestDetails, filter)
-	collection := extension.Context.Client.Collection(requestDetails.Collection)
+	
+	// Validate project access
+	if requestDetails.Project != "" {
+		if err := authorization.ValidateRequestProject(ctx, extension.Context.Client, requestDetails.User, requestDetails.Project); err != nil {
+			return nil, fmt.Errorf("extension access denied: %w", err)
+		}
+	}
 
+	// Use secure filtering
+	filterWithRestriction, err := common.AddSecureUserFilter(ctx, extension.Context.Client, requestDetails, filter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to apply security filters: %w", err)
+	}
+
+	collection := extension.Context.Client.Collection(requestDetails.Collection)
 	opts := options.Find().SetProjection(bson.M{"resource": 0})
 	cursor, err := collection.Find(ctx, filterWithRestriction, opts)
 	if err != nil {
@@ -39,6 +52,7 @@ func (extension *AppHandler) GetExtension(ctx context.Context, resource models.R
 		"general.name":           requestDetails.Name,
 		"general.canonical_name": requestDetails.CanonicalName,
 		"general.project":        requestDetails.Project,
+		"general.version":        requestDetails.Version,
 	})
 }
 
@@ -47,17 +61,30 @@ func (extension *AppHandler) GetOtherExtension(ctx context.Context, resource mod
 	return getExtensionByFilter(ctx, resource, extension, requestDetails, bson.M{
 		"general.name":    requestDetails.Name,
 		"general.project": requestDetails.Project,
+		"general.version": requestDetails.Version,
 	})
 }
 
 func getExtensionByFilter(ctx context.Context, resource models.ResourceClass, extension *AppHandler, requestDetails models.RequestDetails, filter bson.M) (any, error) {
+	// Validate project access
+	if requestDetails.Project != "" {
+		if err := authorization.ValidateRequestProject(ctx, extension.Context.Client, requestDetails.User, requestDetails.Project); err != nil {
+			return nil, fmt.Errorf("extension access denied: %w", err)
+		}
+	}
+
 	collection := extension.Context.Client.Collection(requestDetails.Collection)
 	resourceIDFilter, err := common.AddResourceIDFilter(requestDetails, filter)
 	if err != nil {
 		return nil, fmt.Errorf("add resource id filter error: %w", err)
 	}
 
-	filterWithRestriction := common.AddUserFilter(requestDetails, resourceIDFilter)
+	// Use secure filtering
+	filterWithRestriction, err := common.AddSecureUserFilter(ctx, extension.Context.Client, requestDetails, resourceIDFilter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to apply security filters: %w", err)
+	}
+
 	result := collection.FindOne(ctx, filterWithRestriction)
 
 	if result.Err() != nil {

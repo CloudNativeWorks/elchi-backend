@@ -4,6 +4,7 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/controller/crud/xds"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
@@ -14,11 +15,13 @@ type AppHandler struct {
 }
 
 type Service struct {
-	ID        primitive.ObjectID `json:"id" bson:"_id"`
-	Name      string             `json:"name" bson:"name"`
-	Project   string             `json:"project" bson:"project"`
-	AdminPort uint32             `json:"admin_port" bson:"admin_port"`
-	Clients   []Client           `json:"clients" bson:"clients"`
+	ID          primitive.ObjectID   `json:"id" bson:"_id"`
+	Name        string               `json:"name" bson:"name"`
+	Project     string               `json:"project" bson:"project"`
+	Version     string               `json:"version" bson:"version"`
+	AdminPort   uint32               `json:"admin_port" bson:"admin_port"`
+	Clients     []Client             `json:"clients" bson:"clients"`
+	Permissions models.Permissions   `json:"permissions" bson:"permissions"`
 }
 
 type Client struct {

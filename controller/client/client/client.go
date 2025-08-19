@@ -22,7 +22,7 @@ type ClientInfo struct {
 	LastSeen     time.Time                             `json:"last_seen" bson:"last_seen"`
 	SessionToken string                                `json:"session_token" bson:"session_token"`
 	Metadata     map[string]string                     `json:"metadata" bson:"metadata"`
-	Projects     []string                              `json:"projects" bson:"projects"`
+	Project      string                                `json:"project" bson:"project"`
 	AccessTokens string                                `json:"access_token" bson:"access_token"`
 	Stream       pb.CommandService_CommandStreamServer `json:"-" bson:"-"`
 	Context      context.Context                       `json:"-" bson:"-"`
@@ -44,6 +44,7 @@ func NewClientInfo(req *pb.RegisterRequest, sessionToken string) *ClientInfo {
 		LastSeen:     time.Now(),
 		SessionToken: sessionToken,
 		Metadata:     req.GetMetadata(),
+		Project:      req.GetProjectId(),
 	}
 }
 

@@ -1,0 +1,41 @@
+{
+    "general": {
+        "name": "endpoint",
+        "version": "v1.33.5",
+        "type": "endpoint",
+        "gtype": "envoy.config.endpoint.v3.ClusterLoadAssignment",
+        "project": "683b2148ff7e3ae67d825cfa",
+        "canonical_name": "config.endpoint.v3.Endpoint",
+        "metadata": {},
+        "category": "endpoint",
+        "permissions": {
+            "users": [],
+            "groups": []
+        },
+        "config_discovery": [],
+        "collection": "endpoints"
+    },
+    "resource": {
+        "resource": {
+            "cluster_name": "endpoint",
+            "endpoints": [
+                {
+                    "lb_endpoints": [
+                        {
+                            "endpoint": {
+                                "address": {
+                                    "socket_address": {
+                                        "protocol": "TCP",
+                                        "address": "1.1.1.1",
+                                        "port_value": 22
+                                    }
+                                }
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        "version": "1"
+    }
+}

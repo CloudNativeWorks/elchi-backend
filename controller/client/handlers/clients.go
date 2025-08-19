@@ -9,7 +9,7 @@ import (
 
 func (h *Client) ListClients(ctx context.Context, _ models.OperationClass, requestDetails models.RequestDetails) (any, error) {
 	if requestDetails.WithServiceIPs == "true" {
-		clients, err := h.Service.GetAllClientsWithServiceIPs()
+		clients, err := h.Service.GetAllClientsWithServiceIPs(requestDetails.Project)
 		if err != nil {
 			return nil, err
 		}

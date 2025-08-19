@@ -7,10 +7,12 @@ import (
 )
 
 type Service struct {
-	Name      string           `json:"name" bson:"name"`
-	Project   string           `json:"project" bson:"project"`
-	AdminPort uint32           `json:"admin_port" bson:"admin_port"`
-	Clients   []ListenerClient `json:"clients" bson:"clients"`
+	Name        string           `json:"name" bson:"name"`
+	Project     string           `json:"project" bson:"project"`
+	Version     string           `json:"version" bson:"version"`
+	AdminPort   uint32           `json:"admin_port" bson:"admin_port"`
+	Clients     []ListenerClient `json:"clients" bson:"clients"`
+	Permissions Permissions      `json:"permissions" bson:"permissions"`
 }
 
 type ListenerClient struct {

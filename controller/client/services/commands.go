@@ -28,7 +28,7 @@ func (s *ClientService) SendCommand(clientID string, cmdType pb.CommandType, sub
 
 	if !client.IsConnected() || client.Stream == nil {
 		s.clientsMux.RUnlock()
-		return nil, fmt.Errorf("client not connected")
+		return nil, fmt.Errorf("client %s is not connected or stream is nil (check if client is running and connected)", clientID)
 	}
 
 	stream := client.Stream
@@ -50,7 +50,22 @@ func (s *ClientService) SendCommand(clientID string, cmdType pb.CommandType, sub
 
 	// Send command
 	if err := stream.Send(command); err != nil {
-		return nil, fmt.Errorf("failed to send command: %v", err)
+		// Check for EOF and connection issues
+		if err.Error() == "EOF" {
+			// Client disconnected, mark as disconnected
+			s.clientsMux.Lock()
+			if client, exists := s.clients[clientID]; exists {
+				client.Connected = false
+			}
+			s.clientsMux.Unlock()
+			return nil, fmt.Errorf("client %s disconnected (EOF - connection lost)", clientID)
+		}
+		
+		if err.Error() == "rpc error: code = Unavailable desc = connection closed" {
+			return nil, fmt.Errorf("client %s connection closed", clientID)
+		}
+		
+		return nil, fmt.Errorf("failed to send command to client %s: %v", clientID, err)
 	}
 
 	// Wait for response
@@ -58,7 +73,7 @@ func (s *ClientService) SendCommand(clientID string, cmdType pb.CommandType, sub
 	case resp := <-respChan:
 		return resp, nil
 	case <-time.After(15 * time.Second):
-		return nil, fmt.Errorf("command timed out")
+		return nil, fmt.Errorf("command timed out after 15 seconds - client %s may be unresponsive", clientID)
 	}
 }
 // HandleCommandResponse processes command response

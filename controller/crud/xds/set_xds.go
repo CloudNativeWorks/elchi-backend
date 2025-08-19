@@ -4,17 +4,48 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/CloudNativeWorks/elchi-backend/controller/crud"
-	"github.com/CloudNativeWorks/elchi-backend/pkg/errstr"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/authorization"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/resources"
 )
 
+// parseDuplicateKeyError extracts a more user-friendly error message from MongoDB duplicate key errors
+func parseDuplicateKeyError(err error, resourceName string) error {
+	if err == nil {
+		return nil
+	}
+	
+	errStr := err.Error()
+	if strings.Contains(errStr, "E11000 duplicate key error") {
+		// Extract collection name from error message
+		collection := "resource"
+		if strings.Contains(errStr, "collection: elchi.") {
+			parts := strings.Split(errStr, "collection: elchi.")
+			if len(parts) > 1 {
+				collectionPart := strings.Split(parts[1], " ")[0]
+				collection = collectionPart
+			}
+		}
+		
+		return fmt.Errorf("A %s with the name \"%s\" already exists. Please choose a different name.", collection, resourceName)
+	}
+	
+	return err
+}
+
 func (xds *AppHandler) SetResource(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
+	// Validate project access before creating resource
+	if err := authorization.ValidateResourceProject(ctx, xds.Context.Client, requestDetails.User, resource); err != nil {
+		return nil, fmt.Errorf("project access denied: %w", err)
+	}
+
 	general := resource.GetGeneral()
 	err := resources.PrepareResource(resource, requestDetails, xds.Logger.Logger, xds.ResourceService)
 	if err != nil {
@@ -28,7 +59,7 @@ func (xds *AppHandler) SetResource(ctx context.Context, resource models.Resource
 	inserResult, err := collection.InsertOne(ctx, resource)
 	if err != nil {
 		if er := new(mongo.WriteException); errors.As(err, &er) && er.WriteErrors[0].Code == 11000 {
-			return nil, errstr.ErrNameAlreadyExists
+			return nil, parseDuplicateKeyError(err, general.Name)
 		}
 		return nil, err
 	}
@@ -40,7 +71,7 @@ func (xds *AppHandler) SetResource(ctx context.Context, resource models.Resource
 		}
 
 		if general.Managed {
-			serviceID, err = xds.createService(ctx, general.Name, general.Project, adminPort)
+			serviceID, err = xds.createService(ctx, general.Name, general.Project, general.Version, adminPort, general.Permissions)
 			if err != nil {
 				return nil, err
 			}
@@ -57,17 +88,22 @@ func (xds *AppHandler) SetResource(ctx context.Context, resource models.Resource
 	return map[string]any{"message": "Success", "data": data}, nil
 }
 
-func (xds *AppHandler) createService(ctx context.Context, serviceName string, project string, adminPort uint32) (string, error) {
+func (xds *AppHandler) createService(ctx context.Context, serviceName string, project string, version string, adminPort uint32, listenerPermissions models.Permissions) (string, error) {
 	var service models.Service
 	collection := xds.Context.Client.Collection("services")
 	service.Name = serviceName
 	service.Project = project
+	service.Version = version
 	service.AdminPort = adminPort
 	service.Clients = []models.ListenerClient{}
+	
+	// Service permissions inherit from the listener that created it
+	service.Permissions = listenerPermissions
+
 	inserResult, err := collection.InsertOne(ctx, service)
 	if err != nil {
 		if er := new(mongo.WriteException); errors.As(err, &er) && er.WriteErrors[0].Code == 11000 {
-			return "", errstr.ErrNameAlreadyExists
+			return "", parseDuplicateKeyError(err, serviceName)
 		}
 		return "", err
 	}
@@ -103,7 +139,7 @@ func (xds *AppHandler) createBootstrap(ctx context.Context, listenerGeneral mode
 	inserResult, err := collection.InsertOne(ctx, resource)
 	if err != nil {
 		if er := new(mongo.WriteException); errors.As(err, &er) && er.WriteErrors[0].Code == 11000 {
-			return "", 0, errstr.ErrNameAlreadyExists
+			return "", 0, parseDuplicateKeyError(err, listenerGeneral.Name)
 		}
 		return "", 0, err
 	}

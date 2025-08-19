@@ -1,0 +1,73 @@
+{
+    "general": {
+        "name": "fdfdfdfdd",
+        "version": "v1.33.5",
+        "type": "virtual_host",
+        "gtype": "envoy.config.route.v3.VirtualHost",
+        "project": "683b2148ff7e3ae67d825cfa",
+        "canonical_name": "config.route.v3.VirtualHost",
+        "metadata": {},
+        "category": "virtual_host",
+        "permissions": {
+            "users": [],
+            "groups": []
+        },
+        "config_discovery": [],
+        "collection": "virtual_hosts"
+    },
+    "resource": {
+        "resource": [
+            {
+                "name": "newVirtualHost1",
+                "domains": [
+                    "*"
+                ],
+                "routes": [
+                    {
+                        "name": "newRoute1",
+                        "match": {
+                            "prefix": "/",
+                            "case_sensitive": true
+                        },
+                        "route": {
+                            "cluster": "dedede3"
+                        }
+                    }
+                ],
+                "request_headers_to_add": [
+                    {
+                        "header": {
+                            "key": "sda",
+                            "value": "asd"
+                        },
+                        "append_action": "ADD_IF_ABSENT",
+                        "keep_empty_value": true
+                    }
+                ],
+                "request_headers_to_remove": [
+                    "dee",
+                    "defc"
+                ],
+                "response_headers_to_add": [
+                    {
+                        "header": {
+                            "key": "ded",
+                            "value": "dc"
+                        },
+                        "append_action": "OVERWRITE_IF_EXISTS",
+                        "keep_empty_value": true
+                    }
+                ],
+                "response_headers_to_remove": [
+                    "edccc",
+                    "edd"
+                ],
+                "include_request_attempt_count": true,
+                "include_attempt_count_in_response": true,
+                "include_is_timeout_retry_header": true,
+                "per_request_buffer_limit_bytes": 32332
+            }
+        ],
+        "version": "1"
+    }
+}

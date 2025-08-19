@@ -45,3 +45,8 @@ DEVELOPMENT.md
 docker-compose.dev.yml
 doc/runtime_flags.md
 claude_notes/*
+SCENARIO_EXECUTE_FLOW.md
+.gitignore
+UI_AI_COMPONENT_NAME_SYNC_GUIDE.md
+UI_COMPONENT_INTEGRATION_GUIDE.md
+SECURITY_DOCUMENTATION.md

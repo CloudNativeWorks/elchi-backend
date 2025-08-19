@@ -14,7 +14,7 @@ type UnDeployProcessor struct {
 }
 
 func (p *UnDeployProcessor) ValidateAndTransform(op models.OperationClass, requestDetails models.RequestDetails, cl models.ServiceClients) (any, error) {
-	adminPort, err := resources.GetAdminPortFromService(p.XDSHandler.Context.Client, op)
+	adminPort, err := resources.GetAdminPortFromService(p.XDSHandler.Context.Client, op, requestDetails)
 	if err != nil {
 		return nil, err
 	}

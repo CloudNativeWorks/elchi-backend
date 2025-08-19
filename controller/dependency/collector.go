@@ -41,7 +41,7 @@ func GenericUpstreamCollector(ctx context.Context, appCtx *AppHandler, activeRes
 	return node, dependencies
 }
 
-func collectDependenciesFromPath(ctx context.Context, appCtx *AppHandler, rootResult gjson.Result, path string, gtype models.GTypes, activeResource Depend, dependencies *[]Depend, version string) {
+func collectDependenciesFromPath(ctx context.Context, appCtx *AppHandler, rootResult gjson.Result, path string, gtype models.GType, activeResource Depend, dependencies *[]Depend, version string) {
 	results := rootResult.Get(path)
 
 	if !results.Exists() {
@@ -62,7 +62,7 @@ func collectDependenciesFromPath(ctx context.Context, appCtx *AppHandler, rootRe
 	})
 }
 
-func processItem(ctx context.Context, appCtx *AppHandler, item gjson.Result, path string, gtype models.GTypes, activeResource Depend, dependencies *[]Depend, version string) {
+func processItem(ctx context.Context, appCtx *AppHandler, item gjson.Result, path string, gtype models.GType, activeResource Depend, dependencies *[]Depend, version string) {
 	if item.IsArray() {
 		item.ForEach(func(_, subItem gjson.Result) bool {
 			addDependency(ctx, appCtx, subItem.String(), path, gtype, activeResource, dependencies, version)
@@ -73,7 +73,7 @@ func processItem(ctx context.Context, appCtx *AppHandler, item gjson.Result, pat
 	}
 }
 
-func addDependency(ctx context.Context, appCtx *AppHandler, name, path string, gtype models.GTypes, activeResource Depend, dependencies *[]Depend, version string) {
+func addDependency(ctx context.Context, appCtx *AppHandler, name, path string, gtype models.GType, activeResource Depend, dependencies *[]Depend, version string) {
 	if name == "" {
 		appCtx.Logger.Debugf("Name not found at path: %s for gtype: %s", path, gtype)
 		return

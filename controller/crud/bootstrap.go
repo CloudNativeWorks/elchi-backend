@@ -22,7 +22,7 @@ func GetBootstrap(ctx context.Context, db *mongo.Database, listenerGeneral model
 	nodeID := fmt.Sprintf("%s::%s", listenerGeneral.Name, listenerGeneral.Project)
 
 	cluster := createClusterConfig()
-	port, err := GetNextAdminPort(ctx, db, listenerGeneral.Name, listenerGeneral.Project)
+	port, err := GetNextAdminPort(ctx, db, listenerGeneral.Name, listenerGeneral.Project, listenerGeneral.Version)
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +131,7 @@ func createGeneralConfig(listenerGeneral models.General, createdAt, updatedAt pr
 	}
 }
 
-func GetNextAdminPort(ctx context.Context, db *mongo.Database, bootstrapName, project string) (int, error) {
+func GetNextAdminPort(ctx context.Context, db *mongo.Database, bootstrapName, project, version string) (int, error) {
 	const (
 		adminPortStart      = 33100
 		adminPortEnd        = 39999
@@ -140,7 +140,7 @@ func GetNextAdminPort(ctx context.Context, db *mongo.Database, bootstrapName, pr
 	collection := db.Collection(adminPortCollection)
 
 	var existing struct{ Port int }
-	err := collection.FindOne(ctx, bson.M{"name": bootstrapName, "project": project}).Decode(&existing)
+	err := collection.FindOne(ctx, bson.M{"name": bootstrapName, "project": project, "version": version}).Decode(&existing)
 	if err == nil {
 		return existing.Port, nil
 	}
@@ -172,6 +172,7 @@ func GetNextAdminPort(ctx context.Context, db *mongo.Database, bootstrapName, pr
 	_, err = collection.InsertOne(ctx, bson.M{
 		"name":       bootstrapName,
 		"project":    project,
+		"version":    version,
 		"port":       nextPort,
 		"created_at": time.Now(),
 	})

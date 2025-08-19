@@ -55,10 +55,13 @@ type GTypeMapping struct {
 	Collection            string
 	URL                   string
 	PrettyName            string
+	Type                  string
+	CanonicalName         string
+	Category              string
 	Message               proto.Message
 	DownstreamFiltersFunc func(downstreamfilters.DownstreamFilter) []downstreamfilters.MongoFilters
 	TypedConfigPaths      []TypedConfigPath
-	UpstreamPaths         map[string]GTypes
+	UpstreamPaths         map[string]GType
 }
 
 const unknown = "unknown"
@@ -86,6 +89,7 @@ var URLs = map[string]string{
 	"compressor_library":    "/extensions/compressor_library/",
 	"http_protocol_options": "/extensions/http_protocol_options/",
 	"lua":                   "/filters/http/lua/",
+	"buffer":                "/filters/http/buffer/",
 	"adaptive_concurrency":  "/filters/http/adaptive_concurrency/",
 	"admission_control":     "/filters/http/admission_control/",
 	"session_state":         "/extensions/session_state/",
@@ -101,14 +105,18 @@ var URLs = map[string]string{
 	"connection_limit":      "/filters/network/connection_limit/",
 	"n_local_ratelimit":     "/filters/network/n_local_ratelimit/",
 	"h_local_ratelimit":     "/filters/http/h_local_ratelimit/",
+	"oauth2":                "/filters/http/oauth2/",
 	"tls":                   "/resource/tls/",
 	"stat_sinks":            "/extensions/stat_sinks/",
 }
 
-var gTypeMappings = map[GTypes]GTypeMapping{
+var gTypeMappings = map[GType]GTypeMapping{
 	BootStrap: {
 		PrettyName:            "Bootstrap",
 		Collection:            "bootstrap",
+		Type:                  "bootstrap",
+		CanonicalName:         "config.bootstrap.v3.Bootstrap",
+		Category:              "bootstrap",
 		URL:                   URLs["bootstrap"],
 		Message:               &bootstrap.Bootstrap{},
 		DownstreamFiltersFunc: nil,
@@ -118,6 +126,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	HTTPConnectionManager: {
 		PrettyName:            "Http Connection Manager",
 		Collection:            "filters",
+		Type:                  "network_filter",
+		CanonicalName:         "envoy.filters.network.http_connection_manager",
+		Category:              "envoy.filters.network",
 		URL:                   URLs["hcm"],
 		Message:               &hcm.HttpConnectionManager{},
 		DownstreamFiltersFunc: downstreamfilters.DownstreamTypedFilters,
@@ -127,6 +138,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	RBAC: {
 		PrettyName:            "RBAC",
 		Collection:            "filters",
+		Type:                  "network_filter",
+		CanonicalName:         "envoy.filters.network.rbac",
+		Category:              "envoy.filters.network",
 		URL:                   URLs["n_rbac"],
 		Message:               &n_rbac.RBAC{},
 		DownstreamFiltersFunc: downstreamfilters.DownstreamTypedFilters,
@@ -136,6 +150,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	HTTPRBAC: {
 		PrettyName:            "Http RBAC",
 		Collection:            "filters",
+		Type:                  "http_filter",
+		CanonicalName:         "envoy.filters.http.rbac",
+		Category:              "envoy.filters.http",
 		URL:                   URLs["h_rbac"],
 		Message:               &h_rbac.RBAC{},
 		DownstreamFiltersFunc: downstreamfilters.ConfigDiscoveryHTTPFilterDownstreamFilters,
@@ -145,6 +162,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	HTTPRBACPerRoute: {
 		PrettyName:            "Http RBAC Per Route",
 		Collection:            "filters",
+		Type:                  "http_filter",
+		CanonicalName:         "envoy.filters.http.rbac",
+		Category:              "envoy.filters.http",
 		URL:                   URLs["h_rbac"],
 		Message:               &h_rbac.RBACPerRoute{},
 		DownstreamFiltersFunc: downstreamfilters.TypedHTTPFilterDownstreamFilters,
@@ -154,6 +174,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	Router: {
 		PrettyName:            "Router",
 		Collection:            "filters",
+		Type:                  "http_filter",
+		CanonicalName:         "envoy.filters.http.router",
+		Category:              "envoy.filters.http",
 		URL:                   URLs["http_router"],
 		Message:               &router.Router{},
 		DownstreamFiltersFunc: downstreamfilters.ConfigDiscoveryHTTPFilterDownstreamFilters,
@@ -163,6 +186,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	Cluster: {
 		PrettyName:            "Cluster",
 		Collection:            "clusters",
+		Type:                  "cluster",
+		CanonicalName:         "config.cluster.v3.Cluster",
+		Category:              "cluster",
 		URL:                   URLs["clusters"],
 		Message:               &cluster.Cluster{},
 		DownstreamFiltersFunc: downstreamfilters.ClusterDownstreamFilters,
@@ -172,6 +198,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	Listener: {
 		PrettyName:            "Listener",
 		Collection:            "listeners",
+		Type:                  "listener",
+		CanonicalName:         "config.listener.v3.Listener",
+		Category:              "listener",
 		URL:                   URLs["listeners"],
 		Message:               &listener.Listener{},
 		DownstreamFiltersFunc: nil,
@@ -181,6 +210,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	Endpoint: {
 		PrettyName:            "Endpoint",
 		Collection:            "endpoints",
+		Type:                  "endpoint",
+		CanonicalName:         "config.endpoint.v3.Endpoint",
+		Category:              "endpoint",
 		URL:                   URLs["endpoints"],
 		Message:               &endpoint.ClusterLoadAssignment{},
 		DownstreamFiltersFunc: downstreamfilters.EdsDownstreamFilters,
@@ -190,6 +222,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	Route: {
 		PrettyName:            "Route",
 		Collection:            "routes",
+		Type:                  "route",
+		CanonicalName:         "config.route.v3.RouteConfiguration",
+		Category:              "route",
 		URL:                   URLs["routes"],
 		Message:               &route.RouteConfiguration{},
 		DownstreamFiltersFunc: downstreamfilters.RouteDownstreamFilters,
@@ -199,6 +234,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	VirtualHost: {
 		PrettyName:            "Virtual Host",
 		Collection:            "virtual_hosts",
+		Type:                  "virtual_host",
+		CanonicalName:         "config.route.v3.VirtualHost",
+		Category:              "virtual_host",
 		URL:                   URLs["virtual_hosts"],
 		Message:               &route.VirtualHost{},
 		DownstreamFiltersFunc: downstreamfilters.VirtualHostDownstreamFilters,
@@ -208,6 +246,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	TCPProxy: {
 		PrettyName:            "Tcp Proxy",
 		Collection:            "filters",
+		Type:                  "network_filter",
+		CanonicalName:         "envoy.filters.network.tcp_proxy",
+		Category:              "envoy.filters.network",
 		URL:                   URLs["tcp_proxy"],
 		Message:               &tcp.TcpProxy{},
 		DownstreamFiltersFunc: downstreamfilters.DownstreamTypedFilters,
@@ -217,6 +258,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	FluentdAccessLog: {
 		PrettyName:            "Access Log(Fluentd)",
 		Collection:            "extensions",
+		Type:                  "access_log",
+		CanonicalName:         "envoy.access_loggers.fluentd",
+		Category:              "envoy.access_loggers",
 		URL:                   URLs["access_log"],
 		Message:               &al_fluentd.FluentdAccessLogConfig{},
 		DownstreamFiltersFunc: downstreamfilters.ALSDownstreamFilters,
@@ -226,6 +270,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	FileAccessLog: {
 		PrettyName:            "Access Log(File)",
 		Collection:            "extensions",
+		Type:                  "access_log",
+		CanonicalName:         "envoy.access_loggers.file",
+		Category:              "envoy.access_loggers",
 		URL:                   URLs["access_log"],
 		Message:               &al_file.FileAccessLog{},
 		DownstreamFiltersFunc: downstreamfilters.ALSDownstreamFilters,
@@ -235,6 +282,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	StdoutAccessLog: {
 		PrettyName:            "Access Log(StdOut)",
 		Collection:            "extensions",
+		Type:                  "access_log",
+		CanonicalName:         "envoy.access_loggers.stdout",
+		Category:              "envoy.access_loggers",
 		URL:                   URLs["access_log"],
 		Message:               &al_stream.StdoutAccessLog{},
 		DownstreamFiltersFunc: downstreamfilters.ALSDownstreamFilters,
@@ -244,6 +294,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	StdErrAccessLog: {
 		PrettyName:            "Access Log(StdErr)",
 		Collection:            "extensions",
+		Type:                  "access_log",
+		CanonicalName:         "envoy.access_loggers.stderr",
+		Category:              "envoy.access_loggers",
 		URL:                   URLs["access_log"],
 		Message:               &al_stream.StderrAccessLog{},
 		DownstreamFiltersFunc: downstreamfilters.ALSDownstreamFilters,
@@ -253,6 +306,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	DownstreamTLSContext: {
 		PrettyName:            "Downstream TLS",
 		Collection:            "tls",
+		Type:                  "tls",
+		CanonicalName:         "envoy.transport_sockets.downstream",
+		Category:              "envoy.transport_sockets.tls",
 		URL:                   URLs["tls"],
 		Message:               &tls.DownstreamTlsContext{},
 		DownstreamFiltersFunc: downstreamfilters.DownstreamTypedFilters,
@@ -262,6 +318,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	UpstreamTLSContext: {
 		PrettyName:            "Upstream TLS",
 		Collection:            "tls",
+		Type:                  "secret",
+		CanonicalName:         "envoy.transport_sockets.upstream",
+		Category:              "envoy.transport_sockets.tls",
 		URL:                   URLs["tls"],
 		Message:               &tls.UpstreamTlsContext{},
 		DownstreamFiltersFunc: downstreamfilters.UpstreamTLSDownstreamFilters,
@@ -271,6 +330,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	TLSCertificate: {
 		PrettyName:            "TLS Certificate",
 		Collection:            "secrets",
+		Type:                  "secret",
+		CanonicalName:         "envoy.transport_sockets.tls_certificate",
+		Category:              "envoy.transport_sockets.tls",
 		URL:                   URLs["secrets"],
 		Message:               &tls.TlsCertificate{},
 		DownstreamFiltersFunc: downstreamfilters.TLSCertificateDownstreamFilters,
@@ -280,6 +342,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	CertificateValidationContext: {
 		PrettyName:            "Certificate Validation",
 		Collection:            "secrets",
+		Type:                  "secret",
+		CanonicalName:         "envoy.transport_sockets.validation_context",
+		Category:              "envoy.transport_sockets.tls",
 		URL:                   URLs["secrets"],
 		Message:               &tls.CertificateValidationContext{},
 		DownstreamFiltersFunc: downstreamfilters.ContextValidateDownstreamFilters,
@@ -289,6 +354,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	HealthCheckEventFileSink: {
 		PrettyName:            "Health Check Event File Sink",
 		Collection:            "extensions",
+		Type:                  "hcefs",
+		CanonicalName:         "envoy.health_check.event_sinks",
+		Category:              "envoy.health_check.event_sinks",
 		URL:                   URLs["hcefs"],
 		Message:               &hcefs.HealthCheckEventFileSink{},
 		DownstreamFiltersFunc: downstreamfilters.HCEFSDownstreamFilters,
@@ -298,6 +366,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	URITemplateMatch: {
 		PrettyName:            "Uri Template Match",
 		Collection:            "extensions",
+		Type:                  "utm",
+		CanonicalName:         "envoy.path.match.uri_template.uri_template_matcher",
+		Category:              "envoy.path.match.uri_template.uri_template_matcher",
 		URL:                   URLs["utm"],
 		Message:               &utm.UriTemplateMatchConfig{},
 		DownstreamFiltersFunc: downstreamfilters.UTMDownstreamFilters,
@@ -307,6 +378,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	BasicAuth: {
 		PrettyName:            "Basic Auth",
 		Collection:            "filters",
+		Type:                  "http_filter",
+		CanonicalName:         "envoy.filters.http.basic_auth",
+		Category:              "envoy.filters.http",
 		URL:                   URLs["basic_auth"],
 		Message:               &basic_auth.BasicAuth{},
 		DownstreamFiltersFunc: downstreamfilters.ConfigDiscoveryHTTPFilterDownstreamFilters,
@@ -316,6 +390,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	BasicAuthPerRoute: {
 		PrettyName:            "Basic Auth Per Route",
 		Collection:            "filters",
+		Type:                  "http_filter",
+		CanonicalName:         "envoy.filters.http.basic_auth",
+		Category:              "envoy.filters.http",
 		URL:                   URLs["basic_auth"],
 		Message:               &basic_auth.BasicAuthPerRoute{},
 		DownstreamFiltersFunc: downstreamfilters.TypedHTTPFilterDownstreamFilters,
@@ -325,6 +402,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	Cors: {
 		PrettyName:            "Cors",
 		Collection:            "filters",
+		Type:                  "http_filter",
+		CanonicalName:         "envoy.filters.http.cors",
+		Category:              "envoy.filters.http",
 		URL:                   URLs["cors"],
 		Message:               &cors.Cors{},
 		DownstreamFiltersFunc: downstreamfilters.ConfigDiscoveryHTTPFilterDownstreamFilters,
@@ -334,6 +414,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	CorsPolicy: {
 		PrettyName:            "Cors Policy",
 		Collection:            "filters",
+		Type:                  "http_filter",
+		CanonicalName:         "envoy.filters.http.cors",
+		Category:              "envoy.filters.http",
 		URL:                   URLs["cors"],
 		Message:               &cors.CorsPolicy{},
 		DownstreamFiltersFunc: downstreamfilters.TypedHTTPFilterDownstreamFilters,
@@ -343,6 +426,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	BandwidthLimit: {
 		PrettyName:            "Bandwidth Limit",
 		Collection:            "filters",
+		Type:                  "http_filter",
+		CanonicalName:         "envoy.filters.http.bandwidth_limit",
+		Category:              "envoy.filters.http",
 		URL:                   URLs["bandwidth_limit"],
 		Message:               &bandwidth_limit.BandwidthLimit{},
 		DownstreamFiltersFunc: downstreamfilters.DiscoverAndTypedHTTPFilterDownstreamFilters,
@@ -352,6 +438,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	Compressor: {
 		PrettyName:            "Compressor",
 		Collection:            "filters",
+		Type:                  "http_filter",
+		CanonicalName:         "envoy.filters.http.compressor",
+		Category:              "envoy.filters.http",
 		URL:                   URLs["compressor"],
 		Message:               &compressor.Compressor{},
 		DownstreamFiltersFunc: downstreamfilters.ConfigDiscoveryHTTPFilterDownstreamFilters,
@@ -361,6 +450,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	CompressorPerRoute: {
 		PrettyName:            "Compressor Per Route",
 		Collection:            "filters",
+		Type:                  "http_filter",
+		CanonicalName:         "envoy.filters.http.compressor",
+		Category:              "envoy.filters.http",
 		URL:                   URLs["compressor"],
 		Message:               &compressor.CompressorPerRoute{},
 		DownstreamFiltersFunc: downstreamfilters.TypedHTTPFilterDownstreamFilters,
@@ -370,6 +462,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	GzipCompressor: {
 		PrettyName:            "Gzip Compressor",
 		Collection:            "extensions",
+		Type:                  "compressor_library",
+		CanonicalName:         "envoy.compression.compressor",
+		Category:              "envoy.compression.compressor",
 		URL:                   URLs["compressor_library"],
 		Message:               &gzip_compressor.Gzip{},
 		DownstreamFiltersFunc: downstreamfilters.TypedConfigDownstreamFilters,
@@ -379,6 +474,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	BrotliCompressor: {
 		PrettyName:            "Brotli Compressor",
 		Collection:            "extensions",
+		Type:                  "compressor_library",
+		CanonicalName:         "envoy.compression.compressor",
+		Category:              "envoy.compression.compressor",
 		URL:                   URLs["compressor_library"],
 		Message:               &brotli_compressor.Brotli{},
 		DownstreamFiltersFunc: downstreamfilters.TypedConfigDownstreamFilters,
@@ -388,6 +486,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	ZstdCompressor: {
 		PrettyName:            "Zstd Compressor",
 		Collection:            "extensions",
+		Type:                  "compressor_library",
+		CanonicalName:         "envoy.compression.compressor",
+		Category:              "envoy.compression.compressor",
 		URL:                   URLs["compressor_library"],
 		Message:               &zstd_compressor.Zstd{},
 		DownstreamFiltersFunc: downstreamfilters.TypedConfigDownstreamFilters,
@@ -397,6 +498,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	HTTPProtocolOptions: {
 		PrettyName:            "Http Protocol Options",
 		Collection:            "extensions",
+		Type:                  "http_protocol_options",
+		CanonicalName:         "envoy.upstreams.http.http_protocol_options",
+		Category:              "envoy.upstreams.http.http_protocol_options",
 		URL:                   URLs["http_protocol_options"],
 		Message:               &http_protocol_options.HttpProtocolOptions{},
 		DownstreamFiltersFunc: downstreamfilters.TypedHTTPProtocolDownstreamFilters,
@@ -406,6 +510,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	Lua: {
 		PrettyName:            "Lua",
 		Collection:            "filters",
+		Type:                  "http_filter",
+		CanonicalName:         "envoy.filters.http.lua",
+		Category:              "envoy.filters.http",
 		URL:                   URLs["lua"],
 		Message:               &lua.Lua{},
 		DownstreamFiltersFunc: downstreamfilters.ConfigDiscoveryHTTPFilterDownstreamFilters,
@@ -415,6 +522,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	LuaPerRoute: {
 		PrettyName:            "Lua Per Route",
 		Collection:            "filters",
+		Type:                  "http_filter",
+		CanonicalName:         "envoy.filters.http.lua",
+		Category:              "envoy.filters.http",
 		URL:                   URLs["lua"],
 		Message:               &lua.LuaPerRoute{},
 		DownstreamFiltersFunc: downstreamfilters.TypedHTTPFilterDownstreamFilters,
@@ -424,6 +534,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	Buffer: {
 		PrettyName:            "Buffer",
 		Collection:            "filters",
+		Type:                  "http_filter",
+		CanonicalName:         "envoy.filters.http.buffer",
+		Category:              "envoy.filters.http",
 		URL:                   URLs["buffer"],
 		Message:               &buffer.Buffer{},
 		DownstreamFiltersFunc: downstreamfilters.ConfigDiscoveryHTTPFilterDownstreamFilters,
@@ -433,6 +546,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	BufferPerRoute: {
 		PrettyName:            "Buffer Per Route",
 		Collection:            "filters",
+		Type:                  "http_filter",
+		CanonicalName:         "envoy.filters.http.buffer",
+		Category:              "envoy.filters.http",
 		URL:                   URLs["buffer"],
 		Message:               &buffer.BufferPerRoute{},
 		DownstreamFiltersFunc: downstreamfilters.TypedHTTPFilterDownstreamFilters,
@@ -442,6 +558,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	AdaptiveConcurrency: {
 		PrettyName:            "Adaptive Concurrency",
 		Collection:            "filters",
+		Type:                  "http_filter",
+		CanonicalName:         "envoy.filters.http.adaptive_concurrency",
+		Category:              "envoy.filters.http",
 		URL:                   URLs["adaptive_concurrency"],
 		Message:               &adaptive_concurrency.AdaptiveConcurrency{},
 		DownstreamFiltersFunc: downstreamfilters.DiscoverAndTypedHTTPFilterDownstreamFilters,
@@ -451,6 +570,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	AdmissionControl: {
 		PrettyName:            "Admission Control",
 		Collection:            "filters",
+		Type:                  "http_filter",
+		CanonicalName:         "envoy.filters.http.admission_control",
+		Category:              "envoy.filters.http",
 		URL:                   URLs["admission_control"],
 		Message:               &admission_control.AdmissionControl{},
 		DownstreamFiltersFunc: downstreamfilters.ConfigDiscoveryHTTPFilterDownstreamFilters,
@@ -460,6 +582,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	CookieBasedSessionState: {
 		PrettyName:            "Cookie Based Session State",
 		Collection:            "extensions",
+		Type:                  "session_state",
+		CanonicalName:         "envoy.http.stateful_session.cookie",
+		Category:              "envoy.http.stateful_session.cookie",
 		URL:                   URLs["session_state"],
 		Message:               &stateful_session_cookie.CookieBasedSessionState{},
 		DownstreamFiltersFunc: downstreamfilters.TypedConfigDownstreamFilters,
@@ -469,6 +594,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	HeaderBasedSessionState: {
 		PrettyName:            "Header Based Session State",
 		Collection:            "extensions",
+		Type:                  "session_state",
+		CanonicalName:         "envoy.http.stateful_session.header",
+		Category:              "envoy.http.stateful_session.header",
 		URL:                   URLs["session_state"],
 		Message:               &stateful_session_header.HeaderBasedSessionState{},
 		DownstreamFiltersFunc: downstreamfilters.TypedConfigDownstreamFilters,
@@ -478,6 +606,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	StatefulSession: {
 		PrettyName:            "Stateful Session",
 		Collection:            "filters",
+		Type:                  "http_filter",
+		CanonicalName:         "envoy.filters.http.stateful_session",
+		Category:              "envoy.filters.http",
 		URL:                   URLs["stateful_session"],
 		Message:               &stateful_session.StatefulSession{},
 		DownstreamFiltersFunc: downstreamfilters.ConfigDiscoveryHTTPFilterDownstreamFilters,
@@ -487,6 +618,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	StatefulSessionPerRoute: {
 		PrettyName:            "Stateful Session Per Route",
 		Collection:            "filters",
+		Type:                  "http_filter",
+		CanonicalName:         "envoy.filters.http.stateful_session",
+		Category:              "envoy.filters.http",
 		URL:                   URLs["stateful_session"],
 		Message:               &stateful_session.StatefulSessionPerRoute{},
 		DownstreamFiltersFunc: downstreamfilters.TypedHTTPFilterDownstreamFilters,
@@ -496,6 +630,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	CsrfPolicy: {
 		PrettyName:            "Csrf Policy",
 		Collection:            "filters",
+		Type:                  "http_filter",
+		CanonicalName:         "envoy.filters.http.csrf",
+		Category:              "envoy.filters.http",
 		URL:                   URLs["csrf_policy"],
 		Message:               &csrf_policy.CsrfPolicy{},
 		DownstreamFiltersFunc: downstreamfilters.ConfigDiscoveryHTTPFilterDownstreamFilters,
@@ -505,6 +642,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	ListenerLocalRatelimit: {
 		PrettyName:            "Local Ratelimit",
 		Collection:            "filters",
+		Type:                  "listener_filter",
+		CanonicalName:         "envoy.filters.listener.local_ratelimit",
+		Category:              "envoy.filters.listener",
 		URL:                   URLs["l_local_ratelimit"],
 		Message:               &l_local_ratelimit.LocalRateLimit{},
 		DownstreamFiltersFunc: downstreamfilters.DownstreamTypedFilters,
@@ -514,6 +654,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	ListenerHTTPInspector: {
 		PrettyName:            "Http Inspector",
 		Collection:            "filters",
+		Type:                  "listener_filter",
+		CanonicalName:         "envoy.filters.listener.http_inspector",
+		Category:              "envoy.filters.listener",
 		URL:                   URLs["l_http_inspector"],
 		Message:               &l_http_inspector.HttpInspector{},
 		DownstreamFiltersFunc: downstreamfilters.DownstreamTypedFilters,
@@ -523,6 +666,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	ListenerOriginalDst: {
 		PrettyName:            "Original Dst",
 		Collection:            "filters",
+		Type:                  "listener_filter",
+		CanonicalName:         "envoy.filters.listener.original_dst",
+		Category:              "envoy.filters.listener",
 		URL:                   URLs["l_original_dst"],
 		Message:               &l_original_dst.OriginalDst{},
 		DownstreamFiltersFunc: downstreamfilters.DownstreamTypedFilters,
@@ -532,6 +678,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	ListenerOriginalSrc: {
 		PrettyName:            "Original Src",
 		Collection:            "filters",
+		Type:                  "listener_filter",
+		CanonicalName:         "envoy.filters.listener.original_src",
+		Category:              "envoy.filters.listener",
 		URL:                   URLs["l_original_src"],
 		Message:               &l_original_src.OriginalSrc{},
 		DownstreamFiltersFunc: downstreamfilters.DownstreamTypedFilters,
@@ -539,9 +688,12 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 		UpstreamPaths:         nil,
 	},
 	ListenerTLSInspector: {
-		PrettyName:            "Original Src",
+		PrettyName:            "TLS Inspector",
 		Collection:            "filters",
-		URL:                   URLs["l_original_src"],
+		Type:                  "listener_filter",
+		CanonicalName:         "envoy.filters.listener.tls_inspector",
+		Category:              "envoy.filters.listener",
+		URL:                   URLs["l_tls_inspector"],
 		Message:               &l_tls_inspector.TlsInspector{},
 		DownstreamFiltersFunc: downstreamfilters.DownstreamTypedFilters,
 		TypedConfigPaths:      nil,
@@ -550,6 +702,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	ListenerDNSFilter: {
 		PrettyName:            "DNS Filter",
 		Collection:            "filters",
+		Type:                  "udp_filter",
+		CanonicalName:         "envoy.filters.udp.dns_filter",
+		Category:              "envoy.filters.udp_listener",
 		URL:                   URLs["l_dns_filter"],
 		Message:               &l_dns_filter.DnsFilterConfig{},
 		DownstreamFiltersFunc: downstreamfilters.DownstreamTypedFilters,
@@ -559,6 +714,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	ListeneProxyProtocol: {
 		PrettyName:            "Proxy Protocol",
 		Collection:            "filters",
+		Type:                  "listener_filter",
+		CanonicalName:         "envoy.filters.listener.proxy_protocol",
+		Category:              "envoy.filters.listener",
 		URL:                   URLs["l_proxy_protocol"],
 		Message:               &l_proxy_protocol.ProxyProtocol{},
 		DownstreamFiltersFunc: downstreamfilters.DownstreamTypedFilters,
@@ -568,6 +726,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	ConnectionLimit: {
 		PrettyName:            "Connection Limit",
 		Collection:            "filters",
+		Type:                  "network_filter",
+		CanonicalName:         "envoy.filters.network.connection_limit",
+		Category:              "envoy.filters.network",
 		URL:                   URLs["connection_limit"],
 		Message:               &connection_limit.ConnectionLimit{},
 		DownstreamFiltersFunc: downstreamfilters.DownstreamTypedFilters,
@@ -577,6 +738,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	NetworkLocalRatelimit: {
 		PrettyName:            "Local Ratelimit",
 		Collection:            "filters",
+		Type:                  "network_filter",
+		CanonicalName:         "envoy.filters.network.local_ratelimit",
+		Category:              "envoy.filters.network",
 		URL:                   URLs["n_local_ratelimit"],
 		Message:               &n_local_ratelimit.LocalRateLimit{},
 		DownstreamFiltersFunc: downstreamfilters.DownstreamTypedFilters,
@@ -586,6 +750,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	HTTPLocalRatelimit: {
 		PrettyName:            "Local Ratelimit",
 		Collection:            "filters",
+		Type:                  "http_filter",
+		CanonicalName:         "envoy.filters.http.local_ratelimit",
+		Category:              "envoy.filters.http",
 		URL:                   URLs["h_local_ratelimit"],
 		Message:               &h_local_ratelimit.LocalRateLimit{},
 		DownstreamFiltersFunc: downstreamfilters.DiscoverAndTypedHTTPFilterDownstreamFilters,
@@ -595,6 +762,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	GenericSecret: {
 		PrettyName:            "Generic Secret",
 		Collection:            "secrets",
+		Type:                  "secret",
+		CanonicalName:         "envoy.transport_sockets.GenericSecret",
+		Category:              "envoy.transport_sockets.tls",
 		URL:                   URLs["secrets"],
 		Message:               &tls.GenericSecret{},
 		DownstreamFiltersFunc: downstreamfilters.TLSCertificateDownstreamFilters,
@@ -604,6 +774,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	TLSSessionTicketKeys: {
 		PrettyName:            "TLS Session Ticket Keys",
 		Collection:            "secrets",
+		Type:                  "secret",
+		CanonicalName:         "envoy.transport_sockets.TlsSessionTicketKeys",
+		Category:              "envoy.transport_sockets.tls",
 		URL:                   URLs["secrets"],
 		Message:               &tls.TlsSessionTicketKeys{},
 		DownstreamFiltersFunc: downstreamfilters.TLSCertificateDownstreamFilters,
@@ -613,6 +786,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	OAuth2: {
 		PrettyName:            "OAuth2",
 		Collection:            "filters",
+		Type:                  "http_filter",
+		CanonicalName:         "envoy.filters.http.oauth2",
+		Category:              "envoy.filters.http",
 		URL:                   URLs["oauth2"],
 		Message:               &oauth2.OAuth2{},
 		DownstreamFiltersFunc: downstreamfilters.ConfigDiscoveryHTTPFilterDownstreamFilters,
@@ -622,6 +798,9 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	OpenTelemetry: {
 		PrettyName:            "Open Telemetry",
 		Collection:            "extensions",
+		Type:                  "stat_sinks",
+		CanonicalName:         "envoy.stat_sinks.open_telemetry",
+		Category:              "envoy.stats_sinks",
 		URL:                   URLs["stat_sinks"],
 		Message:               &stat_sink_otel.SinkConfig{},
 		DownstreamFiltersFunc: downstreamfilters.TypedConfigDownstreamBootstrapFilters,
@@ -630,62 +809,83 @@ var gTypeMappings = map[GTypes]GTypeMapping{
 	},
 }
 
-func (gt GTypes) String() string {
+func (gt GType) String() string {
 	return string(gt)
 }
 
-func (gt GTypes) CollectionString() string {
+func (gt GType) CollectionString() string {
 	if mapping, exists := gTypeMappings[gt]; exists {
 		return mapping.Collection
 	}
 	return unknown
 }
 
-func (gt GTypes) URL() string {
+func (gt GType) URL() string {
 	if mapping, exists := gTypeMappings[gt]; exists {
 		return mapping.URL
 	}
 	return unknown
 }
 
-func (gt GTypes) PrettyName() string {
+func (gt GType) PrettyName() string {
 	if mapping, exists := gTypeMappings[gt]; exists {
 		return mapping.PrettyName
 	}
 	return unknown
 }
 
-func (gt GTypes) ProtoMessage() proto.Message {
+func (gt GType) ProtoMessage() proto.Message {
 	if mapping, exists := gTypeMappings[gt]; exists {
 		return mapping.Message
 	}
 	return &anypb.Any{}
 }
 
-func (gt GTypes) DownstreamFilters(dfm downstreamfilters.DownstreamFilter) []downstreamfilters.MongoFilters {
+func (gt GType) DownstreamFilters(dfm downstreamfilters.DownstreamFilter) []downstreamfilters.MongoFilters {
 	if mapping, exists := gTypeMappings[gt]; exists && mapping.DownstreamFiltersFunc != nil {
 		return mapping.DownstreamFiltersFunc(dfm)
 	}
 	return nil
 }
 
-func (gt GTypes) TypedConfigPaths() []TypedConfigPath {
+func (gt GType) TypedConfigPaths() []TypedConfigPath {
 	if mapping, exists := gTypeMappings[gt]; exists && mapping.TypedConfigPaths != nil {
 		return mapping.TypedConfigPaths
 	}
 	return nil
 }
 
-func (gt GTypes) UpstreamPaths() map[string]GTypes {
+func (gt GType) UpstreamPaths() map[string]GType {
 	if mapping, exists := gTypeMappings[gt]; exists && mapping.UpstreamPaths != nil {
 		return mapping.UpstreamPaths
 	}
 	return nil
 }
 
-func (gt GTypes) Validate() map[string]GTypes {
+func (gt GType) Validate() map[string]GType {
 	if mapping, exists := gTypeMappings[gt]; exists && mapping.UpstreamPaths != nil {
 		return mapping.UpstreamPaths
 	}
 	return nil
+}
+
+func (gt GType) Type() string {
+	if mapping, exists := gTypeMappings[gt]; exists {
+		return mapping.Type
+	}
+	return unknown
+}
+
+func (gt GType) CanonicalName() string {
+	if mapping, exists := gTypeMappings[gt]; exists {
+		return mapping.CanonicalName
+	}
+	return unknown
+}
+
+func (gt GType) Category() string {
+	if mapping, exists := gTypeMappings[gt]; exists {
+		return mapping.Category
+	}
+	return unknown
 }

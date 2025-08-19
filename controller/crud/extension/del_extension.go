@@ -55,11 +55,12 @@ func (xds *AppHandler) DelExtension(ctx context.Context, _ models.ResourceClass,
 
 func buildFilter(requestDetails models.RequestDetails) bson.M {
 	if requestDetails.User.IsOwner {
-		return bson.M{"general.name": requestDetails.Name, "general.project": requestDetails.Project}
+		return bson.M{"general.name": requestDetails.Name, "general.project": requestDetails.Project, "general.version": requestDetails.Version}
 	}
 	return bson.M{
 		"general.name":    requestDetails.Name,
 		"general.project": requestDetails.Project,
+		"general.version": requestDetails.Version,
 		"general.groups": bson.M{
 			"$in": requestDetails.User.Groups,
 		},

@@ -61,30 +61,33 @@ func (h *Handler) AnalyzeResourceConfigWithAI(c *gin.Context) {
 	}
 
 	// AI API key kontrolü - önce header'dan, sonra settings'den al
-	aiAPIKey := c.GetHeader("x-claude-token")
+	aiAPIKey := c.GetHeader("x-openrouter-token")
 	if aiAPIKey == "" {
-		// Settings'den Claude token'ını al
-		settingsAPIKey, err := h.getClaudeTokenFromSettings(req.Project)
+		// Settings'den OpenRouter token'ını al
+		settingsAPIKey, err := h.getOpenRouterTokenFromSettings(req.Project)
 		if err == nil && settingsAPIKey != "" {
 			aiAPIKey = settingsAPIKey
 		} else {
 			// Son çare olarak environment variable'dan al
-			aiAPIKey = os.Getenv("CLAUDE_API_KEY")
+			aiAPIKey = os.Getenv("OPENROUTER_API_KEY")
 		}
 	}
 	
 	if aiAPIKey == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "AI API key required. Set via x-claude-token header, project settings, or CLAUDE_API_KEY environment variable",
+			"error": "AI API key required. Set via x-openrouter-token header, project settings, or OPENROUTER_API_KEY environment variable",
 		})
 		return
 	}
 
+	// Default model'ı al
+	defaultModel, _ := h.getAIModelFromSettings(req.Project)
+
 	// AI client oluştur
-	claudeClient := ai.NewClaudeClient(aiAPIKey)
+	openRouterClient := ai.NewOpenRouterClient(aiAPIKey)
 
 	// Config analyzer oluştur
-	configAnalyzer := ai.NewConfigAnalyzer(h.Settings.Context, claudeClient, h.Settings.Logger.Logger)
+	configAnalyzer := ai.NewConfigAnalyzer(h.Settings.Context, openRouterClient, defaultModel, h.Settings.Logger.Logger)
 
 	// Analizi başlat
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 90*time.Second)
@@ -138,31 +141,28 @@ func (h *Handler) GetAIStatus(c *gin.Context) {
 		return
 	}
 	
-	// AI API key kontrolü - önce header, sonra settings, sonra environment
-	claudeKey := c.GetHeader("x-claude-token")
-	if claudeKey == "" {
-		// Settings'den Claude token'ını al
-		settingsKey, err := h.getClaudeTokenFromSettings(project)
+	// AI API key kontrolü - OpenRouter token
+	openRouterKey := c.GetHeader("x-openrouter-token")
+	if openRouterKey == "" {
+		// Settings'den OpenRouter token'ını al
+		settingsKey, err := h.getOpenRouterTokenFromSettings(project)
 		if err == nil && settingsKey != "" {
-			claudeKey = settingsKey
+			openRouterKey = settingsKey
 		} else {
 			// Son çare environment variable
-			claudeKey = os.Getenv("CLAUDE_API_KEY")
+			openRouterKey = os.Getenv("OPENROUTER_API_KEY")
 		}
 	}
 	
-	openaiKey := c.GetHeader("x-openai-token")
-	if openaiKey == "" {
-		openaiKey = os.Getenv("OPENAI_API_KEY")
-	}
+	// Default model'ı al
+	defaultModel, _ := h.getAIModelFromSettings(project)
 	
 	status := map[string]any{
-		"available": claudeKey != "" || openaiKey != "",
+		"available": openRouterKey != "",
 		"providers": map[string]bool{
-			"claude": claudeKey != "",
-			"openai": openaiKey != "",
+			"openrouter": openRouterKey != "",
 		},
-		"default_model": "claude-3-5-sonnet-20241022",
+		"default_model": defaultModel,
 		"supported_features": []string{
 			"analyze",
 			"analyze-logs",
@@ -173,14 +173,14 @@ func (h *Handler) GetAIStatus(c *gin.Context) {
 	
 	if !status["available"].(bool) {
 		status["status"] = "no_api_key"
-		status["message"] = "No AI API key configured. Set via x-claude-token header, project settings, or CLAUDE_API_KEY environment variable"
+		status["message"] = "No OpenRouter API key configured. Set via x-openrouter-token header, project settings, or OPENROUTER_API_KEY environment variable"
 	}
 	
 	c.JSON(http.StatusOK, status)
 }
 
-// getClaudeTokenFromSettings project settings'den Claude token'ını alır
-func (h *Handler) getClaudeTokenFromSettings(project string) (string, error) {
+// getOpenRouterTokenFromSettings project settings'den OpenRouter token'ını alır
+func (h *Handler) getOpenRouterTokenFromSettings(project string) (string, error) {
 	ctx := context.Background()
 	settingsCollection := h.Settings.Context.Client.Collection("settings")
 
@@ -195,11 +195,34 @@ func (h *Handler) getClaudeTokenFromSettings(project string) (string, error) {
 		return "", fmt.Errorf("could not get settings: %w", err)
 	}
 
-	if token, ok := settings["claude_token"].(string); ok && token != "" {
+	if token, ok := settings["openrouter_token"].(string); ok && token != "" {
 		return token, nil
 	}
 
-	return "", fmt.Errorf("no Claude token found in settings for project: %s", project)
+	return "", fmt.Errorf("no OpenRouter token found in settings for project: %s", project)
+}
+
+// getAIModelFromSettings project settings'den AI model'ını alır
+func (h *Handler) getAIModelFromSettings(project string) (string, error) {
+	ctx := context.Background()
+	settingsCollection := h.Settings.Context.Client.Collection("settings")
+
+	filter := bson.M{"project": project}
+	
+	var settings bson.M
+	err := settingsCollection.FindOne(ctx, filter).Decode(&settings)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return ai.DefaultModel, nil // Return default model if no settings
+		}
+		return ai.DefaultModel, nil
+	}
+
+	if model, ok := settings["ai_default_model"].(string); ok && model != "" {
+		return model, nil
+	}
+
+	return ai.DefaultModel, nil // Return default model if not set
 }
 
 // AnalyzeLogsWithConfig analyzes Envoy logs with configuration context using AI
@@ -264,30 +287,33 @@ func (h *Handler) AnalyzeLogsWithConfig(c *gin.Context) {
 	}
 
 	// AI API key check - first from header, then from settings
-	aiAPIKey := c.GetHeader("x-claude-token")
+	aiAPIKey := c.GetHeader("x-openrouter-token")
 	if aiAPIKey == "" {
-		// Get Claude token from settings
-		settingsAPIKey, err := h.getClaudeTokenFromSettings(req.Project)
+		// Get OpenRouter token from settings
+		settingsAPIKey, err := h.getOpenRouterTokenFromSettings(req.Project)
 		if err == nil && settingsAPIKey != "" {
 			aiAPIKey = settingsAPIKey
 		} else {
 			// Last resort: environment variable
-			aiAPIKey = os.Getenv("CLAUDE_API_KEY")
+			aiAPIKey = os.Getenv("OPENROUTER_API_KEY")
 		}
 	}
 	
 	if aiAPIKey == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "AI API key required. Set via x-claude-token header, project settings, or CLAUDE_API_KEY environment variable",
+			"error": "AI API key required. Set via x-openrouter-token header, project settings, or OPENROUTER_API_KEY environment variable",
 		})
 		return
 	}
 
+	// Get default model
+	defaultModel, _ := h.getAIModelFromSettings(req.Project)
+
 	// Create AI client
-	claudeClient := ai.NewClaudeClient(aiAPIKey)
+	openRouterClient := ai.NewOpenRouterClient(aiAPIKey)
 
 	// Create config analyzer
-	configAnalyzer := ai.NewConfigAnalyzer(h.Settings.Context, claudeClient, h.Settings.Logger.Logger)
+	configAnalyzer := ai.NewConfigAnalyzer(h.Settings.Context, openRouterClient, defaultModel, h.Settings.Logger.Logger)
 
 	// Start log analysis
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 120*time.Second) // Longer timeout for log analysis

@@ -1,10 +1,11 @@
 package models
 
 type Settings struct {
-	Project        string `bson:"project"`
-	Tokens         []Token `bson:"tokens"`
-	ClaudeToken    string  `bson:"claude_token,omitempty"`
-	DiscoveryToken string  `bson:"discovery_token,omitempty"`
+	Project          string `bson:"project"`
+	Tokens           []Token `bson:"tokens"`
+	OpenRouterToken  string  `bson:"openrouter_token,omitempty"`
+	AIDefaultModel   string  `bson:"ai_default_model,omitempty"`
+	DiscoveryToken   string  `bson:"discovery_token,omitempty"`
 }
 
 type Token struct {

@@ -27,6 +27,47 @@ type UserWithGroups struct {
 	Permissions *models.Permission `json:"permissions"`
 }
 
+// GetUserByID returns username for given user_id
+func (handler *AppHandler) GetUserByID(c *gin.Context) {
+	userID := c.Param("user_id")
+	
+	// Convert userID string to ObjectID
+	objectID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid user ID format"})
+		return
+	}
+	
+	// Get user from database
+	var userCollection *mongo.Collection = handler.Context.Client.Collection("users")
+	var user models.User
+	
+	filter := bson.M{"_id": objectID}
+	err = userCollection.FindOne(context.Background(), filter).Decode(&user)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			c.JSON(http.StatusNotFound, gin.H{"message": "User not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "Error fetching user"})
+		return
+	}
+	
+	// Return username
+	username := ""
+	if user.Username != nil {
+		username = *user.Username
+	}
+	
+	c.JSON(http.StatusOK, gin.H{
+		"message": "OK",
+		"data": gin.H{
+			"user_id":  userID,
+			"username": username,
+		},
+	})
+}
+
 func (handler *AppHandler) DemoAccount(c *gin.Context) {
 	var userCollection *mongo.Collection = handler.Context.Client.Collection("users")
 	var userWG UserWithGroups

@@ -35,7 +35,7 @@ func (xds *AppHandler) NewBootstrapCollector() *BootstrapCollector {
 func (xds *AppHandler) DownloadBootstrap(ctx context.Context, requestDetails models.RequestDetails, cf models.ClientFields) (any, error) {
 	resource := &models.DBResource{}
 	collection := xds.Context.Client.Collection(requestDetails.Collection)
-	filter, err := common.AddResourceIDFilter(requestDetails, bson.M{"general.name": requestDetails.Name})
+	filter, err := common.AddResourceIDFilter(requestDetails, bson.M{"general.name": requestDetails.Name, "general.version": requestDetails.Version, "general.project": requestDetails.Project})
 	if err != nil {
 		return nil, errors.New("invalid id format")
 	}

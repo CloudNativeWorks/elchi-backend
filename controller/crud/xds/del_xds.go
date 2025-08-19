@@ -3,6 +3,7 @@ package xds
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -11,6 +12,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/CloudNativeWorks/elchi-backend/controller/crud/common"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/authorization"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/errstr"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models/downstreamfilters"
@@ -19,6 +21,18 @@ import (
 func (xds *AppHandler) DelResource(ctx context.Context, _ models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
 	resourceType := requestDetails.Collection
 	collection := xds.Context.Client.Collection(resourceType)
+
+	// Validate project access before deletion
+	if requestDetails.Project != "" {
+		if err := authorization.ValidateRequestProject(ctx, xds.Context.Client, requestDetails.User, requestDetails.Project); err != nil {
+			return nil, fmt.Errorf("delete access denied: %w", err)
+		}
+	}
+
+	// Check delete permissions
+	if requestDetails.User.Role == models.RoleViewer || requestDetails.User.Role == models.RoleEditor {
+		return nil, fmt.Errorf("insufficient privileges: only owners and admins can delete resources")
+	}
 
 	isDefault, err := common.IsDefaultResource(ctx, xds.Context, requestDetails.Name, resourceType, requestDetails.Project)
 	if err != nil {
@@ -83,7 +97,7 @@ func (xds *AppHandler) delBootstrap(ctx context.Context, filter primitive.M) err
 
 func (xds *AppHandler) delService(ctx context.Context, requestDetails models.RequestDetails) error {
 	collection := xds.Context.Client.Collection("services")
-	filter := bson.M{"name": requestDetails.Name, "project": requestDetails.Project}
+	filter := bson.M{"name": requestDetails.Name, "project": requestDetails.Project, "version": requestDetails.Version}
 	if err := checkDocumentExists(ctx, collection, filter); err != nil {
 		return err
 	}
@@ -97,7 +111,7 @@ func (xds *AppHandler) delService(ctx context.Context, requestDetails models.Req
 
 func (xds *AppHandler) delAdminPort(ctx context.Context, requestDetails models.RequestDetails) error {
 	collection := xds.Context.Client.Collection("admin_ports")
-	filter := bson.M{"name": requestDetails.Name, "project": requestDetails.Project}
+	filter := bson.M{"name": requestDetails.Name, "project": requestDetails.Project, "version": requestDetails.Version}
 	if err := checkDocumentExists(ctx, collection, filter); err != nil {
 		return err
 	}
@@ -111,11 +125,12 @@ func (xds *AppHandler) delAdminPort(ctx context.Context, requestDetails models.R
 
 func buildFilter(requestDetails models.RequestDetails) bson.M {
 	if requestDetails.User.IsOwner {
-		return bson.M{"general.name": requestDetails.Name, "general.project": requestDetails.Project}
+		return bson.M{"general.name": requestDetails.Name, "general.project": requestDetails.Project, "general.version": requestDetails.Version}
 	}
 	return bson.M{
 		"general.name":    requestDetails.Name,
 		"general.project": requestDetails.Project,
+		"general.version": requestDetails.Version,
 		"general.groups": bson.M{
 			"$in": requestDetails.User.Groups,
 		},

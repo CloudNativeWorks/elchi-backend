@@ -54,6 +54,7 @@ var Indices = map[string]mongo.IndexModel{
 	"projects":      {Keys: bson.M{"projectname": 1}, Options: options.Index().SetUnique(true).SetName("projectname_1").SetCollation(&options.Collation{Locale: "en", Strength: 2})},
 	"clients":       {Keys: bson.M{"client_id": 1}, Options: options.Index().SetUnique(true).SetName("client_id_1").SetCollation(&options.Collation{Locale: "en", Strength: 2})},
 	"settings":      {Keys: bson.M{"project": 1}, Options: options.Index().SetUnique(true).SetName("project_name_1").SetCollation(&options.Collation{Locale: "en", Strength: 2})},
+	"scenarios":     {Keys: bson.M{"scenario_id": 1}, Options: options.Index().SetUnique(true).SetName("scenario_id_1").SetCollation(&options.Collation{Locale: "en", Strength: 2})},
 }
 
 func buildMongoDBConnectionString(config *config.AppConfig) string {

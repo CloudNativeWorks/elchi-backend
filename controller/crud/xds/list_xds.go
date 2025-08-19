@@ -27,7 +27,12 @@ func (xds *AppHandler) ListResource(ctx context.Context, _ models.ResourceClass,
 		filter["general.gtype"] = requestDetails.GType.String()
 	}
 
-	filterWithRestriction := common.AddUserFilter(requestDetails, filter)
+	// Use secure filtering that properly handles project access for all roles
+	filterWithRestriction, err := common.AddSecureUserFilter(ctx, xds.Context.Client, requestDetails, filter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to apply security filters: %w", err)
+	}
+
 	cursor, err := collection.Find(ctx, filterWithRestriction, opts)
 	if err != nil {
 		return nil, fmt.Errorf("could not find records: %w", err)

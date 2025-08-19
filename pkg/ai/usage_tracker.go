@@ -7,20 +7,24 @@ import (
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-// Claude 3.5 Sonnet pricing (as of 2024)
-const (
-	ClaudeInputPricePerMToken  = 3.00  // $3.00 per 1M input tokens
-	ClaudeOutputPricePerMToken = 15.00 // $15.00 per 1M output tokens
-)
-
-// calculateTokenCost calculates the cost in USD for token usage
-func calculateTokenCost(inputTokens, outputTokens int) float64 {
-	inputCost := float64(inputTokens) / 1000000.0 * ClaudeInputPricePerMToken
-	outputCost := float64(outputTokens) / 1000000.0 * ClaudeOutputPricePerMToken
-	return inputCost + outputCost
+// calculateTokenCost calculates the cost in USD for token usage based on OpenRouter model pricing
+func calculateTokenCost(inputTokens, outputTokens int, modelID string) float64 {
+	// For now, assume all models are free since we removed the recommendation system
+	// In a real implementation, you could query OpenRouter API for pricing info
+	// or maintain a simple pricing cache
+	
+	// Simple heuristic: if model ID contains ":free", it's free
+	if len(modelID) > 5 && modelID[len(modelID)-5:] == ":free" {
+		return 0.0
+	}
+	
+	// For non-free models, return 0.0 for now since we don't have pricing info
+	// In production, you'd want to query OpenRouter API or maintain a pricing cache
+	return 0.0
 }
 
 // AIUsageRecord represents a single AI usage record
@@ -29,6 +33,8 @@ type AIUsageRecord struct {
 	Project       string    `json:"project" bson:"project"`
 	UserID        string    `json:"user_id" bson:"user_id"`
 	RequestType   string    `json:"request_type" bson:"request_type"` // "analyze", "analyze-logs"
+	ModelID       string    `json:"model_id" bson:"model_id"`           // OpenRouter model ID
+	Provider      string    `json:"provider" bson:"provider"`           // "anthropic", "openai", "meta", etc.
 	InputTokens   int       `json:"input_tokens" bson:"input_tokens"`
 	OutputTokens  int       `json:"output_tokens" bson:"output_tokens"`
 	TotalTokens   int       `json:"total_tokens" bson:"total_tokens"`
@@ -91,7 +97,7 @@ func (ut *UsageTracker) RecordUsage(ctx context.Context, record AIUsageRecord) e
 	record.Timestamp = now
 	record.CreatedAt = now
 	record.TotalTokens = record.InputTokens + record.OutputTokens
-	record.CostUSD = calculateTokenCost(record.InputTokens, record.OutputTokens)
+	record.CostUSD = calculateTokenCost(record.InputTokens, record.OutputTokens, record.ModelID)
 
 	// Insert into ai_usage collection
 	collection := ut.dbContext.Client.Collection("ai_usage")
@@ -313,12 +319,22 @@ func (ut *UsageTracker) GetUsageStats(ctx context.Context, project string) (*AIU
 		RequestsThisMonth:    getIntFromBSON(result, "requests_this_month"),
 	}
 
-	// Handle time fields
-	if lastUsed, ok := result["last_used"].(time.Time); ok {
-		stats.LastUsed = lastUsed
+	// Handle time fields - MongoDB returns primitive.DateTime
+	if lastUsed, ok := result["last_used"]; ok {
+		switch v := lastUsed.(type) {
+		case time.Time:
+			stats.LastUsed = v
+		case primitive.DateTime:
+			stats.LastUsed = v.Time()
+		}
 	}
-	if firstUsed, ok := result["first_used"].(time.Time); ok {
-		stats.FirstUsed = firstUsed
+	if firstUsed, ok := result["first_used"]; ok {
+		switch v := firstUsed.(type) {
+		case time.Time:
+			stats.FirstUsed = v
+		case primitive.DateTime:
+			stats.FirstUsed = v.Time()
+		}
 	}
 
 	return stats, nil

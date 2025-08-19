@@ -17,7 +17,7 @@ func parseConfigDiscovery(ctx context.Context, appCtx *AppHandler, rootResult gj
 			return true
 		}
 
-		gtype := models.GTypes(gtypeStr)
+		gtype := models.GType(gtypeStr)
 		cdName := discoveryItem.Get("name").String()
 		cdID, _ := appCtx.getResourceData(ctx, gtype.CollectionString(), cdName, activeResource.Project, version)
 		dependencies = append(dependencies, Depend{Name: cdName, Gtype: gtype, Collection: gtype.CollectionString(), Project: activeResource.Project, ID: cdID})
@@ -36,7 +36,7 @@ func parseTypedConfig(ctx context.Context, appCtx *AppHandler, rootResult gjson.
 			return true
 		}
 
-		gtype := models.GTypes(gtypeStr)
+		gtype := models.GType(gtypeStr)
 		tcName := typedItem.Get("name").String()
 		tcID, _ := appCtx.getResourceData(ctx, gtype.CollectionString(), tcName, activeResource.Project, version)
 		dependencies = append(dependencies, Depend{Name: tcName, Gtype: gtype, Collection: gtype.CollectionString(), Project: activeResource.Project, ID: tcID})

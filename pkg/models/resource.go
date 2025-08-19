@@ -25,7 +25,7 @@ type ScenarioBody map[string]any
 
 type ResourceClass interface {
 	GetGeneral() General
-	GetGtype() GTypes
+	GetGtype() GType
 	SetGeneral(general *General)
 	GetResource() any
 	SetResource(resource any)
@@ -49,7 +49,7 @@ type General struct {
 	Name            string             `json:"name" bson:"name"`
 	Version         string             `json:"version" bson:"version"`
 	Type            KnownTYPES         `json:"type" bson:"type"`
-	GType           GTypes             `json:"gtype" bson:"gtype"`
+	GType           GType             `json:"gtype" bson:"gtype"`
 	Project         string             `json:"project" bson:"project"`
 	Collection      string             `json:"collection" bson:"collection"`
 	CanonicalName   string             `json:"canonical_name" bson:"canonical_name"`
@@ -77,7 +77,7 @@ type Permissions struct {
 
 type ConfigDiscovery struct {
 	ParentName    string `json:"parent_name,omitempty" bson:"parent_name,omitempty"`
-	GType         GTypes `json:"gtype" bson:"gtype"`
+	GType         GType `json:"gtype" bson:"gtype"`
 	Name          string `json:"name" bson:"name"`
 	Priority      int    `json:"priority" bson:"priority"`
 	Category      string `json:"category" bson:"category"`
@@ -87,7 +87,7 @@ type ConfigDiscovery struct {
 type TypedConfig struct {
 	Name          string `json:"name" bson:"name"`
 	CanonicalName string `json:"canonical_name" bson:"canonical_name"`
-	Gtype         GTypes `json:"gtype" bson:"gtype"`
+	Gtype         GType `json:"gtype" bson:"gtype"`
 	Type          string `json:"type" bson:"type"`
 	Category      string `json:"category" bson:"category"`
 	Collection    string `json:"collection" bson:"collection"`
@@ -116,7 +116,7 @@ func (d *DBResource) GetGeneral() General {
 	return d.General
 }
 
-func (d *DBResource) GetGtype() GTypes {
+func (d *DBResource) GetGtype() GType {
 	return d.General.GType
 }
 

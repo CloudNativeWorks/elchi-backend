@@ -14,7 +14,7 @@ import (
 )
 
 func (s *ResourceServiceServer) ValidateResource(ctx context.Context, req *bridge.ValidateResourceRequest) (*bridge.ValidateResourceResponse, error) {
-	gtype := models.GTypes(req.Gtype)
+	gtype := models.GType(req.Gtype)
 	var genericData any
 	var isArray bool
 

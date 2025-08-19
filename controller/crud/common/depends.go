@@ -12,7 +12,7 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models/downstreamfilters"
 )
 
-func IsDeletable(ctx context.Context, appCtx *db.AppContext, gtype models.GTypes, dfm downstreamfilters.DownstreamFilter) []string {
+func IsDeletable(ctx context.Context, appCtx *db.AppContext, gtype models.GType, dfm downstreamfilters.DownstreamFilter) []string {
 	downstreamFilters := gtype.DownstreamFilters(dfm)
 	var deletableNames []string
 
@@ -36,7 +36,7 @@ func IsDeletable(ctx context.Context, appCtx *db.AppContext, gtype models.GTypes
 				appCtx.Logger.Errorf("Error decoding document: %v", err)
 				continue
 			}
-			targetGtype := models.GTypes(result.General.GType)
+			targetGtype := models.GType(result.General.GType)
 			combined := fmt.Sprintf("%s - %s", result.General.Name, targetGtype.PrettyName())
 			deletableNames = append(deletableNames, combined)
 		}

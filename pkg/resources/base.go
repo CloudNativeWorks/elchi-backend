@@ -118,7 +118,7 @@ func GetGenerals(ctx context.Context, context *db.AppContext, collectionName str
 	return results, nil
 }
 
-func ValidateResourceWithClient(ctx context.Context, resourceGType models.GTypes, version string, nodeid string, resourceData any, resourceService *bridge.ResourceServiceClient) error {
+func ValidateResourceWithClient(ctx context.Context, resourceGType models.GType, version string, nodeid string, resourceData any, resourceService *bridge.ResourceServiceClient) error {
 	if resourceService == nil {
 		return nil
 	}

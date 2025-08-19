@@ -358,11 +358,19 @@ func (h *Client) executeForwardRequest(req *http.Request, targetURL string) ([]b
 }
 
 func (h *Client) HandleSendCommand(ctx context.Context, op models.OperationClass, requestDetails models.RequestDetails) (any, error) {
+	h.logger.Debugf("=== HandleSendCommand START ===")
+	h.logger.Debugf("Command Type: %s", op.GetType())
+	h.logger.Debugf("Command SubType: %s", op.GetSubType())
+	h.logger.Debugf("Command Name: %s", op.GetCommandName())
+	h.logger.Debugf("Command Project: %s", op.GetCommandProject())
+	h.logger.Debugf("Is Forwarded: %v", requestDetails.IsForwarded)
+	
 	// Performance timing
 	startTime := time.Now()
 	defer func() {
 		duration := time.Since(startTime)
 		h.logger.Infof("Command processing took %v", duration)
+		h.logger.Infof("=== HandleSendCommand END ===")
 	}()
 	
 	// Check if this is a forwarded request to prevent infinite loops
@@ -379,7 +387,10 @@ func (h *Client) HandleSendCommand(ctx context.Context, op models.OperationClass
 
 	// Get or fetch clients
 	clients := op.GetClients()
+	h.logger.Debugf("Clients from operation payload: %d", len(clients))
+	
 	if len(clients) == 0 {
+		h.logger.Infof("No clients in payload, fetching from database...")
 		fetchStart := time.Now()
 		clients, err = h.FetchClients(op)
 		if err != nil {
@@ -387,6 +398,8 @@ func (h *Client) HandleSendCommand(ctx context.Context, op models.OperationClass
 			return nil, ClientFetchError{Operation: op.GetType(), Cause: err}
 		}
 		h.logger.Infof("Client fetch took %v for %d clients", time.Since(fetchStart), len(clients))
+	} else {
+		h.logger.Infof("Using clients from payload, skipping database fetch")
 	}
 
 	h.logger.Infof("Processing %d clients for command", len(clients))

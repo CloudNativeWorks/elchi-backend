@@ -155,6 +155,10 @@ func (dh *DiscoveryHandler) GetClusters(c *gin.Context) {
 		return
 	}
 
+	// This endpoint is for internal data collection, not for regular users
+	// Authentication middleware ensures the user is authenticated, that's sufficient
+	log.Printf("Discovery clusters requested for project: %s", project)
+
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
 

@@ -103,7 +103,7 @@ func (ar *AllResources) updateJSONConfig(jsonStringStr *string, path string, typ
 	return nil
 }
 
-func decodeTypedConfig(typedConfigJSON []byte, gtype models.GTypes) (*anypb.Any, error) {
+func decodeTypedConfig(typedConfigJSON []byte, gtype models.GType) (*anypb.Any, error) {
 	msg := gtype.ProtoMessage()
 	if err := helper.Unmarshaler.Unmarshal(typedConfigJSON, msg); err != nil {
 		return nil, fmt.Errorf("typed_config not resolved: %w", err)

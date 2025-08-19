@@ -18,7 +18,7 @@ import (
 )
 
 func (extension *AppHandler) UpdateFilters(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
-	filter, err := common.AddResourceIDFilter(requestDetails, bson.M{"general.canonical_name": requestDetails.CanonicalName, "general.project": requestDetails.Project})
+	filter, err := common.AddResourceIDFilter(requestDetails, bson.M{"general.canonical_name": requestDetails.CanonicalName, "general.project": requestDetails.Project, "general.version": requestDetails.Version})
 	if err != nil {
 		return nil, errors.New("invalid id format")
 	}

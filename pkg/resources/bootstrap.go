@@ -43,12 +43,12 @@ func GetAdminPortFromBootstrap(bootstrapAny any) (uint32, error) {
 	return bs.Admin.Address.SocketAddress.PortValue, nil
 }
 
-func GetAdminPortFromService(db *mongo.Database, op models.OperationClass) (uint32, error) {
+func GetAdminPortFromService(db *mongo.Database, op models.OperationClass, requestDetails models.RequestDetails) (uint32, error) {
 	var service AdminPort
 
 	err := db.Collection("services").FindOne(
 		context.TODO(),
-		bson.M{"name": op.GetCommandName(), "project": op.GetCommandProject()},
+		bson.M{"name": op.GetCommandName(), "project": op.GetCommandProject(), "version": requestDetails.Version},
 	).Decode(&service)
 
 	if err != nil {

@@ -14,12 +14,18 @@ import (
 
 	"github.com/CloudNativeWorks/elchi-backend/controller/crud"
 	"github.com/CloudNativeWorks/elchi-backend/controller/crud/common"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/authorization"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/errstr"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/resources"
 )
 
 func (xds *AppHandler) UpdateResource(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
+	// Validate project access and modification permissions
+	if err := authorization.CanModifyResource(ctx, xds.Context.Client, requestDetails.User, resource); err != nil {
+		return nil, fmt.Errorf("modification denied: %w", err)
+	}
+
 	isDefault, err := common.IsDefaultResource(ctx, xds.Context, requestDetails.Name, requestDetails.Collection, requestDetails.Project)
 	if err != nil {
 		xds.Logger.Errorf("An error occurred while checking if the resource is default: %v", err)
@@ -29,7 +35,7 @@ func (xds *AppHandler) UpdateResource(ctx context.Context, resource models.Resou
 		}
 	}
 
-	filter, err := common.AddResourceIDFilter(requestDetails, bson.M{"general.name": requestDetails.Name})
+	filter, err := common.AddResourceIDFilter(requestDetails, bson.M{"general.name": requestDetails.Name, "general.version": requestDetails.Version, "general.project": requestDetails.Project})
 	if err != nil {
 		return nil, errors.New("invalid id format")
 	}

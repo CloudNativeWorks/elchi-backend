@@ -4,7 +4,7 @@ type RequestDetails struct {
 	ResourceID     string
 	Collection     string
 	Type           KnownTYPES
-	GType          GTypes
+	GType          GType
 	CanonicalName  string
 	Name           string
 	Category       string

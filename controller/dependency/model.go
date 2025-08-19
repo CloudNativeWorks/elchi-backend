@@ -48,7 +48,7 @@ type Depend struct {
 	ID         string        `json:"id"`
 	Collection string        `json:"collection"`
 	Name       string        `json:"name"`
-	Gtype      models.GTypes `json:"gtype"`
+	Gtype      models.GType `json:"gtype"`
 	Project    string        `json:"project"`
 	First      bool          `json:"first"`
 	Direction  string        `json:"direction"`
@@ -57,7 +57,7 @@ type Depend struct {
 
 type Node struct {
 	Name       string        `json:"name"`
-	Gtype      models.GTypes `json:"gtype"`
+	Gtype      models.GType `json:"gtype"`
 	Collection string        `json:"collection"`
 	Link       string        `json:"link"`
 	First      bool          `json:"first"`

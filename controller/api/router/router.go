@@ -28,6 +28,10 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 	api := e.Group("/api")
 	v3 := api.Group("/v3")
 	op := api.Group("/op")
+	
+	// Add body capture middleware before authentication
+	op.Use(middleware.BodyCaptureMiddleware())
+	
 	v3.Use(middleware.Authentication())
 	op.Use(middleware.Authentication())
 
@@ -40,7 +44,9 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 	apiScenario := v3.Group("/scenario")
 	apiBridge := v3.Group("/bridge")
 	apiClient := op.Group("/clients")
+	apiClient.Use(middleware.InitSettingMiddleware()) // Only owners and admins can manage clients
 	apiService := op.Group("/services")
+	apiService.Use(middleware.InitSettingMiddleware()) // Only owners and admins can manage services
 	apiRegistry := v3.Group("/registry")
 	apiAI := v3.Group("/ai")
 	apiDiscovery := api.Group("/discovery")

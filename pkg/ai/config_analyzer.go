@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
@@ -14,59 +13,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"go.mongodb.org/mongo-driver/bson"
 )
-
-// Claude API structs
-type ClaudeAPIClient struct {
-	APIKey     string
-	BaseURL    string
-	HTTPClient *http.Client
-}
-
-type ClaudeRequest struct {
-	Model     string              `json:"model"`
-	MaxTokens int                 `json:"max_tokens"`
-	System    []ClaudeSystemBlock `json:"system,omitempty"`
-	Messages  []ClaudeMessage     `json:"messages"`
-}
-
-type ClaudeSystemBlock struct {
-	Type      string                 `json:"type"`
-	Text      string                 `json:"text"`
-	CacheControl *ClaudeCacheControl `json:"cache_control,omitempty"`
-}
-
-type ClaudeCacheControl struct {
-	Type string `json:"type"`
-}
-
-type ClaudeMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
-
-type ClaudeResponse struct {
-	Content []struct {
-		Text string `json:"text"`
-		Type string `json:"type"`
-	} `json:"content"`
-	Model string `json:"model"`
-	Role  string `json:"role"`
-	Usage struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
-	} `json:"usage"`
-}
-
-// NewClaudeClient creates a new Claude API client
-func NewClaudeClient(apiKey string) *ClaudeAPIClient {
-	return &ClaudeAPIClient{
-		APIKey:  apiKey,
-		BaseURL: "https://api.anthropic.com/v1/messages",
-		HTTPClient: &http.Client{
-			Timeout: 120 * time.Second,
-		},
-	}
-}
 
 // ConfigAnalyzerRequest represents user's analyzer request
 type ConfigAnalyzerRequest struct {
@@ -137,17 +83,18 @@ type LogAnalysisResult struct {
 	TokenUsage       TokenUsage                    `json:"token_usage"`
 }
 
-// ConfigAnalyzer analyzes resources and their dependencies
+// ConfigAnalyzer analyzes resources and their dependencies using OpenRouter
 type ConfigAnalyzer struct {
 	dbContext         *db.AppContext
 	dependencyHandler *dependency.AppHandler
-	aiClient          *ClaudeAPIClient
+	aiClient          *OpenRouterClient // Changed from Claude to OpenRouter
+	defaultModel      string            // Default model to use
 	logger            *logrus.Logger
 	systemPrompt      string // Cached system prompt
 	usageTracker      *UsageTracker
 }
 
-func NewConfigAnalyzer(dbContext *db.AppContext, aiClient *ClaudeAPIClient, logger *logrus.Logger) *ConfigAnalyzer {
+func NewConfigAnalyzer(dbContext *db.AppContext, aiClient *OpenRouterClient, defaultModel string, logger *logrus.Logger) *ConfigAnalyzer {
 	dependencyHandler := dependency.NewDependencyHandler(dbContext)
 	usageTracker := NewUsageTracker(dbContext)
 	
@@ -156,6 +103,7 @@ func NewConfigAnalyzer(dbContext *db.AppContext, aiClient *ClaudeAPIClient, logg
 		dependencyHandler: dependencyHandler,
 		usageTracker:      usageTracker,
 		aiClient:          aiClient,
+		defaultModel:      defaultModel,
 		logger:            logger,
 	}
 	
@@ -206,18 +154,32 @@ func (ca *ConfigAnalyzer) AnalyzeResourceConfig(ctx context.Context, req ConfigA
 	// 3. Analyze with AI
 	analysis, suggestions, inputTokens, outputTokens, err := ca.analyzeWithAI(req, result)
 	if err != nil {
+		// Enhanced error handling for OpenRouter errors
+		errorMessage := err.Error()
+		
+		// Check if it's an OpenRouter error and extract relevant info
+		if openRouterErr, ok := err.(*OpenRouterError); ok {
+			ca.logger.Errorf("OpenRouter API error - Status: %d, Model: %s, Message: %s", 
+				openRouterErr.StatusCode, openRouterErr.Model, openRouterErr.Message)
+			
+			// Don't expose raw response body to frontend
+			errorMessage = fmt.Sprintf("AI service error (%d): %s", openRouterErr.StatusCode, openRouterErr.Message)
+		}
+		
 		// Record failed usage
 		ca.recordUsage(ctx, AIUsageRecord{
 			Project:      req.Project,
 			UserID:       userID,
 			RequestType:  "analyze",
+			ModelID:      ca.defaultModel,
+			Provider:     ca.getProviderFromModel(ca.defaultModel),
 			ResourceName: req.ResourceName,
 			Collection:   req.Collection,
 			Success:      false,
-			ErrorMessage: err.Error(),
+			ErrorMessage: err.Error(), // Log full error internally
 			Duration:     time.Since(startTime).Milliseconds(),
 		})
-		return nil, fmt.Errorf("AI analysis failed: %w", err)
+		return nil, fmt.Errorf("%s", errorMessage) // Return clean error to frontend
 	}
 
 	result.Analysis = analysis
@@ -226,7 +188,7 @@ func (ca *ConfigAnalyzer) AnalyzeResourceConfig(ctx context.Context, req ConfigA
 		InputTokens:  inputTokens,
 		OutputTokens: outputTokens,
 		TotalTokens:  inputTokens + outputTokens,
-		CostUSD:      calculateTokenCost(inputTokens, outputTokens),
+		CostUSD:      calculateTokenCost(inputTokens, outputTokens, ca.defaultModel),
 	}
 
 	// Record successful usage
@@ -234,6 +196,8 @@ func (ca *ConfigAnalyzer) AnalyzeResourceConfig(ctx context.Context, req ConfigA
 		Project:      req.Project,
 		UserID:       userID,
 		RequestType:  "analyze",
+		ModelID:      ca.defaultModel,
+		Provider:     ca.getProviderFromModel(ca.defaultModel),
 		ResourceName: req.ResourceName,
 		Collection:   req.Collection,
 		InputTokens:  inputTokens,
@@ -282,18 +246,32 @@ func (ca *ConfigAnalyzer) AnalyzeLogsWithConfig(ctx context.Context, req LogAnal
 	// 4. Analyze logs with AI
 	analysis, suggestions, errors, logSummary, inputTokens, outputTokens, err := ca.analyzeLogsWithAI(req, result)
 	if err != nil {
+		// Enhanced error handling for OpenRouter errors
+		errorMessage := err.Error()
+		
+		// Check if it's an OpenRouter error and extract relevant info
+		if openRouterErr, ok := err.(*OpenRouterError); ok {
+			ca.logger.Errorf("OpenRouter API error - Status: %d, Model: %s, Message: %s", 
+				openRouterErr.StatusCode, openRouterErr.Model, openRouterErr.Message)
+			
+			// Don't expose raw response body to frontend
+			errorMessage = fmt.Sprintf("AI service error (%d): %s", openRouterErr.StatusCode, openRouterErr.Message)
+		}
+		
 		// Record failed usage
 		ca.recordUsage(ctx, AIUsageRecord{
 			Project:      req.Project,
 			UserID:       userID,
 			RequestType:  "analyze-logs",
+			ModelID:      ca.defaultModel,
+			Provider:     ca.getProviderFromModel(ca.defaultModel),
 			ResourceName: req.ResourceName,
 			Collection:   req.Collection,
 			Success:      false,
-			ErrorMessage: err.Error(),
+			ErrorMessage: err.Error(), // Log full error internally
 			Duration:     time.Since(startTime).Milliseconds(),
 		})
-		return nil, fmt.Errorf("AI log analysis failed: %w", err)
+		return nil, fmt.Errorf("%s", errorMessage) // Return clean error to frontend
 	}
 
 	result.Analysis = analysis
@@ -304,7 +282,7 @@ func (ca *ConfigAnalyzer) AnalyzeLogsWithConfig(ctx context.Context, req LogAnal
 		InputTokens:  inputTokens,
 		OutputTokens: outputTokens,
 		TotalTokens:  inputTokens + outputTokens,
-		CostUSD:      calculateTokenCost(inputTokens, outputTokens),
+		CostUSD:      calculateTokenCost(inputTokens, outputTokens, ca.defaultModel),
 	}
 
 	// Record successful usage
@@ -312,6 +290,8 @@ func (ca *ConfigAnalyzer) AnalyzeLogsWithConfig(ctx context.Context, req LogAnal
 		Project:      req.Project,
 		UserID:       userID,
 		RequestType:  "analyze-logs",
+		ModelID:      ca.defaultModel,
+		Provider:     ca.getProviderFromModel(ca.defaultModel),
 		ResourceName: req.ResourceName,
 		Collection:   req.Collection,
 		InputTokens:  inputTokens,
@@ -349,7 +329,7 @@ func (ca *ConfigAnalyzer) getResourceFromDB(ctx context.Context, collectionName,
 }
 
 // getGTypeFromCollection extracts GType from collection name
-func (ca *ConfigAnalyzer) getGTypeFromCollection(collection string) models.GTypes {
+func (ca *ConfigAnalyzer) getGTypeFromCollection(collection string) models.GType {
 	switch collection {
 	case "listeners":
 		return models.Listener
@@ -509,20 +489,16 @@ func (ca *ConfigAnalyzer) analyzeWithAI(req ConfigAnalyzerRequest, result *Confi
 	// Create user prompt (system prompt already cached)
 	userPrompt := ca.buildAnalysisUserPrompt(req, result)
 
-	// Call Claude API - Cache system prompt
-	claudeReq := ClaudeRequest{
-		Model:     "claude-3-5-sonnet-20241022",
-		MaxTokens: 4000,
-		System: []ClaudeSystemBlock{
+	// Call OpenRouter API
+	openRouterReq := OpenRouterRequest{
+		Model:       ca.defaultModel,
+		MaxTokens:   4000,
+		Temperature: 0.1,
+		Messages: []OpenRouterMessage{
 			{
-				Type: "text",
-				Text: ca.systemPrompt,
-				CacheControl: &ClaudeCacheControl{
-					Type: "ephemeral",
-				},
+				Role:    "system",
+				Content: ca.systemPrompt,
 			},
-		},
-		Messages: []ClaudeMessage{
 			{
 				Role:    "user",
 				Content: userPrompt,
@@ -530,15 +506,20 @@ func (ca *ConfigAnalyzer) analyzeWithAI(req ConfigAnalyzerRequest, result *Confi
 		},
 	}
 
-	response, inputTokens, outputTokens, err := ca.callClaudeAPI(claudeReq)
+	ctx := context.Background()
+	response, err := ca.aiClient.GetCompletion(ctx, openRouterReq)
 	if err != nil {
 		return "", nil, 0, 0, err
 	}
 
+	if len(response.Choices) == 0 {
+		return "", nil, 0, 0, fmt.Errorf("empty response choices")
+	}
+
 	// Parse response
-	analysis, suggestions := ca.parseAnalysisResponse(response)
+	analysis, suggestions := ca.parseAnalysisResponse(response.Choices[0].Message.Content)
 	
-	return analysis, suggestions, inputTokens, outputTokens, nil
+	return analysis, suggestions, response.Usage.PromptTokens, response.Usage.CompletionTokens, nil
 }
 
 // analyzeLogsWithAI analyzes Envoy logs with configuration context using AI
@@ -546,20 +527,16 @@ func (ca *ConfigAnalyzer) analyzeLogsWithAI(req LogAnalyzerRequest, result *LogA
 	// Build user prompt for log analysis (system prompt is already cached)
 	userPrompt := ca.buildLogAnalysisUserPrompt(req, result)
 
-	// Call Claude API - Use cached system prompt
-	claudeReq := ClaudeRequest{
-		Model:     "claude-3-5-sonnet-20241022",
-		MaxTokens: 4000,
-		System: []ClaudeSystemBlock{
+	// Call OpenRouter API with log-specific system prompt
+	openRouterReq := OpenRouterRequest{
+		Model:       ca.defaultModel,
+		MaxTokens:   4000,
+		Temperature: 0.1,
+		Messages: []OpenRouterMessage{
 			{
-				Type: "text",
-				Text: ca.buildLogAnalysisSystemPrompt(), // Use log-specific system prompt
-				CacheControl: &ClaudeCacheControl{
-					Type: "ephemeral",
-				},
+				Role:    "system",
+				Content: ca.buildLogAnalysisSystemPrompt(), // Use log-specific system prompt
 			},
-		},
-		Messages: []ClaudeMessage{
 			{
 				Role:    "user",
 				Content: userPrompt,
@@ -567,16 +544,20 @@ func (ca *ConfigAnalyzer) analyzeLogsWithAI(req LogAnalyzerRequest, result *LogA
 		},
 	}
 
-	// Get response from AI client
-	response, inputTokens, outputTokens, err := ca.callClaudeAPI(claudeReq)
+	ctx := context.Background()
+	response, err := ca.aiClient.GetCompletion(ctx, openRouterReq)
 	if err != nil {
 		return "", nil, nil, "", 0, 0, err
 	}
 
+	if len(response.Choices) == 0 {
+		return "", nil, nil, "", 0, 0, fmt.Errorf("empty response choices")
+	}
+
 	// Parse response
-	analysis, suggestions, errors, logSummary := ca.parseLogAnalysisResponse(response)
+	analysis, suggestions, errors, logSummary := ca.parseLogAnalysisResponse(response.Choices[0].Message.Content)
 	
-	return analysis, suggestions, errors, logSummary, inputTokens, outputTokens, nil
+	return analysis, suggestions, errors, logSummary, response.Usage.PromptTokens, response.Usage.CompletionTokens, nil
 }
 
 // buildAnalysisSystemPrompt creates system prompt for AI analysis
@@ -640,6 +621,8 @@ You are an expert assistant for the Elchi Envoy proxy management system. You can
 5. **SYSTEM ARCHITECTURE**: Explain how the 3-component Elchi system works
 
 **IMPORTANT**: Only focus on Envoy configuration when the user specifically asks about Envoy configs, listeners, clusters, routes, etc. For general questions about domains, networking, or other topics, provide general helpful answers.
+
+**SECURITY NOTICE**: For security reasons, TLS certificate resources (TlsCertificate, CertificateValidationContext, GenericSecret, TlsSessionTicketKeys) are excluded from the analysis data. If you notice missing certificate information in the configuration, this is intentional - these sensitive resources are filtered out to protect private keys and certificate data. You can still provide guidance about TLS configuration without seeing the actual certificate content.
 
 **EXAMPLES:**
 - "What is a domain?" → Answer generally about domains and DNS
@@ -1015,18 +998,39 @@ func (ca *ConfigAnalyzer) buildAnalysisUserPrompt(req ConfigAnalyzerRequest, res
 		prompt.WriteString("\n")
 	}
 
-	// Add related resources if available
+	// Add related resources if available (excluding sensitive TLS certificate resources)
 	if len(result.RelatedResources) > 0 {
 		prompt.WriteString("## RELATED RESOURCES:\n")
 		for collection, resources := range result.RelatedResources {
-			prompt.WriteString(fmt.Sprintf("### %s (%d items):\n", strings.ToUpper(collection), len(resources)))
+			filteredResources := []models.DBResource{}
+			excludedCount := 0
+			
+			// Filter out sensitive TLS certificate resources
 			for _, resource := range resources {
-				// Add each resource's full content as JSON
-				resourceJSON, _ := json.MarshalIndent(resource, "", "  ")
-				prompt.WriteString(fmt.Sprintf("#### %s (%s):\n", resource.General.Name, resource.General.GType))
-				prompt.WriteString("```json\n")
-				prompt.WriteString(string(resourceJSON))
-				prompt.WriteString("\n```\n\n")
+				if ca.isTLSCertificateResource(resource) {
+					excludedCount++
+					continue
+				}
+				filteredResources = append(filteredResources, resource)
+			}
+			
+			if len(filteredResources) > 0 {
+				prompt.WriteString(fmt.Sprintf("### %s (%d items", strings.ToUpper(collection), len(filteredResources)))
+				if excludedCount > 0 {
+					prompt.WriteString(fmt.Sprintf(", %d TLS certificate resources excluded", excludedCount))
+				}
+				prompt.WriteString("):\n")
+				
+				for _, resource := range filteredResources {
+					// Add each resource's full content as JSON
+					resourceJSON, _ := json.MarshalIndent(resource, "", "  ")
+					prompt.WriteString(fmt.Sprintf("#### %s (%s):\n", resource.General.Name, resource.General.GType))
+					prompt.WriteString("```json\n")
+					prompt.WriteString(string(resourceJSON))
+					prompt.WriteString("\n```\n\n")
+				}
+			} else if excludedCount > 0 {
+				prompt.WriteString(fmt.Sprintf("### %s (%d TLS certificate resources excluded for security)\n", strings.ToUpper(collection), excludedCount))
 			}
 		}
 	}
@@ -1040,43 +1044,13 @@ func (ca *ConfigAnalyzer) buildAnalysisUserPrompt(req ConfigAnalyzerRequest, res
 	return prompt.String()
 }
 
-// callClaudeAPI calls the Claude API
-func (ca *ConfigAnalyzer) callClaudeAPI(req ClaudeRequest) (string, int, int, error) {
-	bodyBytes, err := json.Marshal(req)
-	if err != nil {
-		return "", 0, 0, fmt.Errorf("marshal request: %w", err)
+// getProviderFromModel extracts provider name from OpenRouter model ID
+func (ca *ConfigAnalyzer) getProviderFromModel(modelID string) string {
+	parts := strings.Split(modelID, "/")
+	if len(parts) >= 1 {
+		return parts[0]
 	}
-
-	httpReq, err := http.NewRequest("POST", ca.aiClient.BaseURL, strings.NewReader(string(bodyBytes)))
-	if err != nil {
-		return "", 0, 0, fmt.Errorf("create request: %w", err)
-	}
-
-	// Set headers
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("x-api-key", ca.aiClient.APIKey)
-	httpReq.Header.Set("anthropic-version", "2023-06-01")
-
-	resp, err := ca.aiClient.HTTPClient.Do(httpReq)
-	if err != nil {
-		return "", 0, 0, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return "", 0, 0, fmt.Errorf("API error: status %d", resp.StatusCode)
-	}
-
-	var response ClaudeResponse
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return "", 0, 0, fmt.Errorf("decode response: %w", err)
-	}
-
-	if len(response.Content) == 0 {
-		return "", 0, 0, fmt.Errorf("empty response content")
-	}
-
-	return response.Content[0].Text, response.Usage.InputTokens, response.Usage.OutputTokens, nil
+	return "unknown"
 }
 
 // parseAnalysisResponse parses AI response
@@ -1142,6 +1116,8 @@ func (ca *ConfigAnalyzer) buildLogAnalysisSystemPrompt() string {
 4. **UI-BASED SOLUTIONS**: Provide step-by-step UI instructions using actual Elchi interface
 5. **ROOT CAUSE ANALYSIS**: Explain the root cause of problems considering system architecture
 6. **SYSTEM IMPACT**: Consider how issues affect Registry→Control-Plane→Envoy flow
+
+**SECURITY NOTICE**: For security reasons, TLS certificate resources (TlsCertificate, CertificateValidationContext, GenericSecret, TlsSessionTicketKeys) are excluded from the analysis data. If you notice missing certificate information in the configuration or logs reference certificates that aren't shown, this is intentional - these sensitive resources are filtered out to protect private keys and certificate data. You can still provide guidance about TLS configuration and certificate issues without seeing the actual certificate content.
 
 ## ELCHI UI STRUCTURE FOR SOLUTIONS:
 
@@ -1279,18 +1255,39 @@ func (ca *ConfigAnalyzer) buildLogAnalysisUserPrompt(req LogAnalyzerRequest, res
 		prompt.WriteString("\n")
 	}
 
-	// Related resources if available
+	// Related resources if available (excluding sensitive TLS certificate resources)
 	if len(result.RelatedResources) > 0 {
 		prompt.WriteString("## RELATED RESOURCES:\n")
 		for collection, resources := range result.RelatedResources {
-			prompt.WriteString(fmt.Sprintf("### %s (%d items):\n", strings.ToUpper(collection), len(resources)))
+			filteredResources := []models.DBResource{}
+			excludedCount := 0
+			
+			// Filter out sensitive TLS certificate resources
 			for _, resource := range resources {
-				// Add each resource's full content as JSON
-				resourceJSON, _ := json.MarshalIndent(resource, "", "  ")
-				prompt.WriteString(fmt.Sprintf("#### %s (%s):\n", resource.General.Name, resource.General.GType))
-				prompt.WriteString("```json\n")
-				prompt.WriteString(string(resourceJSON))
-				prompt.WriteString("\n```\n\n")
+				if ca.isTLSCertificateResource(resource) {
+					excludedCount++
+					continue
+				}
+				filteredResources = append(filteredResources, resource)
+			}
+			
+			if len(filteredResources) > 0 {
+				prompt.WriteString(fmt.Sprintf("### %s (%d items", strings.ToUpper(collection), len(filteredResources)))
+				if excludedCount > 0 {
+					prompt.WriteString(fmt.Sprintf(", %d TLS certificate resources excluded", excludedCount))
+				}
+				prompt.WriteString("):\n")
+				
+				for _, resource := range filteredResources {
+					// Add each resource's full content as JSON
+					resourceJSON, _ := json.MarshalIndent(resource, "", "  ")
+					prompt.WriteString(fmt.Sprintf("#### %s (%s):\n", resource.General.Name, resource.General.GType))
+					prompt.WriteString("```json\n")
+					prompt.WriteString(string(resourceJSON))
+					prompt.WriteString("\n```\n\n")
+				}
+			} else if excludedCount > 0 {
+				prompt.WriteString(fmt.Sprintf("### %s (%d TLS certificate resources excluded for security)\n", strings.ToUpper(collection), excludedCount))
 			}
 		}
 	}
@@ -1314,6 +1311,24 @@ func (ca *ConfigAnalyzer) buildLogAnalysisUserPrompt(req LogAnalyzerRequest, res
 	}
 
 	return prompt.String()
+}
+
+// isTLSCertificateResource checks if a resource should be excluded from AI analysis
+// These gtypes contain sensitive certificate information that should not be sent to AI
+func (ca *ConfigAnalyzer) isTLSCertificateResource(resource models.DBResource) bool {
+	sensitiveGTypes := []models.GType{
+		"envoy.extensions.transport_sockets.tls.v3.TlsCertificate",
+		"envoy.extensions.transport_sockets.tls.v3.CertificateValidationContext", 
+		"envoy.extensions.transport_sockets.tls.v3.GenericSecret",
+		"envoy.extensions.transport_sockets.tls.v3.TlsSessionTicketKeys",
+	}
+	
+	for _, sensitiveType := range sensitiveGTypes {
+		if resource.General.GType == sensitiveType {
+			return true
+		}
+	}
+	return false
 }
 
 // parseLogAnalysisResponse parses AI response for log analysis

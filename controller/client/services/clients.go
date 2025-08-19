@@ -54,6 +54,74 @@ func (s *ClientService) SetRegistryClient(client *registry.RegistryClient) {
 	s.registryClient = client
 }
 
+// getDefaultProjectID fetches the default project ID from the database
+func (s *ClientService) getDefaultProjectID(ctx context.Context) (string, error) {
+	var defaultProject struct {
+		ID primitive.ObjectID `bson:"_id"`
+	}
+	err := s.Context.Client.Collection("projects").FindOne(
+		ctx,
+		bson.M{"projectname": "default"},
+	).Decode(&defaultProject)
+	
+	if err != nil {
+		return "", fmt.Errorf("default project not found: %v", err)
+	}
+	
+	return defaultProject.ID.Hex(), nil
+}
+
+// validateClientProjectRegistration checks if client is already registered for a different project
+func (s *ClientService) validateClientProjectRegistration(ctx context.Context, clientID string, newProjectID string) error {
+	var existingClient client.ClientInfo
+	err := s.Context.Client.Collection("clients").FindOne(
+		ctx,
+		bson.M{"client_id": clientID},
+	).Decode(&existingClient)
+	
+	if err == mongo.ErrNoDocuments {
+		// Client doesn't exist, registration allowed
+		return nil
+	}
+	
+	if err != nil {
+		return fmt.Errorf("failed to check existing client: %v", err)
+	}
+	
+	// Client exists, check if it's trying to register for a different project
+	if existingClient.Project != "" && existingClient.Project != newProjectID {
+		// Get project name for better error message
+		projectName := s.getProjectName(ctx, existingClient.Project)
+		return fmt.Errorf("client already registered for project '%s'. A client cannot be registered for multiple projects", projectName)
+	}
+	
+	// Same project or no project set, allow registration
+	return nil
+}
+
+// getProjectName fetches project name by ID
+func (s *ClientService) getProjectName(ctx context.Context, projectID string) string {
+	var project struct {
+		ProjectName string `bson:"projectname"`
+	}
+	
+	objID, err := primitive.ObjectIDFromHex(projectID)
+	if err != nil {
+		return projectID
+	}
+	
+	err = s.Context.Client.Collection("projects").FindOne(
+		ctx,
+		bson.M{"_id": objID},
+	).Decode(&project)
+	
+	if err != nil {
+		return projectID
+	}
+	
+	return project.ProjectName
+}
+
 // SetPendingResponse sets a pending response channel for command ID
 func (s *ClientService) SetPendingResponse(commandID string, respChan chan *pb.CommandResponse) {
 	s.pendingMux.Lock()
@@ -93,10 +161,10 @@ func (s *ClientService) UpsertClientToDB(ctx context.Context, clientInfo *client
 			"session_token": clientInfo.SessionToken,
 			"metadata":      clientInfo.Metadata,
 			"access_token":  clientInfo.AccessTokens,
+			"project":       clientInfo.Project,
 		},
 		"$setOnInsert": bson.M{
-			"_id":      primitive.NewObjectID(),
-			"projects": []string{},
+			"_id": primitive.NewObjectID(),
 		},
 	}
 	opts := options.Update().SetUpsert(true)
@@ -109,8 +177,11 @@ func (s *ClientService) RegisterClient(req *pb.RegisterRequest) (*client.ClientI
 	s.clientsMux.Lock()
 	defer s.clientsMux.Unlock()
 
+	ctx := context.Background()
+
+	// Validate token
 	var settings models.Settings
-	err := s.Context.Client.Collection("settings").FindOne(context.Background(), bson.M{}).Decode(&settings)
+	err := s.Context.Client.Collection("settings").FindOne(ctx, bson.M{}).Decode(&settings)
 	if err != nil {
 		return nil, "", fmt.Errorf("settings token could not be retrieved: %v", err)
 	}
@@ -127,19 +198,36 @@ func (s *ClientService) RegisterClient(req *pb.RegisterRequest) (*client.ClientI
 		return nil, "", fmt.Errorf("invalid token provided")
 	}
 
+	// Create client info
 	sessionToken := uuid.New().String()
 	clientInfo := client.NewClientInfo(req, sessionToken)
 	clientInfo.AccessTokens = req.GetToken()
 
+	// Handle project assignment
+	if clientInfo.Project == "" {
+		defaultProjectID, err := s.getDefaultProjectID(ctx)
+		if err != nil {
+			s.logger.Warnf("No default project found for client %s: %v", req.GetClientId(), err)
+		} else {
+			clientInfo.Project = defaultProjectID
+			s.logger.Infof("Using default project for client %s: %s", req.GetClientId(), defaultProjectID)
+		}
+	}
+
+	// Validate client isn't already registered for a different project
+	if err := s.validateClientProjectRegistration(ctx, req.GetClientId(), clientInfo.Project); err != nil {
+		return nil, "", err
+	}
+
+	// Register client
 	s.clients[req.GetClientId()] = clientInfo
-	s.logger.Infof("Client registered: %s (Session Token: %s)", req.GetClientId(), sessionToken)
+	s.logger.Infof("Client registered: %s (Session Token: %s, Project: %s)", req.GetClientId(), sessionToken, clientInfo.Project)
 
 	// Notify registry about client connection
 	s.notifyRegistryClientConnect(req.GetClientId())
 
 	// Upsert to DB
-	err = s.UpsertClientToDB(context.Background(), clientInfo)
-	if err != nil {
+	if err := s.UpsertClientToDB(ctx, clientInfo); err != nil {
 		s.logger.Errorf("Client could not be saved to DB: %v", err)
 	}
 
@@ -177,8 +265,8 @@ func (s *ClientService) GetClient(clientID string) (*client.ClientInfo, error) {
 }
 
 // getAllClientsFromDB, tüm client'ları döner.
-func (s *ClientService) getAllClientsFromDB(ctx context.Context) ([]*client.ClientInfo, error) {
-	cursor, err := s.Context.Client.Collection("clients").Find(ctx, bson.M{})
+func (s *ClientService) getAllClientsFromDB(ctx context.Context, projectID string) ([]*client.ClientInfo, error) {
+	cursor, err := s.Context.Client.Collection("clients").Find(ctx, bson.M{"project": projectID})
 	if err != nil {
 		return nil, err
 	}
@@ -233,12 +321,12 @@ func (s *ClientService) getAllServiceIPsMap(ctx context.Context) (map[string][]s
 }
 
 // GetAllClients, tüm client'ları ve ilişkili servis IP'lerini döner.
-func (s *ClientService) GetAllClientsWithServiceIPs() ([]*ClientWithServiceIPs, error) {
+func (s *ClientService) GetAllClientsWithServiceIPs(projectID string) ([]*ClientWithServiceIPs, error) {
 	ctx := context.Background()
 	s.clientsMux.RLock()
 	defer s.clientsMux.RUnlock()
 
-	clients, err := s.getAllClientsFromDB(ctx)
+	clients, err := s.getAllClientsFromDB(ctx, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("clients find error: %w", err)
 	}

@@ -50,10 +50,19 @@ func (custom *AppHandler) GetCustomResourceList(ctx context.Context, _ models.Re
 }
 
 func buildFilters(details models.RequestDetails) bson.M {
-	filters := bson.M{
-		"general.project": details.Project,
+	filters := bson.M{}
+
+	// Project is required - if no project specified, return empty result
+	if details.Project == "" {
+		// Return impossible filter to get empty result
+		filters["_id"] = nil
+		return filters
 	}
 
+	// Include all resources from the specified project (both regular and default resources)
+	filters["general.project"] = details.Project
+
+	// For metrics, include all versions. Otherwise, filter by specific version
 	if details.ForMetrics != "true" {
 		filters["general.version"] = details.Version
 	}

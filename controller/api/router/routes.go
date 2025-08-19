@@ -27,6 +27,7 @@ func initServiceRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		handler gin.HandlerFunc
 	}{
 		{"GET", "", h.ListServices},
+		{"GET", "/from_client", h.GetService},
 		{"GET", "/envoys/:service_id", h.GetEnvoyDetails},
 		{"GET", "/:service_id", h.GetService},
 	}
@@ -82,6 +83,7 @@ func initSettingRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 	}{
 		{"GET", "/user_list", h.Settings.ListUsers},
 		{"GET", "/user/:user_id", h.Settings.GetUser},
+		{"GET", "/users/:user_id", h.Settings.GetUserByID},
 		{"PUT", "/user/:user_id", h.Settings.SetUpdateUser},
 		{"DELETE", "/user/:user_id", h.Settings.DeleteUser},
 
@@ -101,10 +103,10 @@ func initSettingRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		{"POST", "/tokens", h.Settings.SetToken},
 		{"DELETE", "/tokens/:token_id", h.Settings.DeleteToken},
 
-		{"GET", "/claude-token", h.Settings.GetClaudeToken},
-		{"POST", "/claude-token", h.Settings.SetClaudeToken},
-		{"PUT", "/claude-token", h.Settings.UpdateClaudeToken},
-		{"DELETE", "/claude-token", h.Settings.DeleteClaudeToken},
+		{"GET", "/openrouter-token", h.Settings.GetOpenRouterToken},
+		{"POST", "/openrouter-token", h.Settings.SetOpenRouterToken},
+		{"PUT", "/openrouter-token", h.Settings.UpdateOpenRouterToken},
+		{"DELETE", "/openrouter-token", h.Settings.DeleteOpenRouterToken},
 
 		{"GET", "/discovery-token", h.Settings.GetDiscoveryToken},
 		{"DELETE", "/discovery-token", h.Settings.DeleteDiscoveryToken},
@@ -136,9 +138,17 @@ func initScenarioRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		path    string
 		handler gin.HandlerFunc
 	}{
-		{"GET", "/scenario_list", h.GetScenarios},
-		{"GET", "/scenario", h.GetScenario},
-		{"POST", "/scenario", h.SetScenario},
+		// Scenario endpoints
+		{"GET", "/components", h.GetComponentCatalogHandler},
+		{"POST", "/scenarios", h.CreateScenarioHandler},
+		{"GET", "/scenarios", h.GetScenariosHandler},
+		{"GET", "/scenarios/:scenario_id", h.GetScenarioHandler},
+		{"PUT", "/scenarios/:scenario_id", h.UpdateScenarioHandler},
+		{"DELETE", "/scenarios/:scenario_id", h.DeleteScenarioHandler},
+		{"POST", "/execute", h.ExecuteScenarioHandler},
+		{"POST", "/validate", h.ValidateScenarioHandler},
+		{"POST", "/export", h.ExportScenariosHandler},
+		{"POST", "/import", h.ImportScenariosHandler},
 	}
 
 	initRoutes(rg, routes)
@@ -239,6 +249,9 @@ func initAIRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		{"GET", "/usage/recent", h.GetRecentAIUsage},
 		{"GET", "/usage/status", h.GetAIUsageStatus},
 		{"DELETE", "/usage/cleanup", h.CleanupOldAIUsage},
+		// Model management endpoints
+		{"GET", "/models", h.GetAvailableModels},
+		{"POST", "/models/test", h.TestModelConnection},
 	}
 
 	initRoutes(rg, routes)

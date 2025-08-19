@@ -65,6 +65,17 @@ func createDefaults(ctx context.Context, context *AppContext, logger *logrus.Log
 	if err := CreateDefaultRouter(ctx, context, projectID, vrs, groupID); err != nil {
 		logger.Infof("Default router not created: %s", err)
 	}
+
+	if err := CreateDefaultHCM(ctx, context, projectID, vrs, groupID); err != nil {
+		logger.Infof("Default hcm not created: %s", err)
+	}
+
+	// Create default scenarios (project-independent)
+	if err := CreateDefaultScenarios(ctx, context); err != nil {
+		logger.Infof("Default scenarios not created: %s", err)
+	} else {
+		logger.Info("Default scenarios created successfully")
+	}
 }
 
 func createAdminUser(ctx context.Context, db *AppContext) (string, error) {
@@ -223,7 +234,11 @@ func createDefaultProject(ctx context.Context, db *AppContext, userID string) (s
 }
 
 func CreateDefaultCluster(ctx context.Context, db *AppContext, projectID string, vers string, groupID string) error {
-	collection := db.Client.Collection("clusters")
+	gtypeCluster := models.Cluster
+	gtypeProtocolOption := models.HTTPProtocolOptions
+	gtypeUpstreamTLS := models.UpstreamTLSContext
+
+	collection := db.Client.Collection(gtypeCluster.CollectionString())
 	var cluster models.Resource
 	if projectID == "" {
 		return errstr.ErrProjectIDEmpty
@@ -244,11 +259,11 @@ func CreateDefaultCluster(ctx context.Context, db *AppContext, projectID string,
 		typedConfig := []bson.M{
 			{
 				"name":           "elchi-control-plane-hpo",
-				"canonical_name": "envoy.upstreams.http.http_protocol_options",
-				"gtype":          "envoy.extensions.upstreams.http.v3.HttpProtocolOptions",
-				"type":           "http_protocol_options",
-				"category":       "envoy.upstreams.http.http_protocol_options",
-				"collection":     "extensions",
+				"canonical_name": gtypeProtocolOption.CanonicalName(),
+				"gtype":          gtypeProtocolOption.String(),
+				"type":           gtypeProtocolOption.Type(),
+				"category":       gtypeProtocolOption.Category(),
+				"collection":     gtypeProtocolOption.CollectionString(),
 				"disabled":       false,
 				"priority":       0,
 				"parent_name":    "",
@@ -258,11 +273,11 @@ func CreateDefaultCluster(ctx context.Context, db *AppContext, projectID string,
 		if db.Config.ElchiTLSEnabled == "true" {
 			typedConfig = append(typedConfig, bson.M{
 				"name":           "elchi-control-plane-tls",
-				"canonical_name": "envoy.transport_sockets.upstream",
-				"gtype":          "envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext",
-				"type":           "secret",
-				"category":       "envoy.transport_sockets.tls",
-				"collection":     "tls",
+				"canonical_name": gtypeUpstreamTLS.CanonicalName(),
+				"gtype":          gtypeUpstreamTLS.String(),
+				"type":           gtypeUpstreamTLS.Type(),
+				"category":       gtypeUpstreamTLS.Category(),
+				"collection":     gtypeUpstreamTLS.CollectionString(),
 				"disabled":       false,
 				"priority":       1,
 				"parent_name":    "",
@@ -315,12 +330,12 @@ func CreateDefaultCluster(ctx context.Context, db *AppContext, projectID string,
 			"general": bson.M{
 				"name":           "elchi-control-plane",
 				"version":        vers,
-				"type":           "cluster",
-				"gtype":          "envoy.config.cluster.v3.Cluster",
+				"type":           gtypeCluster.Type(),
+				"gtype":          gtypeCluster.String(),
 				"project":        projectID,
-				"collection":     "clusters",
-				"canonical_name": "config.cluster.v3.Cluster",
-				"category":       "cluster",
+				"collection":     gtypeCluster.CollectionString(),
+				"canonical_name": gtypeCluster.CanonicalName(),
+				"category":       gtypeCluster.Category(),
 				"metadata": bson.M{
 					"is_default": true,
 				},
@@ -358,7 +373,8 @@ func CreateDefaultCluster(ctx context.Context, db *AppContext, projectID string,
 }
 
 func CreateDefaultHttpProtocolOptions(ctx context.Context, db *AppContext, projectID string, vers string, groupID string) error {
-	collection := db.Client.Collection("extensions")
+	gtype := models.HTTPProtocolOptions
+	collection := db.Client.Collection(gtype.CollectionString())
 	var hpo models.Resource
 	if projectID == "" {
 		return errstr.ErrProjectIDEmpty
@@ -375,12 +391,12 @@ func CreateDefaultHttpProtocolOptions(ctx context.Context, db *AppContext, proje
 			"general": bson.M{
 				"name":           "elchi-control-plane-hpo",
 				"version":        vers,
-				"type":           "http_protocol_options",
-				"gtype":          "envoy.extensions.upstreams.http.v3.HttpProtocolOptions",
+				"type":           gtype.Type(),
+				"gtype":          gtype.String(),
 				"project":        projectID,
-				"collection":     "extensions",
-				"canonical_name": "envoy.upstreams.http.http_protocol_options",
-				"category":       "envoy.upstreams.http.http_protocol_options",
+				"collection":     gtype.CollectionString(),
+				"canonical_name": gtype.CanonicalName(),
+				"category":       gtype.Category(),
 				"metadata": bson.M{
 					"is_default": true,
 				},
@@ -430,7 +446,8 @@ func CreateDefaultHttpProtocolOptions(ctx context.Context, db *AppContext, proje
 }
 
 func CreateDefaultUpstreamTLS(ctx context.Context, db *AppContext, projectID string, vers string, groupID string) error {
-	collection := db.Client.Collection("tls")
+	gtype := models.UpstreamTLSContext
+	collection := db.Client.Collection(gtype.CollectionString())
 	var tls models.Resource
 	if projectID == "" {
 		return errstr.ErrProjectIDEmpty
@@ -447,12 +464,12 @@ func CreateDefaultUpstreamTLS(ctx context.Context, db *AppContext, projectID str
 			"general": bson.M{
 				"name":           "elchi-control-plane-tls",
 				"version":        vers,
-				"type":           "secret",
-				"gtype":          "envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext",
+				"type":           gtype.Type(),
+				"gtype":          gtype.String(),
 				"project":        projectID,
-				"collection":     "tls",
-				"canonical_name": "envoy.transport_sockets.upstream",
-				"category":       "envoy.transport_sockets.tls",
+				"collection":     gtype.CollectionString(),
+				"canonical_name": gtype.CanonicalName(),
+				"category":       gtype.Category(),
 				"metadata": bson.M{
 					"is_default": true,
 				},
@@ -489,7 +506,8 @@ func CreateDefaultUpstreamTLS(ctx context.Context, db *AppContext, projectID str
 }
 
 func CreateDefaultStatSinks(ctx context.Context, db *AppContext, projectID string, vers string, groupID string) error {
-	collection := db.Client.Collection("extensions")
+	gtype := models.OpenTelemetry
+	collection := db.Client.Collection(gtype.CollectionString())
 	var sink models.Resource
 	if projectID == "" {
 		return errstr.ErrProjectIDEmpty
@@ -506,12 +524,12 @@ func CreateDefaultStatSinks(ctx context.Context, db *AppContext, projectID strin
 			"general": bson.M{
 				"name":           "elchi-control-plane-otel",
 				"version":        vers,
-				"type":           "stat_sinks",
-				"gtype":          "envoy.extensions.stat_sinks.open_telemetry.v3.SinkConfig",
+				"type":           gtype.Type(),
+				"gtype":          gtype.String(),
 				"project":        projectID,
-				"collection":     "extensions",
-				"canonical_name": "envoy.stat_sinks.open_telemetry",
-				"category":       "envoy.stats_sinks",
+				"collection":     gtype.CollectionString(),
+				"canonical_name": gtype.CanonicalName(),
+				"category":       gtype.Category(),
 				"metadata": bson.M{
 					"is_default": true,
 				},
@@ -555,7 +573,8 @@ func CreateDefaultStatSinks(ctx context.Context, db *AppContext, projectID strin
 }
 
 func CreateDefaultRouter(ctx context.Context, db *AppContext, projectID string, vers string, groupID string) error {
-	collection := db.Client.Collection("filters")
+	gtype := models.Router
+	collection := db.Client.Collection(gtype.CollectionString())
 	var sink models.Resource
 	if projectID == "" {
 		return errstr.ErrProjectIDEmpty
@@ -572,12 +591,12 @@ func CreateDefaultRouter(ctx context.Context, db *AppContext, projectID string, 
 			"general": bson.M{
 				"name":           "default-router",
 				"version":        vers,
-				"type":           "http_filter",
-				"gtype":          "envoy.extensions.filters.http.router.v3.Router",
+				"type":           gtype.Type(),
+				"gtype":          gtype.String(),
 				"project":        projectID,
-				"collection":     "filters",
-				"canonical_name": "envoy.filters.http.router",
-				"category":       "envoy.filters.http",
+				"collection":     gtype.CollectionString(),
+				"canonical_name": gtype.CanonicalName(),
+				"category":       gtype.Category(),
 				"metadata": bson.M{
 					"is_default":  true,
 					"http_filter": "main",
@@ -609,6 +628,124 @@ func CreateDefaultRouter(ctx context.Context, db *AppContext, projectID string, 
 		return fmt.Errorf("failed to check for default router: %w", err)
 	default:
 		db.Logger.Info("default router already exists")
+	}
+
+	return nil
+}
+
+func CreateDefaultHCM(ctx context.Context, db *AppContext, projectID string, vers string, groupID string) error {
+	gtype := models.HTTPConnectionManager
+	gtypeRouter := models.Router
+	collection := db.Client.Collection(gtype.CollectionString())
+	var sink models.Resource
+	if projectID == "" {
+		return errstr.ErrProjectIDEmpty
+	}
+	err := collection.FindOne(ctx, bson.M{"general.name": "default-httptohttps", "general.version": vers, "general.project": projectID}).Decode(&sink)
+
+	switch {
+	case errors.Is(err, mongo.ErrNoDocuments):
+		now := time.Now()
+		createdAt := primitive.NewDateTimeFromTime(now)
+		updatedAt := primitive.NewDateTimeFromTime(now)
+
+		configDiscovery := []bson.M{
+			{
+				"name":           "default-router",
+				"gtype":          gtypeRouter.String(),
+				"priority":       0,
+				"category":       gtypeRouter.Category(),
+				"canonical_name": gtypeRouter.CanonicalName(),
+				"collection":     gtypeRouter.CollectionString(),
+				"type":           gtypeRouter.Type(),
+				"parent_name":    "default-router",
+			},
+		}
+
+		resourceConfig := bson.M{
+			"stat_prefix": "default-httptohttps",
+			"route_config": bson.M{
+				"name": "default-httptohttps",
+				"virtual_hosts": []bson.M{
+					{
+						"name": "default-httptohttps-host",
+						"domains": []string{
+							"*",
+						},
+						"routes": []bson.M{
+							{
+								"name": "default-httptohttps-route",
+								"match": bson.M{
+									"prefix": "/",
+								},
+								"redirect": bson.M{
+									"https_redirect": true,
+								},
+							},
+						},
+					},
+				},
+			},
+			"http_filters": []bson.M{
+				{
+					"name": "default-router",
+					"config_discovery": bson.M{
+						"config_source": bson.M{
+							"ads": bson.M{},
+							"initial_fetch_timeout": "5.0s",
+							"resource_api_version":  "V3",
+						},
+						"type_urls": []string{
+							"envoy.extensions.filters.http.router.v3.Router",
+						},
+					},
+					"is_optional": false,
+					"disabled":    false,
+				},
+			},
+		}
+
+		defaultHCM := bson.M{
+			"general": bson.M{
+				"name":           "default-httptohttps",
+				"version":        vers,
+				"type":           gtype.Type(),
+				"gtype":          gtype.String(),
+				"project":        projectID,
+				"collection":     gtype.CollectionString(),
+				"canonical_name": gtype.CanonicalName(),
+				"category":       gtype.Category(),
+				"metadata": bson.M{
+					"is_default": true,
+				},
+				"permissions": bson.M{
+					"users":  []string{},
+					"groups": []string{groupID},
+				},
+				"config_discovery": configDiscovery,
+				"created_at":       createdAt,
+				"updated_at":       updatedAt,
+			},
+			"resource": bson.M{
+				"version":  "1",
+				"resource": resourceConfig,
+			},
+		}
+
+		_, err = collection.InsertOne(ctx, defaultHCM)
+		if err != nil {
+			if mongo.IsDuplicateKeyError(err) {
+				db.Logger.Infof("default hcm already exists: %v", err)
+			} else {
+				return fmt.Errorf("failed to create default hcm: %w", err)
+			}
+		} else {
+			db.Logger.Info("default hcm created successfully")
+		}
+	case err != nil:
+		return fmt.Errorf("failed to check for default hcm: %w", err)
+	default:
+		db.Logger.Info("default hcm already exists")
 	}
 
 	return nil

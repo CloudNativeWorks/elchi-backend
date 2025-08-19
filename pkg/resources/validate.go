@@ -11,7 +11,7 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 )
 
-func Validate(gtype models.GTypes, resource any) ([]string, bool, error) {
+func Validate(gtype models.GType, resource any) ([]string, bool, error) {
 	msg := gtype.ProtoMessage()
 	if msg == nil {
 		return nil, true, fmt.Errorf("no message found for GType %v", gtype)
@@ -58,7 +58,7 @@ func extractValidationErrors(err error) []string {
 	return result
 }
 
-func validateSingleResource(gtype models.GTypes, resource any) error {
+func validateSingleResource(gtype models.GType, resource any) error {
 	msg := gtype.ProtoMessage()
 	resourceBytes, err := json.Marshal(resource)
 	if err != nil {

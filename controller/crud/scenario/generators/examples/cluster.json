@@ -1,0 +1,74 @@
+{
+    "general": {
+        "name": "cluster",
+        "version": "v1.33.5",
+        "type": "cluster",
+        "gtype": "envoy.config.cluster.v3.Cluster",
+        "project": "683b2148ff7e3ae67d825cfa",
+        "canonical_name": "config.cluster.v3.Cluster",
+        "metadata": {},
+        "category": "cluster",
+        "permissions": {
+            "users": [],
+            "groups": []
+        },
+        "config_discovery": [],
+        "collection": "clusters"
+    },
+    "resource": {
+        "resource": {
+            "name": "cluster",
+            "alt_stat_name": "asddd",
+            "type": "STATIC",
+            "eds_cluster_config": {
+                "eds_config": {
+                    "ads": {},
+                    "initial_fetch_timeout": "5.0s",
+                    "resource_api_version": "V3"
+                },
+                "service_name": "endpointasde22"
+            },
+            "connect_timeout": "3232.0s",
+            "per_connection_buffer_limit_bytes": 23322,
+            "lb_policy": "LEAST_REQUEST",
+            "load_assignment": {
+                "cluster_name": "asdds",
+                "endpoints": [
+                    {
+                        "lb_endpoints": [
+                            {
+                                "endpoint": {
+                                    "address": {
+                                        "socket_address": {
+                                            "protocol": "TCP",
+                                            "address": "1.1.1.1",
+                                            "port_value": 222
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                ]
+            },
+            "health_checks": [
+                {
+                    "timeout": "3.0s",
+                    "interval": "3.0s",
+                    "unhealthy_threshold": 2,
+                    "healthy_threshold": 1,
+                    "http_health_check": {
+                        "path": "/hc"
+                    },
+                    "tcp_health_check": {}
+                }
+            ],
+            "wait_for_warm_on_init": true,
+            "cleanup_interval": "33.0s",
+            "close_connections_on_host_health_failure": true,
+            "ignore_health_on_host_removal": true,
+            "connection_pool_per_downstream_connection": true
+        },
+        "version": "1"
+    }
+}

@@ -222,7 +222,7 @@ func (ar *AllResources) checkAndMarkDuplicate(name string) bool {
 // Returns:
 // - []Resource: a slice containing all resources associated with the parent
 // - error: an error if any occurred during the resource collection process
-func (ar *AllResources) CollectAllResourcesWithParent(ctx context.Context, gtype models.GTypes, resourceName, parentName string, context *db.AppContext, logger *logrus.Logger) ([]proto.Message, []*models.ConfigDiscovery, error) {
+func (ar *AllResources) CollectAllResourcesWithParent(ctx context.Context, gtype models.GType, resourceName, parentName string, context *db.AppContext, logger *logrus.Logger) ([]proto.Message, []*models.ConfigDiscovery, error) {
 	resource, err := resources.GetResourceNGeneral(ctx, context, gtype.CollectionString(), resourceName, ar.Project, ar.ResourceVersion)
 	if err != nil {
 		logger.Errorf("Error getting resource %s: %v", resourceName, err)
@@ -281,7 +281,7 @@ func (ar *AllResources) CollectAllResourcesWithParent(ctx context.Context, gtype
 // - upstreamSettings: settings related to upstream configurations
 // Returns:
 // - error: an error if any occurred during the processing of the configurations and settings
-func (ar *AllResources) processTypedConfigsAndUpstream(ctx context.Context, protoMsg proto.Message, jsonStringStr *string, gtype models.GTypes, parentName string, context *db.AppContext, logger *logrus.Logger) error {
+func (ar *AllResources) processTypedConfigsAndUpstream(ctx context.Context, protoMsg proto.Message, jsonStringStr *string, gtype models.GType, parentName string, context *db.AppContext, logger *logrus.Logger) error {
 	typedConfigPaths := gtype.TypedConfigPaths()
 
 	ar.processTypedConfigPaths(ctx, typedConfigPaths, jsonStringStr, context, logger)
@@ -317,7 +317,7 @@ func (ar *AllResources) processTypedConfigPaths(ctx context.Context, configPaths
 // - paths: a slice of paths to the upstream configurations to be processed
 // Returns:
 // - error: an error if any occurred during the processing of the upstream paths
-func (ar *AllResources) processUpstreamPaths(ctx context.Context, upstreamPaths map[string]models.GTypes, jsonStringStr *string, parentName string, context *db.AppContext, logger *logrus.Logger) {
+func (ar *AllResources) processUpstreamPaths(ctx context.Context, upstreamPaths map[string]models.GType, jsonStringStr *string, parentName string, context *db.AppContext, logger *logrus.Logger) {
 	for jsonPath, upstreamType := range upstreamPaths {
 		result := gjson.Get(*jsonStringStr, jsonPath)
 		if result.Exists() {
@@ -333,7 +333,7 @@ func (ar *AllResources) processUpstreamPaths(ctx context.Context, upstreamPaths 
 // - paths: a slice of paths to the upstream configurations to be processed
 // Returns:
 // - error: an error if any occurred during the processing of the upstream paths
-func processUpstreamPaths(ctx context.Context, result gjson.Result, upstreamType models.GTypes, parentName string, ar *AllResources, context *db.AppContext, logger *logrus.Logger) {
+func processUpstreamPaths(ctx context.Context, result gjson.Result, upstreamType models.GType, parentName string, ar *AllResources, context *db.AppContext, logger *logrus.Logger) {
 	if result.IsArray() {
 		result.ForEach(func(_, item gjson.Result) bool {
 			processUpstreamPaths(ctx, item, upstreamType, parentName, ar, context, logger)
@@ -366,7 +366,7 @@ func processUpstreamPaths(ctx context.Context, result gjson.Result, upstreamType
 // - item: the item to be added to the collection
 // Returns:
 // - error: an error if any occurred during the addition of the item to the collection
-func (ar *AllResources) AddToCollection(resource proto.Message, gtype models.GTypes, uniqName string, parentName *string, resourceName string) {
+func (ar *AllResources) AddToCollection(resource proto.Message, gtype models.GType, uniqName string, parentName *string, resourceName string) {
 	ar.mutex.Lock()
 	defer ar.mutex.Unlock()
 	if ar.checkAndMarkDuplicate(uniqName) {

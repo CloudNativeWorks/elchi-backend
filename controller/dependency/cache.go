@@ -81,11 +81,11 @@ func (h *AppHandler) getResourceData(ctx context.Context, collection, name, proj
 	return resourceID, jsonResource
 }
 
-func getDynamicJSONPaths(gtype models.GTypes) map[string]models.GTypes {
+func getDynamicJSONPaths(gtype models.GType) map[string]models.GType {
 	paths := gtype.UpstreamPaths()
 
 	if len(paths) == 0 {
-		return map[string]models.GTypes{}
+		return map[string]models.GType{}
 	}
 
 	if gtype == models.VirtualHost {
@@ -95,8 +95,8 @@ func getDynamicJSONPaths(gtype models.GTypes) map[string]models.GTypes {
 	return paths
 }
 
-func addPrefixToPaths(paths map[string]models.GTypes, prefix string) map[string]models.GTypes {
-	newPaths := make(map[string]models.GTypes)
+func addPrefixToPaths(paths map[string]models.GType, prefix string) map[string]models.GType {
+	newPaths := make(map[string]models.GType)
 	for path, gtype := range paths {
 		newPaths[prefix+path] = gtype
 	}

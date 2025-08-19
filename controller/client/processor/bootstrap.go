@@ -23,7 +23,7 @@ func (p *BootstrapProcessor) ValidateAndTransform(op models.OperationClass, requ
 	bootstrap, err := resources.GetDBResource(
 		p.XDSHandler.Context.Client,
 		"bootstrap",
-		bson.M{"general.name": op.GetCommandName(), "general.project": op.GetCommandProject()},
+		bson.M{"general.name": op.GetCommandName(), "general.project": op.GetCommandProject(), "general.version": requestDetails.Version},
 	)
 
 	if err != nil {

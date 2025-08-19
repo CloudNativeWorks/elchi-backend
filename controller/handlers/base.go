@@ -1,11 +1,11 @@
 package handlers
 
 import (
-	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
+	"strings"
 
 	"github.com/CloudNativeWorks/elchi-backend/controller/api/settings"
 	"github.com/CloudNativeWorks/elchi-backend/controller/bridge"
@@ -17,10 +17,12 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/controller/dependency"
 	"github.com/CloudNativeWorks/elchi-backend/controller/discovery"
 	"github.com/CloudNativeWorks/elchi-backend/controller/service"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/authorization"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/errstr"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 
 	"github.com/gin-gonic/gin"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 const (
@@ -63,23 +65,69 @@ func NewHandler(xds *xds.AppHandler, extension *extension.AppHandler, custom *cu
 	}
 }
 
+// formatErrorMessage extracts a more user-friendly error message from raw MongoDB errors
+func formatErrorMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	
+	errStr := err.Error()
+	
+	// Handle MongoDB duplicate key errors
+	if strings.Contains(errStr, "E11000 duplicate key error") {
+		// Extract collection name from error message
+		collection := "resource"
+		if strings.Contains(errStr, "collection: elchi.") {
+			parts := strings.Split(errStr, "collection: elchi.")
+			if len(parts) > 1 {
+				collectionPart := strings.Split(parts[1], " ")[0]
+				collection = collectionPart
+			}
+		}
+		
+		// For MongoDB collation errors, we can't reliably extract the resource name
+		// because it's encoded in CollationKey format. Just use a generic message.
+		return fmt.Sprintf("A %s with this name already exists. Please choose a different name.", collection)
+	}
+	
+	// For other errors, return the original message
+	return errStr
+}
+
 // This function handles a request in the Handler struct.
-// It retrieves the necessary data from the context, including the groups and isOwner parameters.
-// It then sets the requestDetails struct with the given parameters and decodes the resource.
-// It then calls the resFunc with the resource and requestDetails, and stores the response in the response variable.
-// Finally, it returns the response as a JSON object with the status OK.
+// It retrieves the necessary data from the context, validates project access,
+// and processes the request with proper authorization checks.
 func (h *Handler) handleRequest(c *gin.Context, resFunc ResFunc) {
 	ctx := c.Request.Context()
 	requestDetails, userDetails := h.getRequestDetails(c)
 
+	// Check basic role permissions
 	if err := checkRole(c, userDetails); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
 
+	// Validate project access if project is specified
+	if requestDetails.Project != "" {
+		// Get database connection from any handler that has Context
+		var db *mongo.Database
+		if h.XDS != nil && h.XDS.Context != nil {
+			db = h.XDS.Context.Client
+		} else if h.Settings != nil && h.Settings.Context != nil {
+			db = h.Settings.Context.Client
+		}
+
+		if db != nil {
+			if err := authorization.ValidateRequestProject(ctx, db, userDetails, requestDetails.Project); err != nil {
+				c.JSON(http.StatusForbidden, gin.H{"message": err.Error()})
+				return
+			}
+		}
+	}
+
 	response, err := h.dynamicFuncs(c, ctx, resFunc, requestDetails)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error(), "data": response})
+		c.JSON(http.StatusBadRequest, gin.H{"message": formatErrorMessage(err), "data": response})
 		return
 	}
 
@@ -92,21 +140,18 @@ func (h *Handler) handleOpRequest(c *gin.Context, opFunc OpFunc) {
 	requestDetails.ClientID = getParamOrQuery(c, "client_id")
 	requestDetails.ServiceID = getParamOrQuery(c, "service_id")
 	requestDetails.FromClient = c.Query("from_client")
-	
+
 	// Extract forwarding-related headers and tokens
 	requestDetails.Token = c.GetHeader("token")
 	requestDetails.RefreshToken = c.GetHeader("refresh-token")
 	requestDetails.IsForwarded = c.GetHeader("X-Forwarded-Request") == "true"
-	
-	// Capture original request body for forwarding
-	if c.Request.Method == "POST" || c.Request.Method == "PUT" {
-		if bodyBytes, err := c.GetRawData(); err == nil {
+
+	// Capture original request body for forwarding (from middleware)
+	if originalBody, exists := c.Get("_original_body"); exists {
+		if bodyBytes, ok := originalBody.([]byte); ok {
 			requestDetails.OriginalBody = bodyBytes
-			// Reset the request body so it can be read again by dynamicOpFuncs
-			c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 		}
 	}
-
 
 	if err := checkRole(c, userDetails); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
@@ -115,7 +160,7 @@ func (h *Handler) handleOpRequest(c *gin.Context, opFunc OpFunc) {
 
 	response, err := h.dynamicOpFuncs(c, ctx, opFunc, requestDetails)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error(), "data": response})
+		c.JSON(http.StatusBadRequest, gin.H{"message": formatErrorMessage(err), "data": response})
 		return
 	}
 
@@ -125,10 +170,10 @@ func (h *Handler) handleOpRequest(c *gin.Context, opFunc OpFunc) {
 // GetRegistryData returns all registry data (control planes and controllers) as JSON
 func (h *Handler) GetRegistryData(c *gin.Context) {
 	ctx := c.Request.Context()
-	
+
 	// Registry'ye bağlanmak için client handler'ın registry client'ını kullan
 	registryClient := h.Client.RegistryClient
-	
+
 	if registryClient == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"message": "Registry client not available",
@@ -166,6 +211,9 @@ func (h *Handler) GetClusters(c *gin.Context) {
 func (h *Handler) getRequestDetails(c *gin.Context) (models.RequestDetails, models.UserDetails) {
 	userDetails, _ := GetUserDetails(c)
 
+	// Safely extract project ID using authorization helper
+	projectID := authorization.ExtractProjectFromRequest(c)
+
 	requestDetails := models.RequestDetails{
 		CanonicalName:  getParamOrQuery(c, "canonical_name"),
 		Collection:     getParamOrQuery(c, "collection"),
@@ -174,10 +222,10 @@ func (h *Handler) getRequestDetails(c *gin.Context) (models.RequestDetails, mode
 		ResourceID:     c.Query("resource_id"),
 		Name:           c.Param("name"),
 		SaveOrPublish:  c.Query("save_or_publish"),
-		Project:        c.Query("project"),
+		Project:        projectID,
 		Metadata:       extractMetadata(c),
 		Type:           models.KnownTYPES(getOptionalParam(c, "type")),
-		GType:          models.GTypes(c.Query("gtype")),
+		GType:          models.GType(c.Query("gtype")),
 		User:           userDetails,
 		WithServiceIPs: c.Query("with_service_ips"),
 		ForMetrics:     c.Query("for_metrics"),
@@ -299,7 +347,7 @@ func (h *Handler) handleDepRequest(c *gin.Context, depFunc DepFunc) {
 	userDetails, _ := GetUserDetails(c)
 
 	requestDetails := models.RequestDetails{
-		GType:      models.GTypes(c.Query("gtype")),
+		GType:      models.GType(c.Query("gtype")),
 		Name:       c.Param("name"),
 		Collection: c.Query("collection"),
 		Project:    c.Query("project"),
@@ -358,7 +406,6 @@ func decoderOp(c *gin.Context) (models.OperationClass, error) {
 
 func decodeR(c *gin.Context) (models.ResourceClass, error) {
 	var body models.DBResource
-	fmt.Println(c)
 	if c.Request.Method != MethodGet && c.Request.Method != MethodDelete {
 		return decodeResource(c)
 	}
@@ -367,6 +414,18 @@ func decodeR(c *gin.Context) (models.ResourceClass, error) {
 
 func decodeResource(c *gin.Context) (models.ResourceClass, error) {
 	var body models.DBResource
+	
+	// Try to get cached body from middleware first
+	if originalBody, exists := c.Get("_original_body"); exists {
+		if bodyBytes, ok := originalBody.([]byte); ok {
+			if err := json.Unmarshal(bodyBytes, &body); err != nil {
+				return nil, err
+			}
+			return &body, nil
+		}
+	}
+	
+	// Fallback to normal BindJSON
 	if err := c.BindJSON(&body); err != nil {
 		return nil, err
 	}
@@ -375,9 +434,20 @@ func decodeResource(c *gin.Context) (models.ResourceClass, error) {
 
 func decodeResourceOp(c *gin.Context) (models.OperationClass, error) {
 	var body models.Operations
+	
+	// Try to get cached body from middleware first
+	if originalBody, exists := c.Get("_original_body"); exists {
+		if bodyBytes, ok := originalBody.([]byte); ok {
+			if err := json.Unmarshal(bodyBytes, &body); err != nil {
+				return nil, err
+			}
+			return &body, nil
+		}
+	}
+	
+	// Fallback to normal BindJSON
 	if err := c.BindJSON(&body); err != nil {
 		return nil, err
 	}
-
 	return &body, nil
 }

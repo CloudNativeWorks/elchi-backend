@@ -22,11 +22,28 @@ func (custom *AppHandler) GetCustomHTTPFilterList(ctx context.Context, _ models.
 		"general.category":       1,
 	})
 
+	// Project is required - if no project specified, return empty result
+	if requestDetails.Project == "" {
+		return []Record{}, nil
+	}
+
 	filters := bson.M{
-		"general.version":              requestDetails.Version,
-		"general.project":              requestDetails.Project,
-		"general.category":             requestDetails.Category,
-		"general.metadata.http_filter": bson.M{"$regex": requestDetails.Metadata["http_filter"], "$options": "i"},
+		"general.version": requestDetails.Version,
+		"general.project": requestDetails.Project,
+	}
+
+	// Only add category filter if category is provided
+	if requestDetails.Category != "" {
+		filters["general.category"] = requestDetails.Category
+	}
+
+	// Only add metadata.http_filter filter if it's provided
+	if httpFilter, ok := requestDetails.Metadata["http_filter"]; ok && httpFilter != "" {
+		filters["general.metadata.http_filter"] = bson.M{"$regex": httpFilter, "$options": "i"}
+	}
+
+	if requestDetails.CanonicalName != "" {
+		filters["general.canonical_name"] = requestDetails.CanonicalName
 	}
 
 	filters = common.AddUserFilter(requestDetails, filters)

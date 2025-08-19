@@ -14,7 +14,7 @@ type ServiceProcessor struct {
 }
 
 func (p *ServiceProcessor) ValidateAndTransform(op models.OperationClass, requestDetails models.RequestDetails, _ models.ServiceClients) (any, error) {
-	adminPort, err := resources.GetAdminPortFromService(p.XDSHandler.Context.Client, op)
+	adminPort, err := resources.GetAdminPortFromService(p.XDSHandler.Context.Client, op, requestDetails)
 	if err != nil {
 		return nil, err
 	}

@@ -22,7 +22,7 @@ type Processed struct {
 	Depends            []string
 }
 
-func DetectChangedResource(ctx context.Context, gType models.GTypes, version, resourceName, project string, context *db.AppContext, processed *Processed, poke *bridge.PokeServiceClient, managed bool) *Processed {
+func DetectChangedResource(ctx context.Context, gType models.GType, version, resourceName, project string, context *db.AppContext, processed *Processed, poke *bridge.PokeServiceClient, managed bool) *Processed {
 	pathWithGtype := gType.String() + "===" + resourceName
 	if gType != models.Listener {
 		processed.Depends = append(processed.Depends, pathWithGtype)
@@ -63,7 +63,7 @@ func HandlePoke(ctx context.Context, context *db.AppContext, resourceName, proje
 	context.Logger.Infof("new version added to snapshot for (%s) processed resource paths: \n %s", resourceName, result)
 }
 
-func ProcessResource(ctx context.Context, context *db.AppContext, gType models.GTypes, version, resourceName, project string, processed *Processed, poke *bridge.PokeServiceClient) {
+func ProcessResource(ctx context.Context, context *db.AppContext, gType models.GType, version, resourceName, project string, processed *Processed, poke *bridge.PokeServiceClient) {
 	dfm := downstreamfilters.DownstreamFilter{
 		Name:    resourceName,
 		Project: project,

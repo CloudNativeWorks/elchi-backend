@@ -187,8 +187,8 @@ func (handler *AppHandler) DeleteToken(c *gin.Context) {
 	})
 }
 
-// GetClaudeToken project için Claude API token'ını getirir
-func (handler *AppHandler) GetClaudeToken(c *gin.Context) {
+// GetOpenRouterToken project için OpenRouter API token'ını getirir
+func (handler *AppHandler) GetOpenRouterToken(c *gin.Context) {
 	ctx := context.Background()
 	var settingsCollection *mongo.Collection = handler.Context.Client.Collection("settings")
 
@@ -204,33 +204,40 @@ func (handler *AppHandler) GetClaudeToken(c *gin.Context) {
 	err := settingsCollection.FindOne(ctx, filter).Decode(&settings)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
-			c.JSON(http.StatusOK, gin.H{"claude_token": "", "message": "no Claude token set for this project"})
+			c.JSON(http.StatusOK, gin.H{"openrouter_token": "", "ai_default_model": "", "message": "no OpenRouter token set for this project"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "could not get Claude token"})
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "could not get OpenRouter token"})
 		return
 	}
 
-	claudeToken := ""
-	if token, ok := settings["claude_token"].(string); ok {
+	openrouterToken := ""
+	if token, ok := settings["openrouter_token"].(string); ok {
 		// Token'ın sadece ilk 8 karakterini göster, geri kalanını maskele
 		if len(token) > 8 {
 			visible := token[:8]
 			masked := strings.Repeat("*", len(token)-8)
-			claudeToken = visible + masked
+			openrouterToken = visible + masked
 		} else {
-			claudeToken = token
+			openrouterToken = token
 		}
 	}
 
+	// Default AI model'ı da getir
+	aiDefaultModel := ""
+	if model, ok := settings["ai_default_model"].(string); ok {
+		aiDefaultModel = model
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"claude_token": claudeToken,
-		"project":     project,
+		"openrouter_token": openrouterToken,
+		"ai_default_model": aiDefaultModel,
+		"project":         project,
 	})
 }
 
-// SetClaudeToken project için Claude API token'ını set eder
-func (handler *AppHandler) SetClaudeToken(c *gin.Context) {
+// SetOpenRouterToken project için OpenRouter API token'ını ve model'ı set eder
+func (handler *AppHandler) SetOpenRouterToken(c *gin.Context) {
 	ctx := context.Background()
 	var settingsCollection *mongo.Collection = handler.Context.Client.Collection("settings")
 
@@ -241,34 +248,42 @@ func (handler *AppHandler) SetClaudeToken(c *gin.Context) {
 	}
 
 	var requestBody struct {
-		ClaudeToken string `json:"claude_token" binding:"required"`
+		OpenRouterToken string `json:"openrouter_token" binding:"required"`
+		AIDefaultModel  string `json:"ai_default_model,omitempty"`
 	}
 
 	if err := c.ShouldBindJSON(&requestBody); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "claude_token is required", "error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"message": "openrouter_token is required", "error": err.Error()})
 		return
 	}
 
-	// Token validation - Claude API key format kontrolü
-	if !strings.HasPrefix(requestBody.ClaudeToken, "sk-ant-") {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "invalid Claude API key format. Must start with 'sk-ant-'"})
+	// Token validation - OpenRouter API key format kontrolü
+	if !strings.HasPrefix(requestBody.OpenRouterToken, "sk-or-") {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "invalid OpenRouter API key format. Must start with 'sk-or-'"})
 		return
 	}
 
 	projectFilter := bson.M{"project": project}
+	updateFields := bson.M{"openrouter_token": requestBody.OpenRouterToken}
+	
+	// Eğer model belirtilmişse onu da set et
+	if requestBody.AIDefaultModel != "" {
+		updateFields["ai_default_model"] = requestBody.AIDefaultModel
+	}
+	
 	update := bson.M{
-		"$set": bson.M{"claude_token": requestBody.ClaudeToken},
+		"$set": updateFields,
 	}
 
 	opts := options.Update().SetUpsert(true)
 	result, err := settingsCollection.UpdateOne(ctx, projectFilter, update, opts)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "could not set Claude token"})
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "could not set OpenRouter token"})
 		return
 	}
 
 	response := gin.H{
-		"message": "Claude token set successfully",
+		"message": "OpenRouter token set successfully",
 		"project": project,
 	}
 
@@ -279,8 +294,8 @@ func (handler *AppHandler) SetClaudeToken(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// UpdateClaudeToken project için Claude API token'ını günceller
-func (handler *AppHandler) UpdateClaudeToken(c *gin.Context) {
+// UpdateOpenRouterToken project için OpenRouter API token'ını günceller
+func (handler *AppHandler) UpdateOpenRouterToken(c *gin.Context) {
 	ctx := context.Background()
 	var settingsCollection *mongo.Collection = handler.Context.Client.Collection("settings")
 
@@ -291,28 +306,44 @@ func (handler *AppHandler) UpdateClaudeToken(c *gin.Context) {
 	}
 
 	var requestBody struct {
-		ClaudeToken string `json:"claude_token" binding:"required"`
+		OpenRouterToken string `json:"openrouter_token,omitempty"`
+		AIDefaultModel  string `json:"ai_default_model,omitempty"`
 	}
 
 	if err := c.ShouldBindJSON(&requestBody); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "claude_token is required", "error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"message": "request body error", "error": err.Error()})
 		return
 	}
 
-	// Token validation
-	if !strings.HasPrefix(requestBody.ClaudeToken, "sk-ant-") {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "invalid Claude API key format. Must start with 'sk-ant-'"})
+	// En az birinin belirtilmesi gerekiyor
+	if requestBody.OpenRouterToken == "" && requestBody.AIDefaultModel == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "at least one of openrouter_token or ai_default_model is required"})
+		return
+	}
+
+	// Token validation (eğer token belirtilmişse)
+	if requestBody.OpenRouterToken != "" && !strings.HasPrefix(requestBody.OpenRouterToken, "sk-or-") {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "invalid OpenRouter API key format. Must start with 'sk-or-'"})
 		return
 	}
 
 	filter := bson.M{"project": project}
+	updateFields := bson.M{}
+	
+	if requestBody.OpenRouterToken != "" {
+		updateFields["openrouter_token"] = requestBody.OpenRouterToken
+	}
+	if requestBody.AIDefaultModel != "" {
+		updateFields["ai_default_model"] = requestBody.AIDefaultModel
+	}
+	
 	update := bson.M{
-		"$set": bson.M{"claude_token": requestBody.ClaudeToken},
+		"$set": updateFields,
 	}
 
 	result, err := settingsCollection.UpdateOne(ctx, filter, update)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "could not update Claude token"})
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "could not update OpenRouter settings"})
 		return
 	}
 
@@ -322,13 +353,13 @@ func (handler *AppHandler) UpdateClaudeToken(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message": "Claude token updated successfully",
+		"message": "OpenRouter settings updated successfully",
 		"project": project,
 	})
 }
 
-// DeleteClaudeToken project için Claude API token'ını siler
-func (handler *AppHandler) DeleteClaudeToken(c *gin.Context) {
+// DeleteOpenRouterToken project için OpenRouter API token'ını siler
+func (handler *AppHandler) DeleteOpenRouterToken(c *gin.Context) {
 	ctx := context.Background()
 	var settingsCollection *mongo.Collection = handler.Context.Client.Collection("settings")
 
@@ -340,12 +371,15 @@ func (handler *AppHandler) DeleteClaudeToken(c *gin.Context) {
 
 	filter := bson.M{"project": project}
 	update := bson.M{
-		"$unset": bson.M{"claude_token": ""},
+		"$unset": bson.M{
+			"openrouter_token": "",
+			"ai_default_model": "",
+		},
 	}
 
 	result, err := settingsCollection.UpdateOne(ctx, filter, update)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "could not delete Claude token"})
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "could not delete OpenRouter token"})
 		return
 	}
 
@@ -355,7 +389,7 @@ func (handler *AppHandler) DeleteClaudeToken(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message": "Claude token deleted successfully",
+		"message": "OpenRouter settings deleted successfully",
 		"project": project,
 	})
 }

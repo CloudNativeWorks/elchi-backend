@@ -9,11 +9,11 @@ import (
 )
 
 type AppHandler struct {
-	Context       *db.AppContext
-	GRPCConn      *grpc.ClientConn
-	BSnapshot     bridge.SnapshotServiceClient
-	Poke          bridge.PokeServiceClient
-	Logger        *logger.Logger
+	Context   *db.AppContext
+	GRPCConn  *grpc.ClientConn
+	BSnapshot bridge.SnapshotServiceClient
+	Poke      bridge.PokeServiceClient
+	Logger    *logger.Logger
 }
 
 func NewBridgeHandler(appCtx *db.AppContext) *AppHandler {
@@ -23,11 +23,11 @@ func NewBridgeHandler(appCtx *db.AppContext) *AppHandler {
 	}
 
 	return &AppHandler{
-		Context:       appCtx,
-		GRPCConn:      conn,
-		BSnapshot:     bridge.NewSnapshotServiceClient(conn),
-		Poke:          bridge.NewPokeServiceClient(conn),
-		Logger:        logger.NewLogger("controller/bridge"),
+		Context:   appCtx,
+		GRPCConn:  conn,
+		BSnapshot: bridge.NewSnapshotServiceClient(conn),
+		Poke:      bridge.NewPokeServiceClient(conn),
+		Logger:    logger.NewLogger("controller/bridge"),
 	}
 }
 

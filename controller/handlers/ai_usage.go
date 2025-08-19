@@ -95,12 +95,12 @@ func (h *Handler) GetAIUsageStatus(c *gin.Context) {
 		return
 	}
 
-	// Check if Claude token is configured
+	// Check if OpenRouter token is configured
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	claudeToken, err := h.getClaudeTokenFromSettings(project)
-	tokenConfigured := err == nil && claudeToken != ""
+	openRouterToken, err := h.getOpenRouterTokenFromSettings(project)
+	tokenConfigured := err == nil && openRouterToken != ""
 
 	// Get basic usage stats
 	var stats *ai.AIUsageStats
@@ -116,7 +116,6 @@ func (h *Handler) GetAIUsageStatus(c *gin.Context) {
 			"service_available":   tokenConfigured,
 			"supported_features": []string{"analyze", "analyze-logs"},
 			"max_tokens_per_request": 4000,
-			"supported_models": []string{"claude-3-5-sonnet-20241022"},
 		},
 	}
 

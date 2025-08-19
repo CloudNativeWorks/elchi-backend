@@ -24,6 +24,11 @@ type ServiceWithStatus struct {
 func (s *AppHandler) ListServices(ctx context.Context, _ models.OperationClass, requestDetails models.RequestDetails) (any, error) {
 	pipeline := bson.A{
 		bson.D{
+			{Key: "$match", Value: bson.D{
+				{Key: "project", Value: requestDetails.Project},
+			}},
+		},
+		bson.D{
 			{Key: "$lookup", Value: bson.D{
 				{Key: "from", Value: "envoys"},
 				{Key: "let", Value: bson.D{
@@ -72,9 +77,11 @@ func (s *AppHandler) ListServices(ctx context.Context, _ models.OperationClass, 
 		if err := cursor.Decode(&svc); err != nil {
 			return nil, fmt.Errorf("failed to decode service: %v", err)
 		}
+		
 		var service Service
 		bsonBytes, _ := bson.Marshal(svc)
 		_ = bson.Unmarshal(bsonBytes, &service)
+		
 		status, _ := svc["status"].(string)
 		result = append(result, ServiceWithStatus{
 			Service: &service,
@@ -114,7 +121,8 @@ func (s *AppHandler) GetSingleService(ctx context.Context, _ models.OperationCla
 	if err != nil {
 		return nil, fmt.Errorf("invalid service id: %v", err)
 	}
-	cursor := s.Context.Client.Collection("services").FindOne(ctx, bson.M{"_id": objectID})
+	filter := bson.M{"_id": objectID, "project": requestDetails.Project}
+	cursor := s.Context.Client.Collection("services").FindOne(ctx, filter)
 	var service Service
 	if err := cursor.Decode(&service); err != nil {
 		return nil, fmt.Errorf("failed to decode service: %v", err)
@@ -141,6 +149,12 @@ func (s *AppHandler) GetSingleService(ctx context.Context, _ models.OperationCla
 
 func (s *AppHandler) GetServicesByClientID(ctx context.Context, _ models.OperationClass, requestDetails models.RequestDetails) (any, error) {
 	filter := bson.M{"clients.client_id": requestDetails.ClientID}
+	
+	// Add project filter if provided
+	if requestDetails.Project != "" {
+		filter["project"] = requestDetails.Project
+	}
+	
 	cursor, err := s.Context.Client.Collection("services").Find(ctx, filter)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get services: %v", err)
@@ -155,6 +169,7 @@ func (s *AppHandler) GetServicesByClientID(ctx context.Context, _ models.Operati
 		}
 		result = append(result, &svc)
 	}
+	
 	return result, nil
 }
 

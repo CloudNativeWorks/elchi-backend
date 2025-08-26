@@ -1,0 +1,28 @@
+{
+    "general": {
+        "name": "ddcdscdsc",
+        "version": "v1.33.5",
+        "type": "network_filter",
+        "gtype": "envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy",
+        "project": "683b2148ff7e3ae67d825cfa",
+        "canonical_name": "envoy.filters.network.tcp_proxy",
+        "metadata": {},
+        "category": "envoy.filters.network",
+        "permissions": {
+            "users": [],
+            "groups": []
+        },
+        "config_discovery": [],
+        "collection": "filters"
+    },
+    "resource": {
+        "resource": {
+            "stat_prefix": "asdasd",
+            "cluster": "cf-test-cls",
+            "idle_timeout": "2.0s",
+            "max_connect_attempts": 3,
+            "max_downstream_connection_duration": "2.0s"
+        },
+        "version": "1"
+    }
+}

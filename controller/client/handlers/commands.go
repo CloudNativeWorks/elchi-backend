@@ -272,14 +272,23 @@ func (h *Client) processClientSequential(ctx context.Context, clients []models.S
 }
 
 // buildTargetURL builds the target URL for forwarding based on environment
-func (h *Client) buildTargetURL(targetControllerID string) string {
+func (h *Client) buildTargetURL(targetControllerID string, requestDetails models.RequestDetails) string {
+	var baseURL string
 	if os.Getenv(DevModeEnvVar) == ForwardTrue {
 		// Development mode: use container hostname (bridge network)
-		return fmt.Sprintf("http://%s:%s/api/op/clients", targetControllerID, ControllerHTTPPort)
+		baseURL = fmt.Sprintf("http://%s:%s/api/op/clients", targetControllerID, ControllerHTTPPort)
+	} else {
+		// Production mode: use Kubernetes service DNS
+		serviceName := helper.ToK8sServiceName(targetControllerID, h.Context.Config.ElchiNamespace)
+		baseURL = fmt.Sprintf("http://%s:%s/api/op/clients", serviceName, ControllerHTTPPort)
 	}
-	// Production mode: use Kubernetes service DNS
-	serviceName := helper.ToK8sServiceName(targetControllerID, h.Context.Config.ElchiNamespace)
-	return fmt.Sprintf("http://%s:%s/api/op/clients", serviceName, ControllerHTTPPort)
+	
+	// Add query parameters if they exist
+	if requestDetails.Version != "" {
+		baseURL += "?version=" + requestDetails.Version
+	}
+	
+	return baseURL
 }
 
 // prepareForwardRequest creates and configures HTTP request for forwarding
@@ -566,7 +575,7 @@ func (e *ForwardedResponse) Error() string {
 // forwardCommandViaHTTP forwards command to another controller via HTTP with authentication
 func (h *Client) forwardCommandViaHTTP(ctx context.Context, requestDetails models.RequestDetails, targetControllerID, clientID string, cmdType pb.CommandType, subCmdType pb.SubCommandType, _ any) (*pb.CommandResponse, error) {
 	// Build target URL
-	targetURL := h.buildTargetURL(targetControllerID)
+	targetURL := h.buildTargetURL(targetControllerID, requestDetails)
 
 	h.logger.Debugf("=== HTTP FORWARD ===")
 	h.logger.Debugf("Target Controller ID: %s", targetControllerID)

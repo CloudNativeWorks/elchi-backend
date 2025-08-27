@@ -289,22 +289,36 @@ func (p *ExternalProcessorServer) resolveControlPlaneCluster(version, nodeID str
 func (p *ExternalProcessorServer) resolveBridgeControlPlaneCluster(ctx context.Context, version, nodeID, path string) string {
 	p.logger.Debugf("Resolving bridge control-plane cluster for NodeID: %s, Version: %s, Path: %s", nodeID, version, path)
 
-	// Check if this is a Poke request
-	if strings.HasSuffix(path, "/Poke") {
-		// For Poke requests, check if node is already mapped to a control-plane
-		// This ensures the poke goes to the control-plane where the node's snapshot exists
+	// Check if this requires existing node mapping (Poke or GetNodeSnapshot)
+	requiresMapping := strings.HasSuffix(path, "/Poke") || strings.Contains(path, "GetNodeSnapshot")
+	
+	if requiresMapping {
+		// For Poke and GetNodeSnapshot requests, check if node is already mapped to a control-plane
+		// This ensures the request goes to the control-plane where the node's snapshot exists
 		if controlPlane, err := p.controlPlaneRoutingService.GetControlPlaneCluster(ctx, nodeID, version); err == nil && controlPlane != nil {
-			p.logger.Infof("Bridge routing (Poke - using existing mapping): %s:%s -> %s", nodeID, version, controlPlane.ID)
+			requestType := "Poke"
+			if strings.Contains(path, "GetNodeSnapshot") {
+				requestType = "GetNodeSnapshot"
+			}
+			p.logger.Infof("Bridge routing (%s - using existing mapping): %s:%s -> %s", requestType, nodeID, version, controlPlane.ID)
 			return controlPlane.ID
 		}
 
 		// If no mapping exists, get least loaded control-plane for this version
 		if controlPlane, err := p.controlPlaneRoutingService.GetLeastLoadedControlPlane(ctx, version); err == nil {
-			p.logger.Infof("Bridge routing (Poke - no mapping, using least loaded): %s:%s -> %s", nodeID, version, controlPlane.ID)
+			requestType := "Poke"
+			if strings.Contains(path, "GetNodeSnapshot") {
+				requestType = "GetNodeSnapshot"
+			}
+			p.logger.Infof("Bridge routing (%s - no mapping, using least loaded): %s:%s -> %s", requestType, nodeID, version, controlPlane.ID)
 			return controlPlane.ID
 		}
 
-		p.logger.Errorf("Bridge routing (Poke): No control-plane available for %s:%s", nodeID, version)
+		requestType := "Poke"
+		if strings.Contains(path, "GetNodeSnapshot") {
+			requestType = "GetNodeSnapshot"
+		}
+		p.logger.Errorf("Bridge routing (%s): No control-plane available for %s:%s", requestType, nodeID, version)
 		return ""
 	}
 

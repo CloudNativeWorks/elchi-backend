@@ -126,14 +126,7 @@ func CreateDefaultScenarios(ctx context.Context, db *AppContext) error {
 							NestedSelection: &models.NestedFieldSelection{
 								SelectedChoice: "static",
 								SubFields: []models.SelectedField{
-									{FieldName: "lb_endpoints", Required: true, Value: []any{
-										// Example static endpoints - user can add their own
-										// map[string]any{
-										//     "address": "10.0.0.1",
-										//     "port": 8080,
-										//     "protocol": "TCP",
-										// },
-									}},
+									{FieldName: "lb_endpoints", Required: true, Value: []any{}},
 								},
 							},
 						},

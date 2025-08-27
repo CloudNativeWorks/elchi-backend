@@ -1,0 +1,57 @@
+# If you prefer the allow list template instead of the deny list, see community template:
+# https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
+#
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+.idea
+.vscode
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Dependency directories (remove the comment below to include it)
+# vendor/
+
+# Go workspace file
+go.work
+.scannerwork
+.env
+.configs/config-local.yaml
+.k8s
+skaffold.yaml
+Dockerfile-local
+kind
+.dev
+scripts/
+helm/
+.cursor
+.configs/controller-dev-*
+docker-compose.dev.yaml
+TODO
+elchi-backend-medium-article.md
+FRONTEND_INTEGRATION_GUIDE.md
+AI_CONFIG_USAGE.md
+ai_optimization_comparison.md
+architecture-diagram.md
+CLAUDE.md
+DEVELOPMENT.md
+docker-compose.dev.yml
+doc/runtime_flags.md
+claude_notes
+SCENARIO_EXECUTE_FLOW.md
+.gitignore
+UI_AI_COMPONENT_NAME_SYNC_GUIDE.md
+UI_COMPONENT_INTEGRATION_GUIDE.md
+SECURITY_DOCUMENTATION.md
+FRONTEND_NETWORK_INTEGRATION_GUIDE.md
+new_network_client.md
+go.work.sum
+ASYNC_JOB_SYSTEM_PLAN.md
+.claude

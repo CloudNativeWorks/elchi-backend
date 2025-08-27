@@ -174,11 +174,13 @@ func (m *ControlPlaneManager) connectAndRegister() error {
 		return fmt.Errorf("failed to connect to registry: %v", err)
 	}
 
-	// Register with retry
+	// CRITICAL: Explicit registration with version BEFORE any node list operations
+	m.logger.Infof("📝 Explicitly registering control-plane %s with version %s", m.config.ControlPlaneID, m.config.Version)
 	if err := m.client.RegisterControlPlaneWithRetry(ctx, m.config); err != nil {
 		m.logger.Errorf("❌ Control-plane registration failed: %v", err)
 		return fmt.Errorf("failed to register control-plane: %v", err)
 	}
+	m.logger.Infof("✅ Control-plane explicitly registered with version")
 	
 	// Update states
 	m.setConnectionState(StateConnected)
@@ -186,12 +188,14 @@ func (m *ControlPlaneManager) connectAndRegister() error {
 	m.isRegistered = true
 	m.regMutex.Unlock()
 
-	// Send empty node list to clean registry after reconnect
-	m.logger.Infof("🧹 Sending empty node list to clean registry")
+	// Send empty node list ONLY AFTER successful registration
+	// This prevents auto-registration attempts that cause EOF errors
+	m.logger.Infof("🧹 Sending initial empty node list (control-plane is now registered)")
 	if err := m.client.UpdateNodeList(m.config.ControlPlaneID, []ControlPlaneNodeInfo{}); err != nil {
-		m.logger.Errorf("Failed to send empty node list: %v", err)
+		m.logger.Errorf("Failed to send empty node list after registration: %v", err)
+		// Don't fail here since registration succeeded
 	} else {
-		m.logger.Infof("✅ Registry cleaned for this control-plane")
+		m.logger.Infof("✅ Initial empty node list sent successfully")
 	}
 
 	// Sync existing nodes if any

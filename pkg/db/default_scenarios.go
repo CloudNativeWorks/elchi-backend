@@ -111,7 +111,7 @@ func CreateDefaultScenarios(ctx context.Context, db *AppContext) error {
 		{
 			ID:          primitive.NewObjectID(),
 			Name:        "HTTP Service with EDS",
-			Description: "HTTP service using Endpoint Discovery Service",
+			Description: "HTTP service using Endpoint Discovery Service - supports both static endpoints and Kubernetes discovery",
 			ScenarioID:  "http-eds",
 			Components: []models.ComponentInstance{
 				{
@@ -120,7 +120,23 @@ func CreateDefaultScenarios(ctx context.Context, db *AppContext) error {
 					Priority: 1,
 					SelectedFields: []models.SelectedField{
 						{FieldName: "cluster_name", Required: true, Value: "service-endpoints"},
-						{FieldName: "lb_endpoints", Required: true, Value: []any{}},
+						{
+							FieldName: "endpoint_configuration",
+							Required:  true,
+							NestedSelection: &models.NestedFieldSelection{
+								SelectedChoice: "static",
+								SubFields: []models.SelectedField{
+									{FieldName: "lb_endpoints", Required: true, Value: []any{
+										// Example static endpoints - user can add their own
+										// map[string]any{
+										//     "address": "10.0.0.1",
+										//     "port": 8080,
+										//     "protocol": "TCP",
+										// },
+									}},
+								},
+							},
+						},
 					},
 				},
 				{

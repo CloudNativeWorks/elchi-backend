@@ -120,7 +120,7 @@ func (s *ControlPlaneGRPCServer) UpdateNodeList(ctx context.Context, req *pb.Upd
 		})
 	}
 
-	if err := s.controlPlaneRoutingService.UpdateNodeList(ctx, req.ControlPlaneId, nodes); err != nil {
+	if err := s.controlPlaneRoutingService.UpdateNodeList(ctx, req.ControlPlaneId, nodes, req.Version); err != nil {
 		s.logger.Errorf("Failed to update node list for control plane %s: %v", req.ControlPlaneId, err)
 		return &pb.UpdateNodeListResponse{
 			Success:      false,

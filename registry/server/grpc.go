@@ -127,14 +127,13 @@ func (s *ControlPlaneGRPCServer) GetAllRegistryData(ctx context.Context, req *pb
 
 // Process handles Envoy's ext_proc bidirectional stream
 func (p *ExternalProcessorServer) Process(stream ext.ExternalProcessor_ProcessServer) error {
-	p.logger.Debugf("Started ext_proc stream")
-	defer p.logger.Debugf("Ended ext_proc stream")
+	// Removed debug logging for ext_proc streams to reduce noise
 
 	for {
 		req, err := stream.Recv()
 		if err != nil {
 			if err.Error() == "EOF" {
-				p.logger.Debugf("Stream closed normally (EOF)")
+				// Stream closed normally - no logging needed
 				return nil
 			}
 

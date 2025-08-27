@@ -191,7 +191,7 @@ func (m *ControlPlaneManager) connectAndRegister() error {
 	// Send empty node list ONLY AFTER successful registration
 	// This prevents auto-registration attempts that cause EOF errors
 	m.logger.Infof("🧹 Sending initial empty node list (control-plane is now registered)")
-	if err := m.client.UpdateNodeList(m.config.ControlPlaneID, []ControlPlaneNodeInfo{}); err != nil {
+	if err := m.client.UpdateNodeList(m.config.ControlPlaneID, []ControlPlaneNodeInfo{}, m.config.Version); err != nil {
 		m.logger.Errorf("Failed to send empty node list after registration: %v", err)
 		// Don't fail here since registration succeeded
 	} else {
@@ -205,7 +205,7 @@ func (m *ControlPlaneManager) connectAndRegister() error {
 		getAllNodes := func() []ControlPlaneNodeInfo {
 			return m.GetAllNodes()
 		}
-		if err := m.client.SyncAllNodesWithRegistry(ctx, m.config.ControlPlaneID, getAllNodes); err != nil {
+		if err := m.client.SyncAllNodesWithRegistry(ctx, m.config.ControlPlaneID, getAllNodes, m.config.Version); err != nil {
 			m.logger.Errorf("Failed to sync existing nodes: %v", err)
 		} else {
 			m.logger.Infof("✅ Node sync completed successfully")
@@ -411,7 +411,7 @@ func (m *ControlPlaneManager) nodeListUpdateLoop() {
 			m.logger.Infof("Periodic node list update: %d connected nodes", len(nodes))
 
 			// CRITICAL FIX: Always send node list (even if empty) to keep control-plane alive in registry
-			if err := m.client.UpdateNodeList(m.config.ControlPlaneID, nodes); err != nil {
+			if err := m.client.UpdateNodeList(m.config.ControlPlaneID, nodes, m.config.Version); err != nil {
 				m.logger.Errorf("Failed to update node list: %v", err)
 				m.handleConnectionFailure("node list update")
 			} else {

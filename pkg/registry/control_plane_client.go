@@ -146,8 +146,8 @@ func (r *ControlPlaneRegistryClient) NotifyNodeDisconnected(ctx context.Context,
 	return nil
 }
 
-// UpdateNodeList updates the list of connected nodes
-func (r *ControlPlaneRegistryClient) UpdateNodeList(controlPlaneID string, nodes []ControlPlaneNodeInfo) error {
+// UpdateNodeList updates the list of connected nodes with version information
+func (r *ControlPlaneRegistryClient) UpdateNodeList(controlPlaneID string, nodes []ControlPlaneNodeInfo, version string) error {
 	r.logger.Infof("Updating node list for control-plane %s: %d nodes", controlPlaneID, len(nodes))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -166,6 +166,7 @@ func (r *ControlPlaneRegistryClient) UpdateNodeList(controlPlaneID string, nodes
 		ControlPlaneId: controlPlaneID,
 		Nodes:          pbNodes,
 		Timestamp:      timestamppb.New(time.Now().UTC()),
+		Version:        version, // Add version for auto-registration
 	}
 
 	response, err := r.client.UpdateNodeList(ctx, request)
@@ -233,7 +234,7 @@ func (r *ControlPlaneRegistryClient) NotifySnapshotDeliveredWithRetry(ctx contex
 }
 
 // SyncAllNodesWithRegistry syncs all existing nodes/snapshots with registry
-func (r *ControlPlaneRegistryClient) SyncAllNodesWithRegistry(ctx context.Context, controlPlaneID string, getAllNodes func() []ControlPlaneNodeInfo) error {
+func (r *ControlPlaneRegistryClient) SyncAllNodesWithRegistry(ctx context.Context, controlPlaneID string, getAllNodes func() []ControlPlaneNodeInfo, version string) error {
 	nodes := getAllNodes()
 	if len(nodes) == 0 {
 		r.logger.Infof("No nodes to sync with registry")
@@ -248,7 +249,7 @@ func (r *ControlPlaneRegistryClient) SyncAllNodesWithRegistry(ctx context.Contex
 	}
 
 	// First, update the node list
-	if err := r.UpdateNodeList(controlPlaneID, nodes); err != nil {
+	if err := r.UpdateNodeList(controlPlaneID, nodes, version); err != nil {
 		r.logger.Errorf("Failed to update node list during sync: %v", err)
 		return err
 	}

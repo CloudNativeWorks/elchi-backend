@@ -155,8 +155,8 @@ func (s *RoutingService) NotifySnapshotDelivered(ctx context.Context, controlPla
 	return s.storage.SetNodeMapping(ctx, mapping)
 }
 
-// UpdateNodeList updates the list of nodes for a control plane
-func (s *RoutingService) UpdateNodeList(ctx context.Context, controlPlaneID string, nodes []*models.NodeInfo) error {
+// UpdateNodeList updates the list of nodes for a control plane with version information for auto-registration
+func (s *RoutingService) UpdateNodeList(ctx context.Context, controlPlaneID string, nodes []*models.NodeInfo, version string) error {
 	s.logger.Infof("Updating node list for control plane %s: %d nodes", controlPlaneID, len(nodes))
 
 	if controlPlaneID == "" {
@@ -169,14 +169,16 @@ func (s *RoutingService) UpdateNodeList(ctx context.Context, controlPlaneID stri
 		// Control plane not found, try to register it
 		s.logger.Warnf("Control plane %s not found, attempting to register it", controlPlaneID)
 
-		// Extract version from nodes (assuming all nodes have same version)
-		var version string
-		if len(nodes) > 0 {
-			version = nodes[0].Version
-		} else {
-			// If no nodes provided, we can't auto-register the control plane
-			// This might happen during initial empty sync - just skip registration
-			s.logger.Warnf("Cannot register control plane %s without nodes/version information", controlPlaneID)
+		// Use version from request parameter for auto-registration
+		if version == "" {
+			// Extract from nodes as fallback
+			if len(nodes) > 0 {
+				version = nodes[0].Version
+			}
+		}
+		
+		if version == "" {
+			s.logger.Warnf("Cannot register control plane %s without version information", controlPlaneID)
 			return nil // Don't fail, just skip the update
 		}
 

@@ -398,6 +398,12 @@ func (h *Client) HandleSendCommand(ctx context.Context, op models.OperationClass
 	clients := op.GetClients()
 	h.logger.Debugf("Clients from operation payload: %d", len(clients))
 	
+	// Debug log each client in payload
+	for i, client := range clients {
+		h.logger.Debugf("Client[%d] from payload - ClientID: %s, DownstreamAddress: '%s', InterfaceID: '%s'", 
+			i, client.ClientID, client.DownstreamAddress, client.InterfaceID)
+	}
+	
 	if len(clients) == 0 {
 		h.logger.Infof("No clients in payload, fetching from database...")
 		fetchStart := time.Now()

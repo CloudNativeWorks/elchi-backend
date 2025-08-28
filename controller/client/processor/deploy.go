@@ -20,6 +20,10 @@ type DeployProcessor struct {
 }
 
 func (p *DeployProcessor) ValidateAndTransform(op models.OperationClass, requestDetails models.RequestDetails, cl models.ServiceClients) (any, error) {
+	// Debug logging for deploy processor input
+	p.Logger.Debugf("Deploy Processor INPUT - ClientID: %s, DownstreamAddress: '%s', InterfaceID: '%s', ServiceName: %s, Project: %s", 
+		cl.ClientID, cl.DownstreamAddress, cl.InterfaceID, op.GetCommandName(), op.GetCommandProject())
+	
 	bootstrap, err := resources.GetDBResource(
 		p.XDSHandler.Context.Client,
 		"bootstrap",
@@ -65,6 +69,10 @@ func (p *DeployProcessor) ValidateAndTransform(op models.OperationClass, request
 			InterfaceId:       cl.InterfaceID,
 		},
 	}
+
+	// Debug logging for deploy processor output
+	p.Logger.Debugf("Deploy Processor OUTPUT - Sending to client: Name=%s, DownstreamAddress='%s', InterfaceId='%s', Port=%d", 
+		deploy.Deploy.Name, deploy.Deploy.DownstreamAddress, deploy.Deploy.InterfaceId, deploy.Deploy.Port)
 
 	return deploy, nil
 }

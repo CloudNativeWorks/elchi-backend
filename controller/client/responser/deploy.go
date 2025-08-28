@@ -21,6 +21,10 @@ type DeployResponser struct {
 }
 
 func (p *DeployResponser) ValidateAndTransform(op models.OperationClass, response *pb.CommandResponse) any {
+	// Debug log raw response
+	p.Logger.Debugf("Deploy Responser ENTRY - ClientID: %s, Success: %v, Error: '%s'", 
+		response.Identity.ClientId, response.Success, response.Error)
+	
 	if !p.validateResponse(response) {
 		return response
 	}
@@ -35,9 +39,21 @@ func (p *DeployResponser) ValidateAndTransform(op models.OperationClass, respons
 		p.Logger.Errorf("deploy response is not of type Deploy")
 		return response
 	}
+	
+	// Debug log the proto result before extracting fields
+	if result.Deploy != nil {
+		p.Logger.Debugf("Deploy Responser PROTO - Raw Deploy proto: DownstreamAddress='%s', InterfaceId='%s'", 
+			result.Deploy.DownstreamAddress, result.Deploy.InterfaceId)
+	} else {
+		p.Logger.Errorf("Deploy Responser PROTO - result.Deploy is nil!")
+	}
 
 	downstreamAddress := result.Deploy.DownstreamAddress
 	interfaceID := result.Deploy.InterfaceId
+
+	// Debug logging for deploy response values
+	p.Logger.Debugf("Deploy Response - ClientID: %s, DownstreamAddress: '%s', InterfaceID: '%s', ServiceName: %s", 
+		clientID, downstreamAddress, interfaceID, serviceName)
 
 	if err := p.addClientToService(clientID, downstreamAddress, serviceName, projectName, interfaceID); err != nil {
 		p.Logger.Warnf("Error while adding client to service: %v", err)
@@ -82,6 +98,10 @@ func (p *DeployResponser) validateResponse(response *pb.CommandResponse) bool {
 func (p *DeployResponser) addClientToService(clientID, downstreamAddress, serviceName, projectName string, interfaceID string) error {
 	servicesCollection := p.XDSHandler.Context.Client.Collection("services")
 
+	// Debug logging for service update
+	p.Logger.Debugf("addClientToService - Adding client to service: ClientID=%s, DownstreamAddress='%s', InterfaceID='%s', ServiceName=%s, Project=%s", 
+		clientID, downstreamAddress, interfaceID, serviceName, projectName)
+
 	clientInfo := models.ServiceClients{
 		ClientID:          clientID,
 		DownstreamAddress: downstreamAddress,
@@ -118,6 +138,10 @@ func (p *DeployResponser) addClientToService(clientID, downstreamAddress, servic
 		return fmt.Errorf("error while updating service: %w", err)
 	}
 
+	// Debug log MongoDB update result
+	p.Logger.Debugf("addClientToService - MongoDB update result: MatchedCount=%d, ModifiedCount=%d, UpsertedCount=%d", 
+		result.MatchedCount, result.ModifiedCount, result.UpsertedCount)
+
 	if result.MatchedCount == 0 {
 		return fmt.Errorf("no service found with name: %s, project: %s", serviceName, projectName)
 	}
@@ -126,6 +150,7 @@ func (p *DeployResponser) addClientToService(clientID, downstreamAddress, servic
 		return fmt.Errorf("service found but no modification occurred")
 	}
 
+	p.Logger.Infof("addClientToService - Successfully added client to service: ClientID=%s, Service=%s", clientID, serviceName)
 	return nil
 }
 

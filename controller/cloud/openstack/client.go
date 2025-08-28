@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"time"
@@ -129,6 +130,12 @@ func (c *OpenStackClient) authenticate(ctx context.Context) error {
 	authURL := c.AuthURL + "/v3/auth/tokens"
 	c.Logger.Debugf("OpenStack Auth - Making auth request to: %s", authURL)
 	
+	// Parse URL to check DNS resolution
+	parsedURL, err := url.Parse(authURL)
+	if err == nil {
+		c.Logger.Debugf("OpenStack Auth - Parsed URL - Host: %s, Scheme: %s, Path: %s", parsedURL.Host, parsedURL.Scheme, parsedURL.Path)
+	}
+	
 	req, err := http.NewRequestWithContext(ctx, "POST", authURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		c.Logger.Errorf("OpenStack Auth - Failed to create auth request: %v", err)
@@ -137,6 +144,10 @@ func (c *OpenStackClient) authenticate(ctx context.Context) error {
 
 	req.Header.Set("Content-Type", "application/json")
 	c.Logger.Debugf("OpenStack Auth - Sending authentication request")
+	
+	// Log request size and headers for debugging
+	c.Logger.Debugf("OpenStack Auth - Request payload size: %d bytes", len(jsonData))
+	c.Logger.Debugf("OpenStack Auth - Request Content-Type: %s", req.Header.Get("Content-Type"))
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -148,7 +159,13 @@ func (c *OpenStackClient) authenticate(ctx context.Context) error {
 	c.Logger.Debugf("OpenStack Auth - Received auth response with status: %d", resp.StatusCode)
 
 	if resp.StatusCode != http.StatusCreated {
-		c.Logger.Errorf("OpenStack Auth - Authentication failed with status: %d", resp.StatusCode)
+		// Read response body for more details
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		c.Logger.Errorf("OpenStack Auth - Authentication failed with status: %d, Response: %s", resp.StatusCode, string(bodyBytes))
+		
+		// Log request details for debugging in K8s environment
+		c.Logger.Debugf("OpenStack Auth - Auth URL: %s", authURL)
+		
 		return fmt.Errorf("authentication failed with status: %d", resp.StatusCode)
 	}
 
@@ -272,8 +289,19 @@ func (c *OpenStackClient) ListServerPorts(ctx context.Context, serverID string) 
 	c.Logger.Debugf("OpenStack Ports - Received response with status: %d", resp.StatusCode)
 
 	if resp.StatusCode != http.StatusOK {
-		c.Logger.Errorf("OpenStack Ports - API request failed with status: %d", resp.StatusCode)
-		return nil, fmt.Errorf("API request failed with status: %d", resp.StatusCode)
+		// Read response body for error details
+		bodyBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			c.Logger.Errorf("OpenStack Ports List - Failed to read error response body: %v", err)
+			return nil, fmt.Errorf("API request failed with status: %d (unable to read response body)", resp.StatusCode)
+		}
+		
+		// Log detailed error information
+		c.Logger.Errorf("OpenStack Ports List - API request failed with status: %d", resp.StatusCode)
+		c.Logger.Errorf("OpenStack Ports List - Error response body: %s", string(bodyBytes))
+		c.Logger.Debugf("OpenStack Ports List - Request URL: %s", reqURL)
+		
+		return nil, fmt.Errorf("API request failed with status: %d, response: %s", resp.StatusCode, string(bodyBytes))
 	}
 
 	var portsResp PortsResponse
@@ -393,7 +421,19 @@ func (c *OpenStackClient) getPort(ctx context.Context, endpoint, portID string) 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API request failed with status: %d", resp.StatusCode)
+		// Read response body for error details
+		bodyBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			c.Logger.Errorf("OpenStack Port Get - Failed to read error response body: %v", err)
+			return nil, fmt.Errorf("API request failed with status: %d (unable to read response body)", resp.StatusCode)
+		}
+		
+		// Log detailed error information
+		c.Logger.Errorf("OpenStack Port Get - API request failed with status: %d", resp.StatusCode)
+		c.Logger.Errorf("OpenStack Port Get - Error response body: %s", string(bodyBytes))
+		c.Logger.Debugf("OpenStack Port Get - Request URL: %s", reqURL)
+		
+		return nil, fmt.Errorf("API request failed with status: %d, response: %s", resp.StatusCode, string(bodyBytes))
 	}
 
 	var portResp struct {
@@ -430,7 +470,20 @@ func (c *OpenStackClient) updatePort(ctx context.Context, endpoint, portID strin
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("API request failed with status: %d", resp.StatusCode)
+		// Read response body for error details
+		bodyBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			c.Logger.Errorf("OpenStack Port Update - Failed to read error response body: %v", err)
+			return fmt.Errorf("API request failed with status: %d (unable to read response body)", resp.StatusCode)
+		}
+		
+		// Log detailed error information
+		c.Logger.Errorf("OpenStack Port Update - API request failed with status: %d", resp.StatusCode)
+		c.Logger.Errorf("OpenStack Port Update - Error response body: %s", string(bodyBytes))
+		c.Logger.Debugf("OpenStack Port Update - Request URL: %s", reqURL)
+		c.Logger.Debugf("OpenStack Port Update - Request payload: %s", string(jsonData))
+		
+		return fmt.Errorf("API request failed with status: %d, response: %s", resp.StatusCode, string(bodyBytes))
 	}
 
 	c.Logger.Debugf("Successfully updated port %s", portID)

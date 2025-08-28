@@ -139,7 +139,7 @@ type Operations struct {
 type ServiceClients struct {
 	ClientID          string `json:"client_id" bson:"client_id"`
 	DownstreamAddress string `json:"downstream_address" bson:"downstream_address"`
-	InterfaceID       string `json:"interface_id,omitempty" bson:"interface_id,omitempty"`
+	InterfaceID       string `json:"interface_id,omitempty" bson:"interface_id"`
 }
 
 type RequestBgpJSON struct {

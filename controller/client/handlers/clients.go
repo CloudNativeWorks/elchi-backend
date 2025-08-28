@@ -23,7 +23,6 @@ func (h *Client) ListClients(ctx context.Context, _ models.OperationClass, reque
 }
 
 func (h *Client) GetClient(ctx context.Context, _ models.OperationClass, requestDetails models.RequestDetails) (any, error) {
-	fmt.Println(requestDetails.ClientID)
 	client, err := h.Service.GetClientByClientID(ctx, requestDetails.ClientID)
 	if err != nil {
 		return nil, err

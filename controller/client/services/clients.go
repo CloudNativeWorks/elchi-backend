@@ -151,6 +151,23 @@ func (s *ClientService) validateCloudKeyExists(ctx context.Context, projectID st
 	return nil
 }
 
+// validateProvider checks if provider is valid
+func (s *ClientService) validateProvider(provider string) error {
+	validProviders := []string{"openstack", "aws", "gcp", "azure", "other"}
+	
+	if provider == "" {
+		return fmt.Errorf("provider is required and cannot be empty")
+	}
+
+	for _, valid := range validProviders {
+		if provider == valid {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("invalid provider '%s'. Must be one of: openstack, aws, gcp, azure, other", provider)
+}
+
 // SetPendingResponse sets a pending response channel for command ID
 func (s *ClientService) SetPendingResponse(commandID string, respChan chan *pb.CommandResponse) {
 	s.pendingMux.Lock()
@@ -250,6 +267,11 @@ func (s *ClientService) RegisterClient(req *pb.RegisterRequest) (*client.ClientI
 		return nil, "", err
 	}
 
+	// Validate provider
+	if err := s.validateProvider(clientInfo.Provider); err != nil {
+		return nil, "", err
+	}
+
 	// Handle cloud assignment - set to "other" if empty
 	if clientInfo.Cloud == "" {
 		clientInfo.Cloud = "other"
@@ -265,7 +287,7 @@ func (s *ClientService) RegisterClient(req *pb.RegisterRequest) (*client.ClientI
 
 	// Register client
 	s.clients[req.GetClientId()] = clientInfo
-	s.logger.Infof("Client registered: %s (Session Token: %s, Project: %s, Cloud: %s)", req.GetClientId(), sessionToken, clientInfo.Project, clientInfo.Cloud)
+	s.logger.Infof("Client registered: %s (Session Token: %s, Project: %s, Cloud: %s, Provider: %s)", req.GetClientId(), sessionToken, clientInfo.Project, clientInfo.Cloud, clientInfo.Provider)
 
 	// Notify registry about client connection
 	s.notifyRegistryClientConnect(req.GetClientId())

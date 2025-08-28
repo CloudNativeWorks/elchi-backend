@@ -171,11 +171,16 @@ func (p *UnDeployResponser) removeServiceFromEnvoys(serviceName, projectName, cl
 		"project": projectName,
 	}
 
-	fmt.Println(serviceName, projectName, clientName, downstreamAddress)
+	p.Logger.Debugf("removeServiceFromEnvoys - Service: %s, Project: %s, Client: %s, Downstream: %s", 
+		serviceName, projectName, clientName, downstreamAddress)
 
 	if err := envoysCollection.FindOne(context.Background(), filter).Decode(&envoys); err != nil {
-		return fmt.Errorf("service not found: %w", err)
+		p.Logger.Warnf("Service not found in envoys collection (this may be normal if no envoys were deployed): %v", err)
+		// Don't return error here - service might not exist in envoys collection and that's okay
+		return nil
 	}
+
+	p.Logger.Debugf("removeServiceFromEnvoys - Found service in envoys collection with %d envoys", len(envoys.Envoys))
 
 	update := bson.M{
 		"$pull": bson.M{
@@ -188,13 +193,20 @@ func (p *UnDeployResponser) removeServiceFromEnvoys(serviceName, projectName, cl
 
 	result, err := envoysCollection.UpdateOne(context.Background(), filter, update)
 	if err != nil {
-		return fmt.Errorf("error while removing client from service: %w", err)
+		p.Logger.Errorf("removeServiceFromEnvoys - Error while removing client from envoys: %v", err)
+		return fmt.Errorf("error while removing client from envoys: %w", err)
 	}
+
+	p.Logger.Debugf("removeServiceFromEnvoys - MongoDB update result: MatchedCount=%d, ModifiedCount=%d", 
+		result.MatchedCount, result.ModifiedCount)
 
 	if result.ModifiedCount == 0 {
-		return fmt.Errorf("client Name: %s, service not found", clientName)
+		p.Logger.Warnf("removeServiceFromEnvoys - No envoys were modified (client may not have been in envoys collection)")
+		// Don't return error here - client might not have been in envoys collection and that's okay
+		return nil
 	}
 
+	p.Logger.Infof("removeServiceFromEnvoys - Successfully removed client %s from envoys", clientName)
 	return nil
 }
 

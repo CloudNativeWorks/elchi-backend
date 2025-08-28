@@ -408,8 +408,10 @@ func (c *OpenStackClient) AddAllowedAddressPair(ctx context.Context, portID, ipA
 	}
 
 	// Add the new allowed address pair
+	// Use the port's MAC address for the allowed address pair
 	newPair := AllowedAddressPair{
-		IPAddress: ipAddress,
+		IPAddress:  ipAddress,
+		MACAddress: port.MACAddress, // Use port's MAC address
 	}
 	port.AllowedAddressPairs = append(port.AllowedAddressPairs, newPair)
 

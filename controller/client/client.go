@@ -14,6 +14,7 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/controller/client/grpc"
 	"github.com/CloudNativeWorks/elchi-backend/controller/client/handlers"
 	"github.com/CloudNativeWorks/elchi-backend/controller/client/services"
+	"github.com/CloudNativeWorks/elchi-backend/controller/cloud/openstack"
 	"github.com/CloudNativeWorks/elchi-backend/controller/crud/xds"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/config"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
@@ -34,12 +35,10 @@ type AppHandler struct {
 	RegistryClient *registry.RegistryClient
 }
 
-func NewClientHandler(context *db.AppContext, xdsHandler *xds.AppHandler) *AppHandler {
-	clientService := services.NewClientService(context)
-	
+func NewClientHandler(context *db.AppContext, xdsHandler *xds.AppHandler, openStackHandler *openstack.Handler, clientService *services.ClientService) *AppHandler {	
 	return &AppHandler{
 		Service:    clientService,
-		Handler:    handlers.NewClientHandler(context, xdsHandler, clientService),
+		Handler:    handlers.NewClientHandler(context, xdsHandler, clientService, openStackHandler),
 		Logger:     logger.NewLogger("controller/client"),
 		XDSHandler: xdsHandler,
 	}

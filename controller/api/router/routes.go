@@ -295,3 +295,15 @@ func initJobRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 
 	initRoutes(rg, routes)
 }
+
+func initOpenStackRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
+	routes := []struct {
+		method  string
+		path    string
+		handler gin.HandlerFunc
+	}{
+		{"GET", "/:client_id/openstack/interfaces", h.GetClientOpenStackInterfaces},
+	}
+
+	initRoutes(rg, routes)
+}

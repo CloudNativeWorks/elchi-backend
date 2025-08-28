@@ -30,7 +30,6 @@ func (p *DeployProcessor) ValidateAndTransform(op models.OperationClass, request
 	}
 
 	requestDetails = FillRequestDetails(op, requestDetails, bootstrap)
-	op.SetExtend(models.Extend{DownstreamAddress: cl.DownstreamAddress})
 	adminPort, err := resources.GetAdminPortFromBootstrap(bootstrap.Resource.Resource)
 	if err != nil {
 		return nil, err
@@ -63,6 +62,7 @@ func (p *DeployProcessor) ValidateAndTransform(op models.OperationClass, request
 			Port:              adminPort,
 			Version:           bootstrap.General.Version,
 			Bootstrap:         bootstrapBytes,
+			InterfaceId:       cl.InterfaceID,
 		},
 	}
 

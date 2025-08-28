@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/CloudNativeWorks/elchi-backend/controller/client/services"
+	"github.com/CloudNativeWorks/elchi-backend/controller/cloud/openstack"
 	"github.com/CloudNativeWorks/elchi-backend/controller/crud/xds"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/bridge"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
@@ -14,8 +16,10 @@ import (
 )
 
 type UnDeployResponser struct {
-	XDSHandler *xds.AppHandler
-	Logger     *logger.Logger
+	XDSHandler      *xds.AppHandler
+	Logger          *logger.Logger
+	Service         *services.ClientService
+	OpenStackHandler *openstack.Handler
 }
 
 func (p *UnDeployResponser) ValidateAndTransform(op models.OperationClass, response *pb.CommandResponse) any {
@@ -35,10 +39,23 @@ func (p *UnDeployResponser) ValidateAndTransform(op models.OperationClass, respo
 	downstreamAddress := result.Undeploy.DownstreamAddress
 	clientName := response.Identity.ClientName
 
+	// Get interface_id from database before removing client
+	interfaceID, err := p.getInterfaceIDFromService(clientID, serviceName, projectName, downstreamAddress)
+	if err != nil {
+		p.Logger.Warnf("Could not get interface_id from service: %v", err)
+	}
+
 	if err := p.removeClientFromService(clientID, serviceName, projectName); err != nil {
 		p.Logger.Errorf("Error while removing client from service: %v", err)
 	} else {
 		p.Logger.Infof("Client ID: %s, Service: %s successfully removed", clientID, serviceName)
+		
+		// OpenStack integration for allowed address pair removal
+		if interfaceID != "" {
+			if err := p.handleOpenStackIntegration(clientID, downstreamAddress, interfaceID, projectName); err != nil {
+				p.Logger.Warnf("OpenStack integration failed for client %s: %v", clientID, err)
+			}
+		}
 	}
 
 	if err := p.notifyControlPlaneUndeploy(serviceName, projectName, downstreamAddress); err != nil {
@@ -78,6 +95,34 @@ func (p *UnDeployResponser) validateResponse(response *pb.CommandResponse) bool 
 	}
 
 	return true
+}
+
+// getInterfaceIDFromService retrieves the interface_id for a specific client from service
+func (p *UnDeployResponser) getInterfaceIDFromService(clientID, serviceName, projectName, downstreamAddress string) (string, error) {
+	servicesCollection := p.XDSHandler.Context.Client.Collection("services")
+
+	var service struct {
+		Clients []models.ServiceClients `bson:"clients"`
+	}
+
+	filter := bson.M{
+		"name":    serviceName,
+		"project": projectName,
+	}
+
+	if err := servicesCollection.FindOne(context.Background(), filter).Decode(&service); err != nil {
+		return "", fmt.Errorf("service not found: %w", err)
+	}
+
+	// Find the matching client to get interface_id
+	for _, client := range service.Clients {
+		if client.ClientID == clientID && client.DownstreamAddress == downstreamAddress {
+			p.Logger.Debugf("Found interface_id: %s for client %s", client.InterfaceID, clientID)
+			return client.InterfaceID, nil
+		}
+	}
+
+	return "", fmt.Errorf("client not found in service: %s", clientID)
 }
 
 func (p *UnDeployResponser) removeClientFromService(clientID, serviceName, projectName string) error {
@@ -198,5 +243,36 @@ func (p *UnDeployResponser) notifyControlPlaneUndeploy(serviceName, projectName,
 		return err
 	}
 
+	return nil
+}
+
+// handleOpenStackIntegration manages OpenStack allowed address pair removal
+func (p *UnDeployResponser) handleOpenStackIntegration(clientID, downstreamAddress, interfaceID, projectName string) error {
+	// Get client information to check provider
+	client, err := p.Service.GetClientByClientID(context.Background(), clientID)
+	if err != nil {
+		return fmt.Errorf("failed to get client info: %v", err)
+	}
+
+	// Only process OpenStack clients
+	if client.Provider != "openstack" {
+		p.Logger.Debugf("Client %s is not OpenStack provider, skipping integration", clientID)
+		return nil
+	}
+
+	if p.OpenStackHandler == nil {
+		p.Logger.Warnf("OpenStack handler not available for client %s", clientID)
+		return nil
+	}
+
+	// Remove allowed address pair using OpenStack handler
+	p.Logger.Infof("OpenStack integration: Removing allowed address pair %s from interface %s for client %s", 
+		downstreamAddress, interfaceID, clientID)
+
+	if err := p.OpenStackHandler.RemoveAllowedAddressPair(context.Background(), interfaceID, downstreamAddress, projectName); err != nil {
+		return fmt.Errorf("failed to remove allowed address pair: %v", err)
+	}
+
+	p.Logger.Infof("Successfully removed allowed address pair %s from interface %s", downstreamAddress, interfaceID)
 	return nil
 }

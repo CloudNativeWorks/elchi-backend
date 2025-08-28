@@ -24,6 +24,7 @@ func (p *UnDeployProcessor) ValidateAndTransform(op models.OperationClass, reque
 			Name:              op.GetCommandName(),
 			Port:              adminPort,
 			DownstreamAddress: cl.DownstreamAddress,
+			InterfaceId:       cl.InterfaceID,
 		},
 	}
 

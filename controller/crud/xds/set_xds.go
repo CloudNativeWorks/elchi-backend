@@ -200,7 +200,7 @@ func (xds *AppHandler) createService(ctx context.Context, serviceName string, pr
 	service.Project = project
 	service.Version = version
 	service.AdminPort = adminPort
-	service.Clients = []models.ListenerClient{}
+	service.Clients = []models.ServiceClients{}
 	
 	// Service permissions inherit from the listener that created it
 	service.Permissions = listenerPermissions

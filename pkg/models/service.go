@@ -11,13 +11,8 @@ type Service struct {
 	Project     string           `json:"project" bson:"project"`
 	Version     string           `json:"version" bson:"version"`
 	AdminPort   uint32           `json:"admin_port" bson:"admin_port"`
-	Clients     []ListenerClient `json:"clients" bson:"clients"`
+	Clients     []ServiceClients `json:"clients" bson:"clients"`
 	Permissions Permissions      `json:"permissions" bson:"permissions"`
-}
-
-type ListenerClient struct {
-	DownstreamAddress string `json:"downstream_address,omitempty" bson:"downstream_address,omitempty"`
-	ClientID          string `json:"client_id,omitempty" bson:"client_id,omitempty"`
 }
 
 type Envoys struct {

@@ -4,6 +4,7 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/controller/client/processor"
 	"github.com/CloudNativeWorks/elchi-backend/controller/client/responser"
 	"github.com/CloudNativeWorks/elchi-backend/controller/client/services"
+	"github.com/CloudNativeWorks/elchi-backend/controller/cloud/openstack"
 	"github.com/CloudNativeWorks/elchi-backend/controller/crud/xds"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
@@ -19,7 +20,7 @@ type Client struct {
 	registryClient *registry.RegistryClient
 }
 
-func NewClientHandler(context *db.AppContext, xdsHandler *xds.AppHandler, clientService *services.ClientService) *Client {
+func NewClientHandler(context *db.AppContext, xdsHandler *xds.AppHandler, clientService *services.ClientService, openStackHandler *openstack.Handler) *Client {
 	h := &Client{
 		Context:    context,
 		Service:    clientService,
@@ -45,10 +46,10 @@ func NewClientHandler(context *db.AppContext, xdsHandler *xds.AppHandler, client
 	h.cmdFactory.RegisterProcessor("ENVOY_VERSION", &processor.EnvoyVersionProcessor{Logger: processorLogger})
 
 	// Responser Register
-	h.responser.RegisterResponser("DEPLOY", &responser.DeployResponser{XDSHandler: xdsHandler, Logger: responserLogger})
+	h.responser.RegisterResponser("DEPLOY", &responser.DeployResponser{XDSHandler: xdsHandler, Logger: responserLogger, Service: clientService, OpenStackHandler: openStackHandler})
 	h.responser.RegisterResponser("SERVICE", &responser.ServiceResponser{})
 	h.responser.RegisterResponser("UPDATE_BOOTSTRAP", &responser.BootstrapResponser{})
-	h.responser.RegisterResponser("UNDEPLOY", &responser.UnDeployResponser{XDSHandler: xdsHandler, Logger: responserLogger})
+	h.responser.RegisterResponser("UNDEPLOY", &responser.UnDeployResponser{XDSHandler: xdsHandler, Logger: responserLogger, Service: clientService, OpenStackHandler: openStackHandler})
 	h.responser.RegisterResponser("PROXY", &responser.ProxyResponser{})
 	h.responser.RegisterResponser("CLIENT_LOGS", &responser.GeneralLogResponser{})
 	h.responser.RegisterResponser("CLIENT_STATS", &responser.ClientStatsResponser{})

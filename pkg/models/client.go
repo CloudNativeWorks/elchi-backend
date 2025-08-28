@@ -42,10 +42,8 @@ type OperationClass interface {
 	GetEnvoyVersion() *pb.RequestEnvoyVersion
 
 	GetClients() []ServiceClients
-	GetExtend() Extend
 
 	AppendClient(ServiceClients)
-	SetExtend(Extend)
 }
 
 // Network operation structures for new proto format
@@ -127,7 +125,6 @@ type Operations struct {
 	SubType SubCommandTypeJSON `json:"sub_type,omitempty"`
 	Clients []ServiceClients   `json:"clients"`
 	Command Command            `json:"command"`
-	Extend  *Extend            `json:"extend,omitempty"`
 	
 	// Network operation fields
 	NetplanConfig    *NetplanConfig     `json:"netplan_config,omitempty"`
@@ -142,6 +139,7 @@ type Operations struct {
 type ServiceClients struct {
 	ClientID          string `json:"client_id" bson:"client_id"`
 	DownstreamAddress string `json:"downstream_address" bson:"downstream_address"`
+	InterfaceID       string `json:"interface_id,omitempty" bson:"interface_id,omitempty"`
 }
 
 type RequestBgpJSON struct {
@@ -319,13 +317,6 @@ func (o *Operations) AppendClient(client ServiceClients) {
 	o.Clients = append(o.Clients, client)
 }
 
-func (o *Operations) GetExtend() Extend {
-	return *o.Extend
-}
-
-func (o *Operations) SetExtend(extend Extend) {
-	o.Extend = &extend
-}
 
 func (c *CommandTypeJSON) UnmarshalJSON(data []byte) error {
 	var strValue string

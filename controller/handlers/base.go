@@ -10,6 +10,7 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/controller/api/settings"
 	"github.com/CloudNativeWorks/elchi-backend/controller/bridge"
 	"github.com/CloudNativeWorks/elchi-backend/controller/client"
+	"github.com/CloudNativeWorks/elchi-backend/controller/cloud/openstack"
 	"github.com/CloudNativeWorks/elchi-backend/controller/crud/custom"
 	"github.com/CloudNativeWorks/elchi-backend/controller/crud/extension"
 	"github.com/CloudNativeWorks/elchi-backend/controller/crud/scenario"
@@ -50,9 +51,10 @@ type Handler struct {
 	Discovery  *discovery.DiscoveryHandler
 	Jobs       *JobHandler
 	Registry   *RegistryHandler
+	OpenStack  *openstack.Handler
 }
 
-func NewHandler(xds *xds.AppHandler, extension *extension.AppHandler, custom *custom.AppHandler, settings *settings.AppHandler, dependency *dependency.AppHandler, stats *bridge.AppHandler, scenario *scenario.AppHandler, client *client.AppHandler, service *service.AppHandler, discovery *discovery.DiscoveryHandler, jobs *JobHandler, registry *RegistryHandler) *Handler {
+func NewHandler(xds *xds.AppHandler, extension *extension.AppHandler, custom *custom.AppHandler, settings *settings.AppHandler, dependency *dependency.AppHandler, stats *bridge.AppHandler, scenario *scenario.AppHandler, client *client.AppHandler, service *service.AppHandler, discovery *discovery.DiscoveryHandler, jobs *JobHandler, registry *RegistryHandler, openstack *openstack.Handler) *Handler {
 	return &Handler{
 		XDS:        xds,
 		Extension:  extension,
@@ -66,6 +68,7 @@ func NewHandler(xds *xds.AppHandler, extension *extension.AppHandler, custom *cu
 		Discovery:  discovery,
 		Jobs:       jobs,
 		Registry:   registry,
+		OpenStack:  openstack,
 	}
 }
 
@@ -494,4 +497,9 @@ func (h *Handler) GetWorkerStatus(c *gin.Context) {
 // GetJobStats delegates to jobs handler
 func (h *Handler) GetJobStats(c *gin.Context) {
 	h.Jobs.GetJobStats(c)
+}
+
+// GetClientOpenStackInterfaces delegates to OpenStack handler
+func (h *Handler) GetClientOpenStackInterfaces(c *gin.Context) {
+	h.OpenStack.GetClientInterfaces(c)
 }

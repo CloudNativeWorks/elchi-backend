@@ -13,6 +13,8 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/controller/api/settings"
 	"github.com/CloudNativeWorks/elchi-backend/controller/bridge"
 	"github.com/CloudNativeWorks/elchi-backend/controller/client"
+	"github.com/CloudNativeWorks/elchi-backend/controller/client/services"
+	"github.com/CloudNativeWorks/elchi-backend/controller/cloud/openstack"
 	"github.com/CloudNativeWorks/elchi-backend/controller/crud/custom"
 	"github.com/CloudNativeWorks/elchi-backend/controller/crud/extension"
 	"github.com/CloudNativeWorks/elchi-backend/controller/crud/scenario"
@@ -89,13 +91,21 @@ var restCmd = &cobra.Command{
 		dependencyHandler := dependency.NewDependencyHandler(appContext)
 
 		serviceHandler := service.NewServiceHandler(appContext)
-		clientHandler := client.NewClientHandler(appContext, xdsHandler)
+		
+		// Create a client service for openstack and client handler initialization
+		clientService := services.NewClientService(appContext)
+		openstackHandler := openstack.NewHandler(appContext, rootLogger, clientService)
+		
+		clientHandler := client.NewClientHandler(appContext, xdsHandler, openstackHandler,clientService)
 		discoveryHandler := discovery.NewDiscoveryHandler(appContext, &bridgeHandler.Poke)
 		jobHandler := handlers.NewJobHandler(appContext)
 		registryHandler := handlers.NewRegistryHandler(registryClient, rootLogger)
 
 		// Pass registry client to client handler (even before connection is established)
 		clientHandler.SetRegistryClient(registryClient)
+		
+		// Start periodic client-registry synchronization
+		clientHandler.Service.StartPeriodicSync(2 * time.Minute)
 
 		// Sync all existing clients with registry after client handler is set up
 		go func() {
@@ -141,6 +151,7 @@ var restCmd = &cobra.Command{
 			discoveryHandler,
 			jobHandler,
 			registryHandler,
+			openstackHandler,
 		)
 
 		// Initialize async job system workers

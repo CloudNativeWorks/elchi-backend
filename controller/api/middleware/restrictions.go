@@ -72,6 +72,7 @@ var AllowedEndpoints = []string{
 	"/api/v3/registry/control-plane/:id",
 	"/api/op/clients",
 	"/api/op/clients/:client_id",
+	"/api/op/clients/:client_id/openstack/interfaces",
 	"/api/op/services",
 	"/api/op/services/:service_id",
 	"/api/op/services/envoys/:service_id",

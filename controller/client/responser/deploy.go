@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/CloudNativeWorks/elchi-backend/controller/client/services"
+	"github.com/CloudNativeWorks/elchi-backend/controller/cloud/openstack"
 	"github.com/CloudNativeWorks/elchi-backend/controller/crud/xds"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
@@ -13,9 +14,10 @@ import (
 )
 
 type DeployResponser struct {
-	XDSHandler *xds.AppHandler
-	Logger     *logger.Logger
-	Service    *services.ClientService
+	XDSHandler      *xds.AppHandler
+	Logger          *logger.Logger
+	Service         *services.ClientService
+	OpenStackHandler *openstack.Handler
 }
 
 func (p *DeployResponser) ValidateAndTransform(op models.OperationClass, response *pb.CommandResponse) any {
@@ -26,12 +28,28 @@ func (p *DeployResponser) ValidateAndTransform(op models.OperationClass, respons
 	clientID := response.Identity.ClientId
 	projectName := op.GetCommandProject()
 	serviceName := op.GetCommandName()
-	downstreamAddress := op.GetExtend().DownstreamAddress
 
-	if err := p.addClientToService(clientID, downstreamAddress, serviceName, projectName); err != nil {
+	// Get deploy response details from proto
+	result, ok := response.Result.(*pb.CommandResponse_Deploy)
+	if !ok {
+		p.Logger.Errorf("deploy response is not of type Deploy")
+		return response
+	}
+
+	downstreamAddress := result.Deploy.DownstreamAddress
+	interfaceID := result.Deploy.InterfaceId
+
+	if err := p.addClientToService(clientID, downstreamAddress, serviceName, projectName, interfaceID); err != nil {
 		p.Logger.Warnf("Error while adding client to service: %v", err)
 	} else {
 		p.Logger.Infof("Client ID: %s successfully added to service: %s", clientID, serviceName)
+		
+		// OpenStack integration for allowed address pairs
+		if interfaceID != "" {
+			if err := p.handleOpenStackIntegration(clientID, downstreamAddress, interfaceID, projectName); err != nil {
+				p.Logger.Warnf("OpenStack integration failed for client %s: %v", clientID, err)
+			}
+		}
 	}
 
 	return response
@@ -61,16 +79,17 @@ func (p *DeployResponser) validateResponse(response *pb.CommandResponse) bool {
 	return true
 }
 
-func (p *DeployResponser) addClientToService(clientID, downstreamAddress, serviceName, projectName string) error {
+func (p *DeployResponser) addClientToService(clientID, downstreamAddress, serviceName, projectName string, interfaceID string) error {
 	servicesCollection := p.XDSHandler.Context.Client.Collection("services")
 
-	clientInfo := models.ListenerClient{
+	clientInfo := models.ServiceClients{
 		ClientID:          clientID,
 		DownstreamAddress: downstreamAddress,
+		InterfaceID:       interfaceID,
 	}
 
 	var existingService struct {
-		Clients []models.ListenerClient `bson:"clients"`
+		Clients []models.ServiceClients `bson:"clients"`
 	}
 
 	filter := bson.M{
@@ -107,5 +126,36 @@ func (p *DeployResponser) addClientToService(clientID, downstreamAddress, servic
 		return fmt.Errorf("service found but no modification occurred")
 	}
 
+	return nil
+}
+
+// handleOpenStackIntegration manages OpenStack allowed address pairs
+func (p *DeployResponser) handleOpenStackIntegration(clientID, downstreamAddress, interfaceID, projectName string) error {
+	// Get client information to check provider
+	client, err := p.Service.GetClientByClientID(context.Background(), clientID)
+	if err != nil {
+		return fmt.Errorf("failed to get client info: %v", err)
+	}
+
+	// Only process OpenStack clients
+	if client.Provider != "openstack" {
+		p.Logger.Debugf("Client %s is not OpenStack provider, skipping integration", clientID)
+		return nil
+	}
+
+	if p.OpenStackHandler == nil {
+		p.Logger.Warnf("OpenStack handler not available for client %s", clientID)
+		return nil
+	}
+
+	// Add allowed address pair using OpenStack handler
+	p.Logger.Infof("OpenStack integration: Adding allowed address pair %s to interface %s for client %s", 
+		downstreamAddress, interfaceID, clientID)
+
+	if err := p.OpenStackHandler.AddAllowedAddressPair(context.Background(), interfaceID, downstreamAddress, projectName); err != nil {
+		return fmt.Errorf("failed to add allowed address pair: %v", err)
+	}
+
+	p.Logger.Infof("Successfully added allowed address pair %s to interface %s", downstreamAddress, interfaceID)
 	return nil
 }

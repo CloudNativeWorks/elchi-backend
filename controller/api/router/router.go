@@ -66,6 +66,7 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 	initAIRoutes(apiAI, h)
 	initDiscoveryRoutes(apiDiscovery, h)
 	initJobRoutes(apiJobs, h)
+	initOpenStackRoutes(apiClient, h) // OpenStack routes under /api/op/clients
 
 	logRoutes(e)
 	return e

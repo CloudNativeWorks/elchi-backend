@@ -210,6 +210,7 @@ func (s *ClientService) UpsertClientToDB(ctx context.Context, clientInfo *client
 			"project":       clientInfo.Project,
 			"bgp":           clientInfo.BGP,
 			"cloud":         clientInfo.Cloud,
+			"provider":      clientInfo.Provider,
 		},
 		"$setOnInsert": bson.M{
 			"_id": primitive.NewObjectID(),
@@ -412,9 +413,15 @@ func (s *ClientService) GetAllClientsWithServiceIPs(projectID string) ([]*Client
 
 // GetAllClients returns all connected clients
 func (s *ClientService) GetAllClients() ([]*client.ClientInfo, error) {
+	return s.GetAllClientsWithFilter(bson.M{})
+}
+
+// GetAllClientsWithFilter gets clients with custom filter
+func (s *ClientService) GetAllClientsWithFilter(filter bson.M) ([]*client.ClientInfo, error) {
 	s.clientsMux.RLock()
 	defer s.clientsMux.RUnlock()
-	cursor, err := s.Context.Client.Collection("clients").Find(context.Background(), bson.M{})
+	
+	cursor, err := s.Context.Client.Collection("clients").Find(context.Background(), filter)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get clients: %v", err)
 	}
@@ -424,11 +431,41 @@ func (s *ClientService) GetAllClients() ([]*client.ClientInfo, error) {
 	for cursor.Next(context.Background()) {
 		var client client.ClientInfo
 		if err := cursor.Decode(&client); err != nil {
-			return nil, fmt.Errorf("failed to decode client: %v", err)
+			s.logger.Errorf("Failed to decode client: %v", err)
+			continue
 		}
+		
+		// Additional registry validation for connected clients
+		if client.Connected && s.registryClient != nil {
+			// Quick registry check for connected clients
+			if location, err := s.registryClient.GetClientLocation(client.ClientID); err != nil || location.ControllerId == "" {
+				s.logger.Debugf("Client %s marked as connected but not in registry, updating status", client.ClientID)
+				
+				// Mark as disconnected in DB asynchronously
+				go func(clientID string) {
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					s.MarkClientDisconnectedInDB(ctx, clientID)
+				}(client.ClientID)
+				
+				// Update in-memory status
+				client.Connected = false
+			}
+		}
+		
 		result = append(result, &client)
 	}
 	return result, nil
+}
+
+// GetConnectedClients returns only actually connected clients
+func (s *ClientService) GetConnectedClients() ([]*client.ClientInfo, error) {
+	return s.GetAllClientsWithFilter(bson.M{"connected": true})
+}
+
+// GetDisconnectedClients returns only disconnected clients
+func (s *ClientService) GetDisconnectedClients() ([]*client.ClientInfo, error) {
+	return s.GetAllClientsWithFilter(bson.M{"connected": false})
 }
 
 // ValidateSession validates client session

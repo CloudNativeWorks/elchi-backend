@@ -6,6 +6,10 @@ github.com/CloudNativeWorks/elchi-proto v0.0.0-20250826194555-237cd7cf58c6 h1:B5
 github.com/CloudNativeWorks/elchi-proto v0.0.0-20250826194555-237cd7cf58c6/go.mod h1:Ueq8oq9fNnLZ/6I2JQKVu8npURk2T+Ts44x4o8VDlj0=
 github.com/CloudNativeWorks/elchi-proto v0.0.0-20250827195713-672d360516ab h1:m+E1sg8Qo/U3WV6aU8IF9e39kOZd6yNFMXFdBZwNN6I=
 github.com/CloudNativeWorks/elchi-proto v0.0.0-20250827195713-672d360516ab/go.mod h1:Ueq8oq9fNnLZ/6I2JQKVu8npURk2T+Ts44x4o8VDlj0=
+github.com/CloudNativeWorks/elchi-proto v0.0.0-20250827204708-b94d264d3ab8 h1:ijEAgjlhsdkB2aAi6OqR/qVYhau6MlZG9/BOHUWL2r0=
+github.com/CloudNativeWorks/elchi-proto v0.0.0-20250827204708-b94d264d3ab8/go.mod h1:Ueq8oq9fNnLZ/6I2JQKVu8npURk2T+Ts44x4o8VDlj0=
+github.com/CloudNativeWorks/elchi-proto v0.0.0-20250828082550-d14a4eeb975d h1:Dv4SJcnjyLPpsq+6ZD2OYbUcRAk4YEUFXXh827v9pkU=
+github.com/CloudNativeWorks/elchi-proto v0.0.0-20250828082550-d14a4eeb975d/go.mod h1:Ueq8oq9fNnLZ/6I2JQKVu8npURk2T+Ts44x4o8VDlj0=
 github.com/CloudNativeWorks/versioned-go-control-plane v0.13.4-envoy1.33.5 h1:cHOS8f8RTXgPe/Db9QmFG8TGQlq+ljhw8MDCWOl3iF8=
 github.com/CloudNativeWorks/versioned-go-control-plane v0.13.4-envoy1.33.5/go.mod h1:qxH9cVL8GhsmItgTWOrxUPLQCK6gr/QGu8untMm8Wbg=
 github.com/CloudNativeWorks/versioned-go-control-plane/envoy v1.33.5 h1:RNVYDN1NfjIeZt6Vwkt3mf2LaTklqO4HjO+o3R+3ohs=

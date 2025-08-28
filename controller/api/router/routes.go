@@ -110,6 +110,13 @@ func initSettingRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		{"GET", "/discovery-token", h.Settings.GetDiscoveryToken},
 		{"DELETE", "/discovery-token", h.Settings.DeleteDiscoveryToken},
 		{"POST", "/discovery-token/generate", h.Settings.GenerateDiscoveryToken},
+
+		// Cloud configuration endpoints
+		{"GET", "/clouds", h.Settings.GetClouds},
+		{"GET", "/clouds/:cloud_name", h.Settings.GetCloud},
+		{"POST", "/clouds/:cloud_name", h.Settings.SetCloud},
+		{"PUT", "/clouds/:cloud_name", h.Settings.UpdateCloud},
+		{"DELETE", "/clouds/:cloud_name", h.Settings.DeleteCloud},
 	}
 
 	initRoutes(rg, routes)

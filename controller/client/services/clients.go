@@ -62,11 +62,11 @@ func (s *ClientService) getDefaultProjectID(ctx context.Context) (string, error)
 		ctx,
 		bson.M{"projectname": "default"},
 	).Decode(&defaultProject)
-	
+
 	if err != nil {
 		return "", fmt.Errorf("default project not found: %v", err)
 	}
-	
+
 	return defaultProject.ID.Hex(), nil
 }
 
@@ -77,23 +77,23 @@ func (s *ClientService) validateClientProjectRegistration(ctx context.Context, c
 		ctx,
 		bson.M{"client_id": clientID},
 	).Decode(&existingClient)
-	
+
 	if err == mongo.ErrNoDocuments {
 		// Client doesn't exist, registration allowed
 		return nil
 	}
-	
+
 	if err != nil {
 		return fmt.Errorf("failed to check existing client: %v", err)
 	}
-	
+
 	// Client exists, check if it's trying to register for a different project
 	if existingClient.Project != "" && existingClient.Project != newProjectID {
 		// Get project name for better error message
 		projectName := s.getProjectName(ctx, existingClient.Project)
 		return fmt.Errorf("client already registered for project '%s'. A client cannot be registered for multiple projects", projectName)
 	}
-	
+
 	// Same project or no project set, allow registration
 	return nil
 }
@@ -103,22 +103,52 @@ func (s *ClientService) getProjectName(ctx context.Context, projectID string) st
 	var project struct {
 		ProjectName string `bson:"projectname"`
 	}
-	
+
 	objID, err := primitive.ObjectIDFromHex(projectID)
 	if err != nil {
 		return projectID
 	}
-	
+
 	err = s.Context.Client.Collection("projects").FindOne(
 		ctx,
 		bson.M{"_id": objID},
 	).Decode(&project)
-	
+
 	if err != nil {
 		return projectID
 	}
-	
+
 	return project.ProjectName
+}
+
+// validateCloudKeyExists checks if cloud configuration exists in project settings
+func (s *ClientService) validateCloudKeyExists(ctx context.Context, projectID string, cloudKey string) error {
+	var settings struct {
+		Clouds map[string]interface{} `bson:"clouds"`
+	}
+
+	err := s.Context.Client.Collection("settings").FindOne(
+		ctx,
+		bson.M{"project": projectID},
+	).Decode(&settings)
+
+	if err == mongo.ErrNoDocuments {
+		return fmt.Errorf("no cloud configurations found for this project")
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to check cloud configurations: %v", err)
+	}
+
+	if settings.Clouds == nil {
+		return fmt.Errorf("no cloud configurations found for this project")
+	}
+
+	if _, exists := settings.Clouds[cloudKey]; !exists {
+		return fmt.Errorf("cloud configuration '%s' not found in project settings", cloudKey)
+	}
+
+	return nil
 }
 
 // SetPendingResponse sets a pending response channel for command ID
@@ -161,6 +191,8 @@ func (s *ClientService) UpsertClientToDB(ctx context.Context, clientInfo *client
 			"metadata":      clientInfo.Metadata,
 			"access_token":  clientInfo.AccessTokens,
 			"project":       clientInfo.Project,
+			"bgp":           clientInfo.BGP,
+			"cloud":         clientInfo.Cloud,
 		},
 		"$setOnInsert": bson.M{
 			"_id": primitive.NewObjectID(),
@@ -218,9 +250,22 @@ func (s *ClientService) RegisterClient(req *pb.RegisterRequest) (*client.ClientI
 		return nil, "", err
 	}
 
+	// Handle cloud assignment - set to "other" if empty
+	if clientInfo.Cloud == "" {
+		clientInfo.Cloud = "other"
+		s.logger.Infof("Using default cloud 'other' for client %s", req.GetClientId())
+	}
+
+	// Validate cloud key exists in project settings (if not "other")
+	if clientInfo.Cloud != "other" {
+		if err := s.validateCloudKeyExists(ctx, clientInfo.Project, clientInfo.Cloud); err != nil {
+			return nil, "", err
+		}
+	}
+
 	// Register client
 	s.clients[req.GetClientId()] = clientInfo
-	s.logger.Infof("Client registered: %s (Session Token: %s, Project: %s)", req.GetClientId(), sessionToken, clientInfo.Project)
+	s.logger.Infof("Client registered: %s (Session Token: %s, Project: %s, Cloud: %s)", req.GetClientId(), sessionToken, clientInfo.Project, clientInfo.Cloud)
 
 	// Notify registry about client connection
 	s.notifyRegistryClientConnect(req.GetClientId())
@@ -244,10 +289,10 @@ func (s *ClientService) UnregisterClient(clientID string) error {
 
 	delete(s.clients, clientID)
 	s.logger.Debugf("Client unregistered: %s", clientID)
-	
+
 	// Notify registry about client disconnection
 	s.notifyRegistryClientDisconnect(clientID)
-	
+
 	return nil
 }
 
@@ -437,14 +482,14 @@ func (s *ClientService) DisconnectClient(clientID string) {
 
 	if client, exists := s.clients[clientID]; exists {
 		s.logger.Infof("Disconnecting client: %s (was connected: %v)", clientID, client.Connected)
-		
+
 		if client.CancelFunc != nil {
 			client.CancelFunc()
 		}
 		client.Stream = nil
 		client.Connected = false
 		client.UpdateLastSeen()
-		
+
 		s.logger.Debugf("Client disconnected: %s", clientID)
 
 		err := s.MarkClientDisconnectedInDB(context.Background(), clientID)
@@ -489,6 +534,7 @@ func (s *ClientService) DisconnectAllClients() {
 	}
 	s.pendingMux.Unlock()
 }
+
 // IsClientConnected checks if a client is connected to this controller
 func (s *ClientService) IsClientConnected(clientID string) bool {
 	s.clientsMux.RLock()
@@ -553,4 +599,3 @@ func (s *ClientService) DeleteClientFromDB(ctx context.Context, clientID string)
 	s.logger.Infof("Client %s deleted from database", clientID)
 	return nil
 }
-

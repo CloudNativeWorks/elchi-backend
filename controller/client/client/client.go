@@ -24,6 +24,9 @@ type ClientInfo struct {
 	Metadata     map[string]string                     `json:"metadata" bson:"metadata"`
 	Project      string                                `json:"project" bson:"project"`
 	AccessTokens string                                `json:"access_token" bson:"access_token"`
+	BGP          bool                                  `json:"bgp" bson:"bgp"`
+	Cloud        string                                `json:"cloud" bson:"cloud"`
+	Provider     string                                `json:"provider" bson:"provider"`
 	Stream       pb.CommandService_CommandStreamServer `json:"-" bson:"-"`
 	Context      context.Context                       `json:"-" bson:"-"`
 	CancelFunc   context.CancelFunc                    `json:"-" bson:"-"`
@@ -45,6 +48,9 @@ func NewClientInfo(req *pb.RegisterRequest, sessionToken string) *ClientInfo {
 		SessionToken: sessionToken,
 		Metadata:     req.GetMetadata(),
 		Project:      req.GetProjectId(),
+		BGP:          req.GetBgp(),
+		Cloud:        req.GetCloud(),
+		Provider:     req.GetProvider(),
 	}
 }
 

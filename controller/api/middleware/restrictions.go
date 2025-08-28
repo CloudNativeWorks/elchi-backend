@@ -29,6 +29,8 @@ var AllowedEndpoints = []string{
 	"/api/v3/setting/openrouter-token",
 	"/api/v3/setting/discovery-token",
 	"/api/v3/setting/discovery-token/generate",
+	"/api/v3/setting/clouds",
+	"/api/v3/setting/clouds/:cloud_name",
 	"/api/v3/xds/secrets",
 	"/api/v3/xds/secrets/:name",
 	"/api/v3/xds/bootstrap",

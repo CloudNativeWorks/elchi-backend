@@ -503,3 +503,18 @@ func (h *Handler) GetJobStats(c *gin.Context) {
 func (h *Handler) GetClientOpenStackInterfaces(c *gin.Context) {
 	h.OpenStack.GetClientInterfaces(c)
 }
+
+// GetNetworkDetails delegates to OpenStack handler
+func (h *Handler) GetNetworkDetails(c *gin.Context) {
+	h.OpenStack.GetNetworkDetails(c)
+}
+
+// GetSubnetDetails delegates to OpenStack handler
+func (h *Handler) GetSubnetDetails(c *gin.Context) {
+	h.OpenStack.GetSubnetDetails(c)
+}
+
+// GetNetworkSubnets delegates to OpenStack handler
+func (h *Handler) GetNetworkSubnets(c *gin.Context) {
+	h.OpenStack.GetNetworkSubnets(c)
+}

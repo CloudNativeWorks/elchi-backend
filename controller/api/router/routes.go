@@ -303,6 +303,9 @@ func initOpenStackRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		handler gin.HandlerFunc
 	}{
 		{"GET", "/:client_id/openstack/interfaces", h.GetClientOpenStackInterfaces},
+		{"GET", "/openstack/networks/:network_id", h.GetNetworkDetails},
+		{"GET", "/openstack/subnets/:subnet_id", h.GetSubnetDetails},
+		{"GET", "/openstack/networks/:network_id/subnets", h.GetNetworkSubnets},
 	}
 
 	initRoutes(rg, routes)

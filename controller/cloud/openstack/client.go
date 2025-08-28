@@ -77,6 +77,72 @@ type PortsResponse struct {
 	Ports []ServerPort `json:"ports"`
 }
 
+// Network represents OpenStack network details
+type Network struct {
+	ID                  string   `json:"id"`
+	Name                string   `json:"name"`
+	TenantID            string   `json:"tenant_id"`
+	AdminStateUp        bool     `json:"admin_state_up"`
+	Status              string   `json:"status"`
+	Subnets             []string `json:"subnets"`
+	Shared              bool     `json:"shared"`
+	AvailabilityZones   []string `json:"availability_zones"`
+	RouterExternal      bool     `json:"router:external"`
+	DNSDomain           string   `json:"dns_domain"`
+	MTU                 int      `json:"mtu"`
+	PortSecurityEnabled bool     `json:"port_security_enabled"`
+	Tags                []string `json:"tags"`
+	Description         string   `json:"description"`
+}
+
+// Subnet represents OpenStack subnet details
+type Subnet struct {
+	ID               string            `json:"id"`
+	Name             string            `json:"name"`
+	TenantID         string            `json:"tenant_id"`
+	NetworkID        string            `json:"network_id"`
+	IPVersion        int               `json:"ip_version"`
+	CIDR             string            `json:"cidr"`
+	GatewayIP        string            `json:"gateway_ip"`
+	DNSNameservers   []string          `json:"dns_nameservers"`
+	AllocationPools  []AllocationPool  `json:"allocation_pools"`
+	HostRoutes       []HostRoute       `json:"host_routes"`
+	EnableDHCP       bool              `json:"enable_dhcp"`
+	IPv6AddressMode  string            `json:"ipv6_address_mode"`
+	IPv6RAMode       string            `json:"ipv6_ra_mode"`
+	SubnetPoolID     string            `json:"subnetpool_id"`
+	UseDefaultSubnet bool              `json:"use_default_subnetpool"`
+	Tags             []string          `json:"tags"`
+	Description      string            `json:"description"`
+}
+
+// AllocationPool represents IP allocation pool
+type AllocationPool struct {
+	Start string `json:"start"`
+	End   string `json:"end"`
+}
+
+// HostRoute represents host route
+type HostRoute struct {
+	Destination string `json:"destination"`
+	NextHop     string `json:"nexthop"`
+}
+
+// NetworkResponse represents the response from getting network details
+type NetworkResponse struct {
+	Network Network `json:"network"`
+}
+
+// SubnetResponse represents the response from getting subnet details
+type SubnetResponse struct {
+	Subnet Subnet `json:"subnet"`
+}
+
+// SubnetsResponse represents the response from listing subnets
+type SubnetsResponse struct {
+	Subnets []Subnet `json:"subnets"`
+}
+
 // NewOpenStackClient creates a new OpenStack client
 func NewOpenStackClient(config *models.CloudConfig, logger *logger.Logger) *OpenStackClient {
 	return &OpenStackClient{
@@ -488,4 +554,208 @@ func (c *OpenStackClient) updatePort(ctx context.Context, endpoint, portID strin
 
 	c.Logger.Debugf("Successfully updated port %s", portID)
 	return nil
+}
+
+// GetNetwork retrieves network details by network ID
+func (c *OpenStackClient) GetNetwork(ctx context.Context, networkID string) (*Network, error) {
+	c.Logger.Debugf("OpenStack Network - Getting network details for: %s", networkID)
+	
+	// Authenticate first
+	if err := c.authenticate(ctx); err != nil {
+		c.Logger.Errorf("OpenStack Network - Authentication failed: %v", err)
+		return nil, fmt.Errorf("authentication failed: %v", err)
+	}
+
+	// Get network endpoint
+	endpoint, err := c.getNetworkEndpoint()
+	if err != nil {
+		c.Logger.Errorf("OpenStack Network - Failed to get network endpoint: %v", err)
+		return nil, fmt.Errorf("failed to get network endpoint: %v", err)
+	}
+
+	// Build request URL
+	reqURL := fmt.Sprintf("%s/v2.0/networks/%s", endpoint, networkID)
+	c.Logger.Debugf("OpenStack Network - Making request to: %s", reqURL)
+	
+	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
+	if err != nil {
+		c.Logger.Errorf("OpenStack Network - Failed to create request: %v", err)
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+
+	// Add authentication token
+	req.Header.Set("X-Auth-Token", c.cachedToken.tokenID)
+	req.Header.Set("Content-Type", "application/json")
+	
+	c.Logger.Debugf("OpenStack Network - Sending network details request")
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		c.Logger.Errorf("OpenStack Network - Request failed: %v", err)
+		return nil, fmt.Errorf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	c.Logger.Debugf("OpenStack Network - Received response with status: %d", resp.StatusCode)
+
+	if resp.StatusCode != http.StatusOK {
+		// Read response body for error details
+		bodyBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			c.Logger.Errorf("OpenStack Network Get - Failed to read error response body: %v", err)
+			return nil, fmt.Errorf("API request failed with status: %d (unable to read response body)", resp.StatusCode)
+		}
+		
+		// Log detailed error information
+		c.Logger.Errorf("OpenStack Network Get - API request failed with status: %d", resp.StatusCode)
+		c.Logger.Errorf("OpenStack Network Get - Error response body: %s", string(bodyBytes))
+		c.Logger.Debugf("OpenStack Network Get - Request URL: %s", reqURL)
+		
+		return nil, fmt.Errorf("API request failed with status: %d, response: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var networkResp NetworkResponse
+	if err := json.NewDecoder(resp.Body).Decode(&networkResp); err != nil {
+		c.Logger.Errorf("OpenStack Network - Failed to decode response: %v", err)
+		return nil, fmt.Errorf("failed to decode response: %v", err)
+	}
+
+	c.Logger.Infof("OpenStack Network - Successfully retrieved network %s (%s)", networkResp.Network.Name, networkID)
+	return &networkResp.Network, nil
+}
+
+// GetSubnet retrieves subnet details by subnet ID
+func (c *OpenStackClient) GetSubnet(ctx context.Context, subnetID string) (*Subnet, error) {
+	c.Logger.Debugf("OpenStack Subnet - Getting subnet details for: %s", subnetID)
+	
+	// Authenticate first
+	if err := c.authenticate(ctx); err != nil {
+		c.Logger.Errorf("OpenStack Subnet - Authentication failed: %v", err)
+		return nil, fmt.Errorf("authentication failed: %v", err)
+	}
+
+	// Get network endpoint
+	endpoint, err := c.getNetworkEndpoint()
+	if err != nil {
+		c.Logger.Errorf("OpenStack Subnet - Failed to get network endpoint: %v", err)
+		return nil, fmt.Errorf("failed to get network endpoint: %v", err)
+	}
+
+	// Build request URL
+	reqURL := fmt.Sprintf("%s/v2.0/subnets/%s", endpoint, subnetID)
+	c.Logger.Debugf("OpenStack Subnet - Making request to: %s", reqURL)
+	
+	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
+	if err != nil {
+		c.Logger.Errorf("OpenStack Subnet - Failed to create request: %v", err)
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+
+	// Add authentication token
+	req.Header.Set("X-Auth-Token", c.cachedToken.tokenID)
+	req.Header.Set("Content-Type", "application/json")
+	
+	c.Logger.Debugf("OpenStack Subnet - Sending subnet details request")
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		c.Logger.Errorf("OpenStack Subnet - Request failed: %v", err)
+		return nil, fmt.Errorf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	c.Logger.Debugf("OpenStack Subnet - Received response with status: %d", resp.StatusCode)
+
+	if resp.StatusCode != http.StatusOK {
+		// Read response body for error details
+		bodyBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			c.Logger.Errorf("OpenStack Subnet Get - Failed to read error response body: %v", err)
+			return nil, fmt.Errorf("API request failed with status: %d (unable to read response body)", resp.StatusCode)
+		}
+		
+		// Log detailed error information
+		c.Logger.Errorf("OpenStack Subnet Get - API request failed with status: %d", resp.StatusCode)
+		c.Logger.Errorf("OpenStack Subnet Get - Error response body: %s", string(bodyBytes))
+		c.Logger.Debugf("OpenStack Subnet Get - Request URL: %s", reqURL)
+		
+		return nil, fmt.Errorf("API request failed with status: %d, response: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var subnetResp SubnetResponse
+	if err := json.NewDecoder(resp.Body).Decode(&subnetResp); err != nil {
+		c.Logger.Errorf("OpenStack Subnet - Failed to decode response: %v", err)
+		return nil, fmt.Errorf("failed to decode response: %v", err)
+	}
+
+	c.Logger.Infof("OpenStack Subnet - Successfully retrieved subnet %s (%s)", subnetResp.Subnet.Name, subnetID)
+	return &subnetResp.Subnet, nil
+}
+
+// ListNetworkSubnets lists all subnets for a specific network
+func (c *OpenStackClient) ListNetworkSubnets(ctx context.Context, networkID string) ([]Subnet, error) {
+	c.Logger.Debugf("OpenStack Subnets - Listing subnets for network: %s", networkID)
+	
+	// Authenticate first
+	if err := c.authenticate(ctx); err != nil {
+		c.Logger.Errorf("OpenStack Subnets - Authentication failed: %v", err)
+		return nil, fmt.Errorf("authentication failed: %v", err)
+	}
+
+	// Get network endpoint
+	endpoint, err := c.getNetworkEndpoint()
+	if err != nil {
+		c.Logger.Errorf("OpenStack Subnets - Failed to get network endpoint: %v", err)
+		return nil, fmt.Errorf("failed to get network endpoint: %v", err)
+	}
+
+	// Build request URL with network filter
+	reqURL := fmt.Sprintf("%s/v2.0/subnets?network_id=%s", endpoint, url.QueryEscape(networkID))
+	c.Logger.Debugf("OpenStack Subnets - Making request to: %s", reqURL)
+	
+	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
+	if err != nil {
+		c.Logger.Errorf("OpenStack Subnets - Failed to create request: %v", err)
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+
+	// Add authentication token
+	req.Header.Set("X-Auth-Token", c.cachedToken.tokenID)
+	req.Header.Set("Content-Type", "application/json")
+	
+	c.Logger.Debugf("OpenStack Subnets - Sending subnets list request")
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		c.Logger.Errorf("OpenStack Subnets - Request failed: %v", err)
+		return nil, fmt.Errorf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	c.Logger.Debugf("OpenStack Subnets - Received response with status: %d", resp.StatusCode)
+
+	if resp.StatusCode != http.StatusOK {
+		// Read response body for error details
+		bodyBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			c.Logger.Errorf("OpenStack Subnets List - Failed to read error response body: %v", err)
+			return nil, fmt.Errorf("API request failed with status: %d (unable to read response body)", resp.StatusCode)
+		}
+		
+		// Log detailed error information
+		c.Logger.Errorf("OpenStack Subnets List - API request failed with status: %d", resp.StatusCode)
+		c.Logger.Errorf("OpenStack Subnets List - Error response body: %s", string(bodyBytes))
+		c.Logger.Debugf("OpenStack Subnets List - Request URL: %s", reqURL)
+		
+		return nil, fmt.Errorf("API request failed with status: %d, response: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var subnetsResp SubnetsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&subnetsResp); err != nil {
+		c.Logger.Errorf("OpenStack Subnets - Failed to decode response: %v", err)
+		return nil, fmt.Errorf("failed to decode response: %v", err)
+	}
+
+	c.Logger.Infof("OpenStack Subnets - Found %d subnets for network %s", len(subnetsResp.Subnets), networkID)
+	return subnetsResp.Subnets, nil
 }

@@ -73,12 +73,9 @@ func (ar *AllResources) initializeListener(ctx context.Context, rawListenerResou
 		return errstr.ErrUnexpectedResource
 	}
 
-	newVersion, err := resources.IncrementResourceVersion(ctx, context, rawListenerResource.General.Name, rawListenerResource.General.Project, ar.ResourceVersion)
-	if err != nil {
-		return err
-	}
+	// Version increment moved to GenerateSnapshot for centralized control
 	ar.mutex.Lock()
-	ar.SetVersion(newVersion)
+	ar.SetVersion(rawListenerResource.Resource.Version)
 	ar.SetProject(rawListenerResource.General.Project)
 	ar.mutex.Unlock()
 
@@ -228,6 +225,10 @@ func (ar *AllResources) CollectAllResourcesWithParent(ctx context.Context, gtype
 		logger.Errorf("Error getting resource %s: %v", resourceName, err)
 		return nil, nil, err
 	}
+	
+	// DEBUG: Log which resource version is being used
+	logger.Debugf("🔍 SNAPSHOT DEBUG: Using %s '%s' with resource.version=%s (envoy.version=%s)", 
+		gtype.String(), resourceName, resource.Resource.Version, ar.ResourceVersion)
 
 	resourceData := resource.GetResource()
 

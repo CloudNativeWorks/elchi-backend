@@ -25,6 +25,9 @@ func (h *Handler) ListServices(c *gin.Context) {
 	if downstream := c.Query("downstream_address"); downstream != "" {
 		requestDetails.Metadata["downstream_address"] = downstream
 	}
+	if status := c.Query("status"); status != "" {
+		requestDetails.Metadata["status"] = status
+	}
 	if page := c.Query("page"); page != "" {
 		requestDetails.Metadata["page"] = page
 	}

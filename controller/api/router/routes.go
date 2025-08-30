@@ -134,6 +134,7 @@ func initCustomRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 
 		{"GET", "/count/all", h.GetResourceCounts},
 		{"GET", "/count/filters", h.GetFilterCounts},
+		{"GET", "/error_summary", h.GetErrorSummary},
 	}
 
 	initRoutes(rg, routes)

@@ -50,24 +50,35 @@ func (p *DeployResponser) ValidateAndTransform(op models.OperationClass, respons
 
 	downstreamAddress := result.Deploy.DownstreamAddress
 	interfaceID := result.Deploy.InterfaceId
+	ipMode := result.Deploy.IpMode
 
 	// Debug logging for deploy response values
-	p.Logger.Debugf("Deploy Response - ClientID: %s, DownstreamAddress: '%s', InterfaceID: '%s', ServiceName: %s", 
-		clientID, downstreamAddress, interfaceID, serviceName)
+	p.Logger.Debugf("Deploy Response - ClientID: %s, DownstreamAddress: '%s', InterfaceID: '%s', IPMode: '%s', ServiceName: %s", 
+		clientID, downstreamAddress, interfaceID, ipMode, serviceName)
 
-	if err := p.addClientToService(clientID, downstreamAddress, serviceName, projectName, interfaceID); err != nil {
-		p.Logger.Warnf("Error while adding client to service: %v", err)
-	} else {
-		p.Logger.Infof("Client ID: %s successfully added to service: %s", clientID, serviceName)
-		
-		// OpenStack integration for allowed address pairs
-		if interfaceID != "" {
-			if err := p.handleOpenStackIntegration(clientID, downstreamAddress, interfaceID, projectName); err != nil {
-				p.Logger.Warnf("OpenStack integration failed for client %s: %v", clientID, err)
-			}
-		}
+	// Step 1: Add client to service (critical step)
+	if err := p.addClientToService(clientID, downstreamAddress, serviceName, projectName, interfaceID, ipMode); err != nil {
+		p.Logger.Errorf("Failed to add client to service: %v", err)
+		response.Success = false
+		response.Error = fmt.Sprintf("Client deployed successfully but service registration failed: %v", err)
+		return response
 	}
 
+	p.Logger.Infof("Client ID: %s successfully added to service: %s", clientID, serviceName)
+	
+	// Step 2: OpenStack integration (if required)
+	if interfaceID != "" && ipMode != "" {
+		if err := p.handleOpenStackIntegration(clientID, downstreamAddress, interfaceID, projectName, ipMode); err != nil {
+			p.Logger.Errorf("OpenStack integration failed for client %s: %v", clientID, err)
+			response.Success = false
+			response.Error = fmt.Sprintf("Client deployed and registered successfully but OpenStack IP configuration failed: %v", err)
+			return response
+		}
+		p.Logger.Infof("OpenStack integration completed successfully for client %s", clientID)
+	}
+
+	// All steps successful
+	p.Logger.Infof("Deploy completed successfully for client %s", clientID)
 	return response
 }
 
@@ -95,17 +106,18 @@ func (p *DeployResponser) validateResponse(response *pb.CommandResponse) bool {
 	return true
 }
 
-func (p *DeployResponser) addClientToService(clientID, downstreamAddress, serviceName, projectName string, interfaceID string) error {
+func (p *DeployResponser) addClientToService(clientID, downstreamAddress, serviceName, projectName, interfaceID, ipMode string) error {
 	servicesCollection := p.XDSHandler.Context.Client.Collection("services")
 
 	// Debug logging for service update
-	p.Logger.Debugf("addClientToService - Adding client to service: ClientID=%s, DownstreamAddress='%s', InterfaceID='%s', ServiceName=%s, Project=%s", 
-		clientID, downstreamAddress, interfaceID, serviceName, projectName)
+	p.Logger.Debugf("addClientToService - Adding client to service: ClientID=%s, DownstreamAddress='%s', InterfaceID='%s', IPMode='%s', ServiceName=%s, Project=%s", 
+		clientID, downstreamAddress, interfaceID, ipMode, serviceName, projectName)
 
 	clientInfo := models.ServiceClients{
 		ClientID:          clientID,
 		DownstreamAddress: downstreamAddress,
 		InterfaceID:       interfaceID,
+		IPMode:            ipMode,
 	}
 
 	var existingService struct {
@@ -154,8 +166,8 @@ func (p *DeployResponser) addClientToService(clientID, downstreamAddress, servic
 	return nil
 }
 
-// handleOpenStackIntegration manages OpenStack allowed address pairs
-func (p *DeployResponser) handleOpenStackIntegration(clientID, downstreamAddress, interfaceID, projectName string) error {
+// handleOpenStackIntegration manages OpenStack IP address operations (AAP or Fixed IP)
+func (p *DeployResponser) handleOpenStackIntegration(clientID, downstreamAddress, interfaceID, projectName, ipMode string) error {
 	// Get client information to check provider
 	client, err := p.Service.GetClientByClientID(context.Background(), clientID)
 	if err != nil {
@@ -173,14 +185,36 @@ func (p *DeployResponser) handleOpenStackIntegration(clientID, downstreamAddress
 		return nil
 	}
 
-	// Add allowed address pair using OpenStack handler
-	p.Logger.Infof("OpenStack integration: Adding allowed address pair %s to interface %s for client %s", 
-		downstreamAddress, interfaceID, clientID)
+	// Handle IP address management based on mode
+	switch ipMode {
+	case "aap":
+		// Add allowed address pair using OpenStack handler
+		p.Logger.Infof("OpenStack integration: Adding allowed address pair %s to interface %s for client %s", 
+			downstreamAddress, interfaceID, clientID)
 
-	if err := p.OpenStackHandler.AddAllowedAddressPair(context.Background(), interfaceID, downstreamAddress, projectName); err != nil {
-		return fmt.Errorf("failed to add allowed address pair: %v", err)
+		if err := p.OpenStackHandler.AddAllowedAddressPair(context.Background(), interfaceID, downstreamAddress, projectName); err != nil {
+			return fmt.Errorf("failed to add allowed address pair: %v", err)
+		}
+
+		p.Logger.Infof("Successfully added allowed address pair %s to interface %s", downstreamAddress, interfaceID)
+		return nil
+
+	case "fixed":
+		// Add fixed IP using OpenStack handler
+		// TODO: Need subnet ID for fixed IP - for now, we'll need to get it from the port's existing fixed IPs
+		p.Logger.Infof("OpenStack integration: Adding fixed IP %s to interface %s for client %s", 
+			downstreamAddress, interfaceID, clientID)
+
+		// We need to determine the subnet ID from the port's existing fixed IPs
+		// For now, we'll use the first fixed IP's subnet ID as reference
+		if err := p.OpenStackHandler.AddFixedIPWithAutoSubnet(context.Background(), interfaceID, downstreamAddress, projectName); err != nil {
+			return fmt.Errorf("failed to add fixed IP: %v", err)
+		}
+
+		p.Logger.Infof("Successfully added fixed IP %s to interface %s", downstreamAddress, interfaceID)
+		return nil
+
+	default:
+		return fmt.Errorf("invalid ip_mode: %s (must be 'aap' or 'fixed')", ipMode)
 	}
-
-	p.Logger.Infof("Successfully added allowed address pair %s to interface %s", downstreamAddress, interfaceID)
-	return nil
 }

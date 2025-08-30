@@ -39,37 +39,51 @@ func (p *UnDeployResponser) ValidateAndTransform(op models.OperationClass, respo
 	downstreamAddress := result.Undeploy.DownstreamAddress
 	clientName := response.Identity.ClientName
 
-	// Get interface_id from database before removing client
-	interfaceID, err := p.getInterfaceIDFromService(clientID, serviceName, projectName, downstreamAddress)
+	// Get interface_id and ip_mode from database before removing client
+	interfaceID, ipMode, err := p.getInterfaceAndIPModeFromService(clientID, serviceName, projectName, downstreamAddress)
 	if err != nil {
-		p.Logger.Warnf("Could not get interface_id from service: %v", err)
+		p.Logger.Warnf("Could not get interface_id and ip_mode from service: %v", err)
 	}
 
+	// Step 1: Remove client from service (critical step)
 	if err := p.removeClientFromService(clientID, serviceName, projectName); err != nil {
-		p.Logger.Errorf("Error while removing client from service: %v", err)
-	} else {
-		p.Logger.Infof("Client ID: %s, Service: %s successfully removed", clientID, serviceName)
-		
-		// OpenStack integration for allowed address pair removal
-		if interfaceID != "" {
-			if err := p.handleOpenStackIntegration(clientID, downstreamAddress, interfaceID, projectName); err != nil {
-				p.Logger.Warnf("OpenStack integration failed for client %s: %v", clientID, err)
-			}
-		}
+		p.Logger.Errorf("Failed to remove client from service: %v", err)
+		response.Success = false
+		response.Error = fmt.Sprintf("Client undeployed successfully but service deregistration failed: %v", err)
+		return response
 	}
 
+	p.Logger.Infof("Client ID: %s, Service: %s successfully removed", clientID, serviceName)
+	
+	// Step 2: OpenStack integration (if required)
+	if interfaceID != "" && ipMode != "" {
+		if err := p.handleOpenStackIntegration(clientID, downstreamAddress, interfaceID, projectName, ipMode); err != nil {
+			p.Logger.Errorf("OpenStack integration failed for client %s: %v", clientID, err)
+			response.Success = false
+			response.Error = fmt.Sprintf("Client undeployed and deregistered successfully but OpenStack IP cleanup failed: %v", err)
+			return response
+		}
+		p.Logger.Infof("OpenStack integration completed successfully for client %s", clientID)
+	}
+
+	// Step 3: Notify control-plane (non-critical, continue on failure)
 	if err := p.notifyControlPlaneUndeploy(serviceName, projectName, downstreamAddress); err != nil {
 		p.Logger.Errorf("Error while notifying control-plane about undeploy: %v", err)
+		// Don't fail the entire undeploy for control-plane notification failure
 	} else {
 		p.Logger.Infof("Control-plane notified about undeploy: %s", serviceName)
 	}
 
+	// Step 4: Remove from envoys collection (non-critical, continue on failure)
 	if err := p.removeServiceFromEnvoys(serviceName, projectName, clientName, downstreamAddress); err != nil {
 		p.Logger.Errorf("Error while removing service from envoys: %v", err)
+		// Don't fail the entire undeploy for envoys cleanup failure
 	} else {
 		p.Logger.Infof("Service: %s successfully removed from envoys", serviceName)
 	}
 
+	// All critical steps successful
+	p.Logger.Infof("Undeploy completed successfully for client %s", clientID)
 	return response
 }
 
@@ -97,8 +111,8 @@ func (p *UnDeployResponser) validateResponse(response *pb.CommandResponse) bool 
 	return true
 }
 
-// getInterfaceIDFromService retrieves the interface_id for a specific client from service
-func (p *UnDeployResponser) getInterfaceIDFromService(clientID, serviceName, projectName, downstreamAddress string) (string, error) {
+// getInterfaceAndIPModeFromService retrieves the interface_id and ip_mode for a specific client from service
+func (p *UnDeployResponser) getInterfaceAndIPModeFromService(clientID, serviceName, projectName, downstreamAddress string) (string, string, error) {
 	servicesCollection := p.XDSHandler.Context.Client.Collection("services")
 
 	var service struct {
@@ -111,18 +125,18 @@ func (p *UnDeployResponser) getInterfaceIDFromService(clientID, serviceName, pro
 	}
 
 	if err := servicesCollection.FindOne(context.Background(), filter).Decode(&service); err != nil {
-		return "", fmt.Errorf("service not found: %w", err)
+		return "", "", fmt.Errorf("service not found: %w", err)
 	}
 
-	// Find the matching client to get interface_id
+	// Find the matching client to get interface_id and ip_mode
 	for _, client := range service.Clients {
 		if client.ClientID == clientID && client.DownstreamAddress == downstreamAddress {
-			p.Logger.Debugf("Found interface_id: %s for client %s", client.InterfaceID, clientID)
-			return client.InterfaceID, nil
+			p.Logger.Debugf("Found interface_id: %s, ip_mode: %s for client %s", client.InterfaceID, client.IPMode, clientID)
+			return client.InterfaceID, client.IPMode, nil
 		}
 	}
 
-	return "", fmt.Errorf("client not found in service: %s", clientID)
+	return "", "", fmt.Errorf("client not found in service: %s", clientID)
 }
 
 func (p *UnDeployResponser) removeClientFromService(clientID, serviceName, projectName string) error {
@@ -258,8 +272,8 @@ func (p *UnDeployResponser) notifyControlPlaneUndeploy(serviceName, projectName,
 	return nil
 }
 
-// handleOpenStackIntegration manages OpenStack allowed address pair removal
-func (p *UnDeployResponser) handleOpenStackIntegration(clientID, downstreamAddress, interfaceID, projectName string) error {
+// handleOpenStackIntegration manages OpenStack IP address removal (AAP or Fixed IP)
+func (p *UnDeployResponser) handleOpenStackIntegration(clientID, downstreamAddress, interfaceID, projectName, ipMode string) error {
 	// Get client information to check provider
 	client, err := p.Service.GetClientByClientID(context.Background(), clientID)
 	if err != nil {
@@ -277,14 +291,34 @@ func (p *UnDeployResponser) handleOpenStackIntegration(clientID, downstreamAddre
 		return nil
 	}
 
-	// Remove allowed address pair using OpenStack handler
-	p.Logger.Infof("OpenStack integration: Removing allowed address pair %s from interface %s for client %s", 
-		downstreamAddress, interfaceID, clientID)
+	// Handle IP address removal based on mode
+	switch ipMode {
+	case "aap":
+		// Remove allowed address pair using OpenStack handler
+		p.Logger.Infof("OpenStack integration: Removing allowed address pair %s from interface %s for client %s", 
+			downstreamAddress, interfaceID, clientID)
 
-	if err := p.OpenStackHandler.RemoveAllowedAddressPair(context.Background(), interfaceID, downstreamAddress, projectName); err != nil {
-		return fmt.Errorf("failed to remove allowed address pair: %v", err)
+		if err := p.OpenStackHandler.RemoveAllowedAddressPair(context.Background(), interfaceID, downstreamAddress, projectName); err != nil {
+			return fmt.Errorf("failed to remove allowed address pair: %v", err)
+		}
+
+		p.Logger.Infof("Successfully removed allowed address pair %s from interface %s", downstreamAddress, interfaceID)
+		return nil
+
+	case "fixed":
+		// Remove fixed IP using OpenStack handler
+		p.Logger.Infof("OpenStack integration: Removing fixed IP %s from interface %s for client %s", 
+			downstreamAddress, interfaceID, clientID)
+
+		if err := p.OpenStackHandler.RemoveFixedIP(context.Background(), interfaceID, downstreamAddress, projectName); err != nil {
+			return fmt.Errorf("failed to remove fixed IP: %v", err)
+		}
+
+		p.Logger.Infof("Successfully removed fixed IP %s from interface %s", downstreamAddress, interfaceID)
+		return nil
+
+	default:
+		p.Logger.Warnf("Unknown ip_mode '%s' for client %s - skipping OpenStack IP removal", ipMode, clientID)
+		return nil
 	}
-
-	p.Logger.Infof("Successfully removed allowed address pair %s from interface %s", downstreamAddress, interfaceID)
-	return nil
 }

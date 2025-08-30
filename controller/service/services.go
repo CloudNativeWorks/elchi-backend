@@ -88,10 +88,24 @@ func (s *AppHandler) ListServices(ctx context.Context, _ models.OperationClass, 
 		bson.D{
 			{Key: "$addFields", Value: bson.D{
 				{Key: "status", Value: bson.D{
-					{Key: "$arrayElemAt", Value: bson.A{"$envoy_statuses.status", 0}},
+					{Key: "$ifNull", Value: bson.A{
+						bson.D{{Key: "$arrayElemAt", Value: bson.A{"$envoy_statuses.status", 0}}},
+						"Not_Deployed",
+					}},
 				}},
 			}},
 		},
+	}
+	
+	// Add status filter if provided
+	if requestDetails.Metadata != nil {
+		if statusVal, ok := requestDetails.Metadata["status"]; ok && statusVal != "" {
+			pipeline = append(pipeline, bson.D{
+				{Key: "$match", Value: bson.D{
+					{Key: "status", Value: statusVal},
+				}},
+			})
+		}
 	}
 
 	// Add sorting
@@ -272,3 +286,5 @@ func (s *AppHandler) GetEnvoyDetails(ctx context.Context, _ models.OperationClas
 
 	return &service, nil
 }
+
+// Legacy error processing functions removed - new application uses enhanced errors only

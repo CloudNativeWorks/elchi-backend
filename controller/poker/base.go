@@ -27,8 +27,14 @@ func DetectChangedResource(ctx context.Context, gType models.GType, version, res
 	if gType != models.Listener {
 		processed.Depends = append(processed.Depends, pathWithGtype)
 	}
+	
+	// DEBUG: Log dependency detection
+	context.Logger.Debugf("🔍 DEPENDENCY DEBUG: Detecting changed %s '%s' (envoy.version=%s)", 
+		gType.String(), resourceName, version)
 
 	if helper.Contains(processed.ProcessedResources, pathWithGtype) {
+		context.Logger.Debugf("🔍 DEPENDENCY DEBUG: %s '%s' already processed, skipping", 
+			gType.String(), resourceName)
 		return processed
 	}
 
@@ -53,9 +59,15 @@ func DetectChangedResource(ctx context.Context, gType models.GType, version, res
 }
 
 func HandlePoke(ctx context.Context, context *db.AppContext, resourceName, project, version string, processed *Processed, poke *bridge.PokeServiceClient, downstreamAddress string) {
+	// DEBUG: Log poke initiation
+	context.Logger.Debugf("🔍 POKE DEBUG: Initiating poke for listener '%s' (envoy.version=%s, project=%s)", 
+		resourceName, version, project)
+	
 	_, err := bridgeClient.PokeNode(ctx, *poke, resourceName, project, version, downstreamAddress)
 	if err != nil {
 		context.Logger.Debugf("Poke failed: %s\n", err)
+	} else {
+		context.Logger.Debugf("🔍 POKE DEBUG: Poke successful for listener '%s'", resourceName)
 	}
 
 	processed.Listeners = append(processed.Listeners, resourceName)

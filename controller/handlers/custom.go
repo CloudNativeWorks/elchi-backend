@@ -23,3 +23,7 @@ func (h *Handler) GetFilterCounts(c *gin.Context) {
 func (h *Handler) GetResourceCounts(c *gin.Context) {
 	h.handleRequest(c, h.Custom.GetResourceCounts)
 }
+
+func (h *Handler) GetErrorSummary(c *gin.Context) {
+	h.handleRequest(c, h.Custom.GetErrorSummary)
+}

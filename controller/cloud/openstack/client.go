@@ -761,3 +761,120 @@ func (c *OpenStackClient) ListNetworkSubnets(ctx context.Context, networkID stri
 	c.Logger.Infof("OpenStack Subnets - Found %d subnets for network %s", len(subnetsResp.Subnets), networkID)
 	return subnetsResp.Subnets, nil
 }
+
+// AddFixedIP adds a fixed IP address to a port
+func (c *OpenStackClient) AddFixedIP(ctx context.Context, portID, ipAddress, subnetID string) error {
+	c.Logger.Debugf("OpenStack Fixed IP - Adding fixed IP %s to port %s (subnet: %s)", ipAddress, portID, subnetID)
+	
+	// Authenticate first
+	if err := c.authenticate(ctx); err != nil {
+		c.Logger.Errorf("OpenStack Fixed IP - Authentication failed: %v", err)
+		return fmt.Errorf("authentication failed: %v", err)
+	}
+
+	// Get network endpoint
+	endpoint, err := c.getNetworkEndpoint()
+	if err != nil {
+		c.Logger.Errorf("OpenStack Fixed IP - Failed to get network endpoint: %v", err)
+		return fmt.Errorf("failed to get network endpoint: %v", err)
+	}
+
+	// First, get current port details to preserve existing fixed IPs
+	port, err := c.getPort(ctx, endpoint, portID)
+	if err != nil {
+		c.Logger.Errorf("OpenStack Fixed IP - Failed to get port details: %v", err)
+		return fmt.Errorf("failed to get port details: %v", err)
+	}
+
+	// Check if the IP address is already in fixed IPs
+	for _, fixedIP := range port.FixedIPs {
+		if fixedIP.IPAddress == ipAddress {
+			c.Logger.Debugf("IP address %s already exists in fixed IPs for port %s", ipAddress, portID)
+			return nil
+		}
+	}
+
+	// Add the new fixed IP
+	newFixedIP := FixedIP{
+		IPAddress: ipAddress,
+		SubnetID:  subnetID,
+	}
+	port.FixedIPs = append(port.FixedIPs, newFixedIP)
+
+	// Update the port
+	updatePayload := map[string]interface{}{
+		"port": map[string]interface{}{
+			"fixed_ips": port.FixedIPs,
+		},
+	}
+
+	if err := c.updatePort(ctx, endpoint, portID, updatePayload); err != nil {
+		c.Logger.Errorf("OpenStack Fixed IP - Failed to update port: %v", err)
+		return err
+	}
+
+	c.Logger.Infof("Successfully added fixed IP %s to port %s", ipAddress, portID)
+	return nil
+}
+
+// RemoveFixedIP removes a fixed IP address from a port
+func (c *OpenStackClient) RemoveFixedIP(ctx context.Context, portID, ipAddress string) error {
+	c.Logger.Debugf("OpenStack Fixed IP - Removing fixed IP %s from port %s", ipAddress, portID)
+	
+	// Authenticate first
+	if err := c.authenticate(ctx); err != nil {
+		c.Logger.Errorf("OpenStack Fixed IP - Authentication failed: %v", err)
+		return fmt.Errorf("authentication failed: %v", err)
+	}
+
+	// Get network endpoint
+	endpoint, err := c.getNetworkEndpoint()
+	if err != nil {
+		c.Logger.Errorf("OpenStack Fixed IP - Failed to get network endpoint: %v", err)
+		return fmt.Errorf("failed to get network endpoint: %v", err)
+	}
+
+	// Get current port details
+	port, err := c.getPort(ctx, endpoint, portID)
+	if err != nil {
+		c.Logger.Errorf("OpenStack Fixed IP - Failed to get port details: %v", err)
+		return fmt.Errorf("failed to get port details: %v", err)
+	}
+
+	// Remove the fixed IP (but keep at least one fixed IP)
+	var updatedFixedIPs []FixedIP
+	found := false
+	for _, fixedIP := range port.FixedIPs {
+		if fixedIP.IPAddress != ipAddress {
+			updatedFixedIPs = append(updatedFixedIPs, fixedIP)
+		} else {
+			found = true
+		}
+	}
+
+	if !found {
+		c.Logger.Debugf("IP address %s not found in fixed IPs for port %s", ipAddress, portID)
+		return nil
+	}
+
+	// Ensure at least one fixed IP remains (OpenStack requirement)
+	if len(updatedFixedIPs) == 0 {
+		c.Logger.Warnf("Cannot remove last fixed IP %s from port %s - at least one fixed IP is required", ipAddress, portID)
+		return fmt.Errorf("cannot remove last fixed IP from port - at least one fixed IP is required")
+	}
+
+	// Update the port
+	updatePayload := map[string]interface{}{
+		"port": map[string]interface{}{
+			"fixed_ips": updatedFixedIPs,
+		},
+	}
+
+	if err := c.updatePort(ctx, endpoint, portID, updatePayload); err != nil {
+		c.Logger.Errorf("OpenStack Fixed IP - Failed to update port: %v", err)
+		return err
+	}
+
+	c.Logger.Infof("Successfully removed fixed IP %s from port %s", ipAddress, portID)
+	return nil
+}

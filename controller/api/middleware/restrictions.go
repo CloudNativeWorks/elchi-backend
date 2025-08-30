@@ -59,6 +59,7 @@ var AllowedEndpoints = []string{
 	"/api/v3/custom/count/filters",
 	"/api/v3/custom/count/all",
 	"/api/v3/custom/available_versions",
+	"/api/v3/custom/error_summary",
 	"/api/v3/dependency/:name",
 	"/api/v3/scenario/components",
 	"/api/v3/scenario/scenarios",

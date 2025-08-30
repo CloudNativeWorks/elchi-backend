@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -46,17 +45,8 @@ func updateResource(ctx context.Context, extension *AppHandler, resource models.
 	}
 
 	filterWithRestriction := common.AddUserFilter(requestDetails, filter)
-	versionStr, ok := resource.GetVersion().(string)
-	if !ok {
-		extension.Logger.Warnf("expected string type for version, got %v", resource.GetVersion())
-		return nil, fmt.Errorf("invalid version format: %v", resource.GetVersion())
-	}
-
-	version, err := strconv.Atoi(versionStr)
-	if err != nil {
-		return nil, fmt.Errorf("invalid version format: %s", versionStr)
-	}
-	resource.SetVersion(strconv.Itoa(version + 1))
+	// Version increment moved to control-plane GenerateSnapshot for centralized control
+	// Keep existing version without manual increment
 	newResource := resource.GetResource()
 	nodeid := fmt.Sprintf("%s::%s", requestDetails.Name, requestDetails.Project)
 

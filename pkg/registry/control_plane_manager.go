@@ -12,7 +12,7 @@ import (
 
 type ControlPlaneManager struct {
 	client          *ControlPlaneRegistryClient
-	config          *ControlPlaneConfig
+	Config          *ControlPlaneConfig
 	logger          *logger.Logger
 	ctx             context.Context
 	cancel          context.CancelFunc
@@ -20,8 +20,8 @@ type ControlPlaneManager struct {
 	snapshotContext *snapshot.Context
 
 	// Node version tracking
-	nodeVersions map[string]string // nodeID -> version
-	nodesMutex   sync.RWMutex
+	NodeVersions map[string]string // nodeID -> version
+	NodesMutex   sync.RWMutex
 
 	// Registration tracking
 	isRegistered bool
@@ -54,12 +54,12 @@ func NewControlPlaneManager(config *ControlPlaneConfig, logger *logger.Logger, s
 
 	manager := &ControlPlaneManager{
 		client:          client,
-		config:          config,
+		Config:          config,
 		logger:          logger,
 		ctx:             ctx,
 		cancel:          cancel,
 		snapshotContext: snapshotContext,
-		nodeVersions:    make(map[string]string),
+		NodeVersions:    make(map[string]string),
 		isRegistered:    false,
 		connectionState: StateDisconnected,
 		reconnectEnabled: true,
@@ -161,7 +161,7 @@ func (m *ControlPlaneManager) connectAndRegister() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	m.logger.Infof("🔗 Attempting to connect to registry at %s...", m.config.RegistryAddress)
+	m.logger.Infof("🔗 Attempting to connect to registry at %s...", m.Config.RegistryAddress)
 
 	// Disconnect first if needed
 	if err := m.client.Disconnect(); err != nil {
@@ -175,8 +175,8 @@ func (m *ControlPlaneManager) connectAndRegister() error {
 	}
 
 	// CRITICAL: Explicit registration with version BEFORE any node list operations
-	m.logger.Infof("📝 Explicitly registering control-plane %s with version %s", m.config.ControlPlaneID, m.config.Version)
-	if err := m.client.RegisterControlPlaneWithRetry(ctx, m.config); err != nil {
+	m.logger.Infof("📝 Explicitly registering control-plane %s with version %s", m.Config.ControlPlaneID, m.Config.Version)
+	if err := m.client.RegisterControlPlaneWithRetry(ctx, m.Config); err != nil {
 		m.logger.Errorf("❌ Control-plane registration failed: %v", err)
 		return fmt.Errorf("failed to register control-plane: %v", err)
 	}
@@ -191,7 +191,7 @@ func (m *ControlPlaneManager) connectAndRegister() error {
 	// Send empty node list ONLY AFTER successful registration
 	// This prevents auto-registration attempts that cause EOF errors
 	m.logger.Infof("🧹 Sending initial empty node list (control-plane is now registered)")
-	if err := m.client.UpdateNodeList(m.config.ControlPlaneID, []ControlPlaneNodeInfo{}, m.config.Version); err != nil {
+	if err := m.client.UpdateNodeList(m.Config.ControlPlaneID, []ControlPlaneNodeInfo{}, m.Config.Version); err != nil {
 		m.logger.Errorf("Failed to send empty node list after registration: %v", err)
 		// Don't fail here since registration succeeded
 	} else {
@@ -205,7 +205,7 @@ func (m *ControlPlaneManager) connectAndRegister() error {
 		getAllNodes := func() []ControlPlaneNodeInfo {
 			return m.GetAllNodes()
 		}
-		if err := m.client.SyncAllNodesWithRegistry(ctx, m.config.ControlPlaneID, getAllNodes, m.config.Version); err != nil {
+		if err := m.client.SyncAllNodesWithRegistry(ctx, m.Config.ControlPlaneID, getAllNodes, m.Config.Version); err != nil {
 			m.logger.Errorf("Failed to sync existing nodes: %v", err)
 		} else {
 			m.logger.Infof("✅ Node sync completed successfully")
@@ -265,9 +265,9 @@ func (m *ControlPlaneManager) NotifySnapshotDelivered(nodeID, version string) {
 	}
 	
 	// Store node version for future reference
-	m.nodesMutex.Lock()
-	m.nodeVersions[nodeID] = version
-	m.nodesMutex.Unlock()
+	m.NodesMutex.Lock()
+	m.NodeVersions[nodeID] = version
+	m.NodesMutex.Unlock()
 
 	m.logger.Infof("🔍 DEBUG: Node version stored, notifying registry")
 
@@ -276,7 +276,7 @@ func (m *ControlPlaneManager) NotifySnapshotDelivered(nodeID, version string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		if err := m.client.NotifySnapshotDeliveredWithRetry(ctx, m.config.ControlPlaneID, nodeID, version); err != nil {
+		if err := m.client.NotifySnapshotDeliveredWithRetry(ctx, m.Config.ControlPlaneID, nodeID, version); err != nil {
 			m.logger.Errorf("Failed to notify snapshot delivery: %v", err)
 			// Mark as disconnected on error to trigger reconnection
 			m.setConnectionState(StateDisconnected)
@@ -292,10 +292,10 @@ func (m *ControlPlaneManager) RemoveNode(nodeID string) {
 		return
 	}
 
-	m.nodesMutex.Lock()
-	version, exists := m.nodeVersions[nodeID]
-	delete(m.nodeVersions, nodeID)
-	m.nodesMutex.Unlock()
+	m.NodesMutex.Lock()
+	version, exists := m.NodeVersions[nodeID]
+	delete(m.NodeVersions, nodeID)
+	m.NodesMutex.Unlock()
 
 	m.logger.Debugf("Removed node version tracking for: %s", nodeID)
 
@@ -326,7 +326,7 @@ func (m *ControlPlaneManager) NotifyNodeDisconnected(nodeID, version string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		if err := m.client.NotifyNodeDisconnected(ctx, m.config.ControlPlaneID, nodeID, version); err != nil {
+		if err := m.client.NotifyNodeDisconnected(ctx, m.Config.ControlPlaneID, nodeID, version); err != nil {
 			m.logger.Errorf("Failed to notify node disconnection: %v", err)
 			// Don't mark as disconnected for this error - it's less critical than snapshot delivery
 		} else {
@@ -411,7 +411,7 @@ func (m *ControlPlaneManager) nodeListUpdateLoop() {
 			m.logger.Infof("Periodic node list update: %d connected nodes", len(nodes))
 
 			// CRITICAL FIX: Always send node list (even if empty) to keep control-plane alive in registry
-			if err := m.client.UpdateNodeList(m.config.ControlPlaneID, nodes, m.config.Version); err != nil {
+			if err := m.client.UpdateNodeList(m.Config.ControlPlaneID, nodes, m.Config.Version); err != nil {
 				m.logger.Errorf("Failed to update node list: %v", err)
 				m.handleConnectionFailure("node list update")
 			} else {
@@ -440,17 +440,14 @@ func (m *ControlPlaneManager) GetAllNodes() []ControlPlaneNodeInfo {
 	statusKeys := m.snapshotContext.Cache.Cache.GetStatusKeys()
 	var nodes []ControlPlaneNodeInfo
 
-	m.nodesMutex.RLock()
-	defer m.nodesMutex.RUnlock()
+	m.NodesMutex.RLock()
+	defer m.NodesMutex.RUnlock()
 
 	for _, nodeID := range statusKeys {
 		status := m.snapshotContext.Cache.Cache.GetStatusInfo(nodeID)
 		if status != nil {
-			// Use stored version from metadata, fallback to control-plane version
-			version := m.config.Version
-			if storedVersion, exists := m.nodeVersions[nodeID]; exists {
-				version = storedVersion
-			}
+			// 🛡️ ROBUST VERSION RESOLUTION for all nodes
+			finalVersion := m.resolveAllNodeVersionRobust(nodeID)
 
 			// Get last watch time
 			lastWatchTime := status.GetLastDeltaWatchRequestTime()
@@ -460,7 +457,7 @@ func (m *ControlPlaneManager) GetAllNodes() []ControlPlaneNodeInfo {
 
 			nodes = append(nodes, ControlPlaneNodeInfo{
 				NodeID:   nodeID,
-				Version:  version,
+				Version:  finalVersion,
 				LastSeen: lastWatchTime,
 			})
 		}
@@ -469,32 +466,76 @@ func (m *ControlPlaneManager) GetAllNodes() []ControlPlaneNodeInfo {
 	return nodes
 }
 
+// 🛡️ resolveAllNodeVersionRobust provides robust version resolution for all nodes (connected/disconnected)
+func (m *ControlPlaneManager) resolveAllNodeVersionRobust(nodeID string) string {
+	// 1. Primary: Use stored version from NotifySnapshotDelivered (most reliable)
+	if storedVersion, exists := m.NodeVersions[nodeID]; exists && storedVersion != "" {
+		m.logger.Debugf("✅ Using stored version for node %s: %s", nodeID, storedVersion)
+		return storedVersion
+	}
+	
+	// 2. Fallback 1: Use control-plane version as last resort
+	if m.Config != nil && m.Config.Version != "" {
+		m.logger.Warnf("⚠️  No reliable version for node %s, falling back to control-plane version: %s", nodeID, m.Config.Version)
+		// Store fallback version
+		m.NodeVersions[nodeID] = m.Config.Version
+		return m.Config.Version
+	}
+	
+	// 3. Absolute fallback: Use unknown but warn heavily
+	m.logger.Errorf("🚨 FATAL: No version available anywhere for node %s, using 'unknown' - THIS SHOULD NEVER HAPPEN!", nodeID)
+	return "unknown"
+}
+
 // GetConnectedNodes returns the list of connected nodes from snapshot context
 func (m *ControlPlaneManager) GetConnectedNodes() []ControlPlaneNodeInfo {
 	connectedNodes := m.snapshotContext.GetConnectedNodes()
 
-	m.nodesMutex.RLock()
-	defer m.nodesMutex.RUnlock()
+	m.NodesMutex.RLock()
+	defer m.NodesMutex.RUnlock()
 
 	// Convert to ControlPlaneNodeInfo slice
 	var nodes []ControlPlaneNodeInfo
 	for _, node := range connectedNodes {
 		if node.Connected {
-			// Use stored version from metadata, fallback to what's in snapshot context
-			version := node.Version
-			if storedVersion, exists := m.nodeVersions[node.NodeID]; exists {
-				version = storedVersion
-			}
-
+			// 🛡️ ROBUST VERSION RESOLUTION with prioritized fallbacks
+			finalVersion := m.resolveNodeVersionRobust(node)
+			
 			nodes = append(nodes, ControlPlaneNodeInfo{
 				NodeID:   node.NodeID,
-				Version:  version,
+				Version:  finalVersion,
 				LastSeen: node.LastSeen,
 			})
 		}
 	}
 
 	return nodes
+}
+
+// 🛡️ resolveNodeVersionRobust provides robust version resolution for nodes
+func (m *ControlPlaneManager) resolveNodeVersionRobust(node snapshot.ConnectedNode) string {
+	nodeID := node.NodeID
+	
+	// 1. Primary: Use stored version from NotifySnapshotDelivered (most reliable)
+	if storedVersion, exists := m.NodeVersions[nodeID]; exists && storedVersion != "" {
+		m.logger.Debugf("✅ Using stored version for node %s: %s", nodeID, storedVersion)
+		return storedVersion
+	}
+	
+	// NOTE: node.Version is incremental snapshot version (1,2,3...), NOT Envoy version!
+	// So we skip it and use control-plane version as fallback
+	
+	// 2. Fallback 1: Use control-plane version as last resort
+	if m.Config != nil && m.Config.Version != "" {
+		m.logger.Errorf("🚨 CRITICAL: No reliable version for node %s, falling back to control-plane version: %s", nodeID, m.Config.Version)
+		// Store fallback version
+		m.NodeVersions[nodeID] = m.Config.Version
+		return m.Config.Version
+	}
+	
+	// 3. Absolute fallback: Use unknown but warn heavily
+	m.logger.Errorf("🚨 FATAL: No version available anywhere for node %s, using 'unknown' - THIS SHOULD NEVER HAPPEN!", nodeID)
+	return "unknown"
 }
 
 // GetConnectedNodeCount returns the number of connected nodes

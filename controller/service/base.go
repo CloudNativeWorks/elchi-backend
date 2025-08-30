@@ -28,6 +28,7 @@ type Client struct {
 	DownstreamAddress string `json:"downstream_address" bson:"downstream_address"`
 	ClientID          string `json:"client_id" bson:"client_id"`
 	InterfaceID       string `json:"interface_id,omitempty" bson:"interface_id"`
+	IPMode            string `json:"ip_mode,omitempty" bson:"ip_mode"` // "aap" or "fixed"
 }
 
 func NewServiceHandler(context *db.AppContext) *AppHandler {

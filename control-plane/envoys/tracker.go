@@ -41,5 +41,14 @@ func (e *EnvoyConnTracker) TrackClientDown(dbClient *mongo.Database, cache cache
 func (e *EnvoyConnTracker) AddOrUpdateError(dbClient *mongo.Database, nodeID, resourceID, errorMsg, nonce string, logger *logger.Logger) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	InsertError(ctx, dbClient, nodeID, resourceID, errorMsg, nonce, logger)
+	
+	// Use enhanced error handling for better user experience
+	InsertEnhancedError(ctx, dbClient, nodeID, resourceID, errorMsg, nonce, logger)
+	
+	// Legacy error system removed - using enhanced errors only
+}
+
+// AutoResolveAllErrors wraps the auto-resolve functionality for tracker context
+func (e *EnvoyConnTracker) AutoResolveAllErrors(ctx context.Context, dbClient *mongo.Database, nodeID string, logger *logger.Logger) {
+	AutoResolveAllErrors(ctx, dbClient, nodeID, logger)
 }

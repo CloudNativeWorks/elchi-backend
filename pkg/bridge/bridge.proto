@@ -52,6 +52,7 @@ message PokeRequest {
   string project = 2;
   string version = 3;
   string downstream_address = 4;
+  bool is_config_update = 5; // True for real config updates, false for control-plane restart
 }
 
 message PokeResponse { string message = 1; }

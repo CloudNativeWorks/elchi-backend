@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -100,14 +99,15 @@ func (xds *AppHandler) UpdateResource(ctx context.Context, resource models.Resou
 	}
 	
 	newResource := resource.GetResource()
-	version, _ := strconv.Atoi(resource.GetVersion().(string))
 	nodeid := fmt.Sprintf("%s::%s", requestDetails.Name, requestDetails.Project)
 
 	if err := resources.ValidateResourceWithClient(context.Background(), resource.GetGeneral().GType, resource.GetGeneral().Version, nodeid, newResource, xds.ResourceService); err != nil {
 		return nil, fmt.Errorf("%v", err)
 	}
 
-	resource.SetVersion(strconv.Itoa(version + 1))
+	// Version increment moved to control-plane GenerateSnapshot for centralized control
+	// Keep existing version without manual increment
+	
 	resource.SetTypedConfig(resources.DecodeSetTypedConfigs(resource, xds.Logger.Logger))
 
 	update := bson.M{

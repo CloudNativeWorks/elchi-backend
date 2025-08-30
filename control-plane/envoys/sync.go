@@ -210,35 +210,7 @@ func (e *EnvoyConnTracker) DisconnectNodeIDWithCount(ctx context.Context, dbClie
 	}
 }
 
-func InsertError(ctx context.Context, dbClient *mongo.Database, nodeID, resourceID, errorMsg, nonce string, logger *logger.Logger) {
-	name, project, downstreamAddress := GetNodeIDParts(nodeID)
-	if downstreamAddress == "" {
-		return
-	}
-	collection := dbClient.Collection("envoys")
-	errorEntry := bson.M{
-		"message":        errorMsg,
-		"type":           resourceID,
-		"response_nonce": nonce,
-		"timestamp":      time.Now(),
-		"nodeid":         nodeID,
-	}
-
-	filter := bson.M{"name": name, "project": project}
-	update := bson.M{
-		"$push": bson.M{
-			"errors": bson.M{
-				"$each":  []any{errorEntry},
-				"$slice": -50,
-			},
-		},
-	}
-	opts := options.Update().SetUpsert(true)
-	_, err := collection.UpdateOne(ctx, filter, update, opts)
-	if err != nil {
-		logger.Errorf("Error adding/updating error for nodeID %s: %v", nodeID, err)
-	}
-}
+// Legacy InsertError function removed - using enhanced error system only
 
 func GetNodeIDParts(nodeID string) (string, string, string) {
 	parts := strings.Split(nodeID, "::")

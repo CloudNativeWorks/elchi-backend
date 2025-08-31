@@ -396,27 +396,7 @@ func (h *Handler) AddFixedIPWithAutoSubnet(ctx context.Context, interfaceID, ipA
 	subnetID := port.FixedIPs[0].SubnetID
 	h.Logger.Debugf("OpenStack AddFixedIPWithAutoSubnet - Using subnet ID: %s from existing fixed IP", subnetID)
 	
-	// Validate IP is compatible with subnet (get subnet info and check CIDR)
-	subnet, err := osClient.GetSubnet(ctx, subnetID)
-	if err != nil {
-		h.Logger.Errorf("OpenStack AddFixedIPWithAutoSubnet - Failed to get subnet %s details: %v", subnetID, err)
-		return fmt.Errorf("failed to validate subnet compatibility: %v", err)
-	}
-	
-	// Check if IP is within subnet CIDR
-	if subnet.CIDR != "" {
-		_, ipNet, err := net.ParseCIDR(subnet.CIDR)
-		if err != nil {
-			h.Logger.Warnf("OpenStack AddFixedIPWithAutoSubnet - Invalid subnet CIDR %s, skipping validation", subnet.CIDR)
-		} else {
-			ip := net.ParseIP(ipAddress)
-			if ip != nil && !ipNet.Contains(ip) {
-				h.Logger.Errorf("OpenStack AddFixedIPWithAutoSubnet - IP %s is not within subnet CIDR %s", ipAddress, subnet.CIDR)
-				return fmt.Errorf("IP address %s is not within subnet CIDR %s", ipAddress, subnet.CIDR)
-			}
-			h.Logger.Debugf("OpenStack AddFixedIPWithAutoSubnet - IP %s is within subnet CIDR %s", ipAddress, subnet.CIDR)
-		}
-	}
+	h.Logger.Debugf("OpenStack AddFixedIPWithAutoSubnet - Using subnet ID: %s (validation done in processor)", subnetID)
 	
 	// Add fixed IP
 	if err := osClient.AddFixedIP(ctx, interfaceID, ipAddress, subnetID); err != nil {
@@ -425,6 +405,77 @@ func (h *Handler) AddFixedIPWithAutoSubnet(ctx context.Context, interfaceID, ipA
 	}
 	
 	h.Logger.Infof("OpenStack AddFixedIPWithAutoSubnet - Successfully added fixed IP %s to interface %s (subnet: %s)", ipAddress, interfaceID, subnetID)
+	return nil
+}
+
+// ValidateFixedIPInSubnet validates that an IP address is within the subnet CIDR of an interface (public method for processor)
+func (h *Handler) ValidateFixedIPInSubnet(ctx context.Context, interfaceID, ipAddress, dbProject string) error {
+	h.Logger.Debugf("OpenStack ValidateFixedIPInSubnet - InterfaceID: %s, IP: %s, DB Project: %s", interfaceID, ipAddress, dbProject)
+	
+	// Get cloud configuration for the DB project
+	cloudConfig, err := h.getCloudConfig(dbProject)
+	if err != nil {
+		h.Logger.Errorf("OpenStack ValidateFixedIPInSubnet - Failed to get cloud config for project %s: %v", dbProject, err)
+		return fmt.Errorf("failed to get cloud config for project %s: %v", dbProject, err)
+	}
+	
+	// Create OpenStack client
+	osClient := NewOpenStackClient(cloudConfig, h.Logger)
+	
+	// Authenticate first to get endpoint
+	if err := osClient.authenticate(ctx); err != nil {
+		h.Logger.Errorf("OpenStack ValidateFixedIPInSubnet - Authentication failed: %v", err)
+		return fmt.Errorf("authentication failed: %v", err)
+	}
+	
+	// Get network endpoint
+	endpoint, err := osClient.getNetworkEndpoint()
+	if err != nil {
+		h.Logger.Errorf("OpenStack ValidateFixedIPInSubnet - Failed to get network endpoint: %v", err)
+		return fmt.Errorf("failed to get network endpoint: %v", err)
+	}
+	
+	// Get port details to find existing subnet ID
+	port, err := osClient.getPort(ctx, endpoint, interfaceID)
+	if err != nil {
+		h.Logger.Errorf("OpenStack ValidateFixedIPInSubnet - Failed to get port details for %s: %v", interfaceID, err)
+		return fmt.Errorf("failed to get port details: %v", err)
+	}
+	
+	// Use the first existing fixed IP's subnet ID
+	if len(port.FixedIPs) == 0 {
+		h.Logger.Errorf("OpenStack ValidateFixedIPInSubnet - Port %s has no existing fixed IPs to determine subnet", interfaceID)
+		return fmt.Errorf("port %s has no existing fixed IPs to determine subnet", interfaceID)
+	}
+	
+	subnetID := port.FixedIPs[0].SubnetID
+	h.Logger.Debugf("OpenStack ValidateFixedIPInSubnet - Using subnet ID: %s from existing fixed IP", subnetID)
+	
+	// Get subnet details for CIDR validation
+	subnet, err := osClient.GetSubnet(ctx, subnetID)
+	if err != nil {
+		h.Logger.Errorf("OpenStack ValidateFixedIPInSubnet - Failed to get subnet %s details: %v", subnetID, err)
+		return fmt.Errorf("failed to get subnet %s details: %v", subnetID, err)
+	}
+	
+	// Validate IP is within subnet CIDR
+	if subnet.CIDR != "" {
+		_, ipNet, err := net.ParseCIDR(subnet.CIDR)
+		if err != nil {
+			h.Logger.Warnf("OpenStack ValidateFixedIPInSubnet - Invalid subnet CIDR %s, skipping validation", subnet.CIDR)
+			return nil
+		}
+		
+		ip := net.ParseIP(ipAddress)
+		if ip != nil && !ipNet.Contains(ip) {
+			h.Logger.Errorf("OpenStack ValidateFixedIPInSubnet - IP %s is not within subnet CIDR %s", ipAddress, subnet.CIDR)
+			return fmt.Errorf("IP address %s is not within subnet CIDR %s", ipAddress, subnet.CIDR)
+		}
+		
+		h.Logger.Debugf("OpenStack ValidateFixedIPInSubnet - IP %s is within subnet CIDR %s", ipAddress, subnet.CIDR)
+	}
+	
+	h.Logger.Infof("OpenStack ValidateFixedIPInSubnet - Validation successful for IP %s", ipAddress)
 	return nil
 }
 

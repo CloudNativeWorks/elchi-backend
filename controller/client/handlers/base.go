@@ -33,7 +33,7 @@ func NewClientHandler(context *db.AppContext, xdsHandler *xds.AppHandler, client
 	responserLogger := logger.NewLogger("controller/client/responser")
 
 	// Processor Register
-	h.cmdFactory.RegisterProcessor("DEPLOY", &processor.DeployProcessor{XDSHandler: xdsHandler, Logger: processorLogger, Service: clientService})
+	h.cmdFactory.RegisterProcessor("DEPLOY", &processor.DeployProcessor{XDSHandler: xdsHandler, Logger: processorLogger, Service: clientService, OpenStackHandler: openStackHandler})
 	h.cmdFactory.RegisterProcessor("SERVICE", &processor.ServiceProcessor{XDSHandler: xdsHandler, Logger: processorLogger})
 	h.cmdFactory.RegisterProcessor("UPDATE_BOOTSTRAP", &processor.BootstrapProcessor{XDSHandler: xdsHandler, Logger: processorLogger, Service: clientService})
 	h.cmdFactory.RegisterProcessor("UNDEPLOY", &processor.UnDeployProcessor{XDSHandler: xdsHandler, Logger: processorLogger})

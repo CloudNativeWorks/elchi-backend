@@ -153,7 +153,7 @@ func NewOpenStackClient(config *models.CloudConfig, logger *logger.Logger) *Open
 		DomainName: "", // Not needed for application credentials
 		RegionName: config.RegionName,
 		HTTPClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: 45 * time.Second, // Increased timeout for OpenStack API calls
 		},
 		Logger: logger,
 	}
@@ -474,19 +474,28 @@ func (c *OpenStackClient) RemoveAllowedAddressPair(ctx context.Context, portID, 
 func (c *OpenStackClient) getPort(ctx context.Context, endpoint, portID string) (*ServerPort, error) {
 	reqURL := fmt.Sprintf("%s/v2.0/ports/%s", endpoint, portID)
 	
+	c.Logger.Debugf("OpenStack Port Get - Request URL: %s", reqURL)
+	c.Logger.Debugf("OpenStack Port Get - Port ID: %s", portID)
+	
 	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
+		c.Logger.Errorf("OpenStack Port Get - Failed to create request: %v", err)
 		return nil, fmt.Errorf("failed to create request: %v", err)
 	}
 
 	req.Header.Set("X-Auth-Token", c.cachedToken.tokenID)
 	req.Header.Set("Content-Type", "application/json")
+	
+	c.Logger.Debugf("OpenStack Port Get - Sending request with token: %s", c.cachedToken.tokenID[:20]+"...")
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
+		c.Logger.Errorf("OpenStack Port Get - HTTP request failed: %v", err)
 		return nil, fmt.Errorf("request failed: %v", err)
 	}
 	defer resp.Body.Close()
+	
+	c.Logger.Debugf("OpenStack Port Get - Response status: %d", resp.StatusCode)
 
 	if resp.StatusCode != http.StatusOK {
 		// Read response body for error details
@@ -508,9 +517,12 @@ func (c *OpenStackClient) getPort(ctx context.Context, endpoint, portID string) 
 		Port ServerPort `json:"port"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&portResp); err != nil {
+		c.Logger.Errorf("OpenStack Port Get - Failed to decode response: %v", err)
 		return nil, fmt.Errorf("failed to decode response: %v", err)
 	}
 
+	c.Logger.Debugf("OpenStack Port Get - Successfully retrieved port: %s", portResp.Port.ID)
+	c.Logger.Debugf("OpenStack Port Get - Port has %d fixed IPs", len(portResp.Port.FixedIPs))
 	return &portResp.Port, nil
 }
 

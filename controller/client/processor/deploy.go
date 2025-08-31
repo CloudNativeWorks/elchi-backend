@@ -7,6 +7,7 @@ import (
 	"net"
 
 	"github.com/CloudNativeWorks/elchi-backend/controller/client/services"
+	"github.com/CloudNativeWorks/elchi-backend/controller/cloud/openstack"
 	"github.com/CloudNativeWorks/elchi-backend/controller/crud/xds"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
@@ -16,9 +17,10 @@ import (
 )
 
 type DeployProcessor struct {
-	XDSHandler *xds.AppHandler
-	Logger     *logger.Logger
-	Service    *services.ClientService
+	XDSHandler       *xds.AppHandler
+	Logger           *logger.Logger
+	Service          *services.ClientService
+	OpenStackHandler *openstack.Handler
 }
 
 func (p *DeployProcessor) ValidateAndTransform(op models.OperationClass, requestDetails models.RequestDetails, cl models.ServiceClients) (any, error) {
@@ -48,6 +50,14 @@ func (p *DeployProcessor) ValidateAndTransform(op models.OperationClass, request
 				return nil, fmt.Errorf("invalid IP address format for downstream_address: '%s'", cl.DownstreamAddress)
 			}
 			p.Logger.Debugf("IP address format validation passed: %s", cl.DownstreamAddress)
+			
+			// For fixed IP mode, validate that IP is within subnet CIDR
+			if cl.IPMode == "fixed" {
+				if err := p.validateFixedIPInSubnet(context.TODO(), cl.InterfaceID, cl.DownstreamAddress, op.GetCommandProject()); err != nil {
+					return nil, fmt.Errorf("fixed IP subnet validation failed: %v", err)
+				}
+				p.Logger.Debugf("Subnet validation passed for fixed IP: %s", cl.DownstreamAddress)
+			}
 		}
 		
 		p.Logger.Debugf("OpenStack validation passed - Provider: %s, InterfaceID: '%s', IPMode: '%s', IP: '%s'", 
@@ -101,4 +111,17 @@ func (p *DeployProcessor) ValidateAndTransform(op models.OperationClass, request
 		deploy.Deploy.Name, deploy.Deploy.DownstreamAddress, deploy.Deploy.InterfaceId, deploy.Deploy.IpMode, deploy.Deploy.Port)
 
 	return deploy, nil
+}
+
+// validateFixedIPInSubnet validates that the provided IP address is within the subnet CIDR of the interface
+func (p *DeployProcessor) validateFixedIPInSubnet(ctx context.Context, interfaceID, ipAddress, projectName string) error {
+	if p.OpenStackHandler == nil {
+		p.Logger.Warnf("OpenStack handler not available for subnet validation")
+		return nil // Skip validation if handler not available
+	}
+	
+	p.Logger.Debugf("Validating fixed IP %s for interface %s in project %s", ipAddress, interfaceID, projectName)
+	
+	// Use handler's validation method (it handles osp_project internally)
+	return p.OpenStackHandler.ValidateFixedIPInSubnet(ctx, interfaceID, ipAddress, projectName)
 }

@@ -145,6 +145,11 @@ func (h *Handler) handleRequest(c *gin.Context, resFunc ResFunc) {
 
 	response, err := h.dynamicFuncs(c, ctx, resFunc, requestDetails)
 	h.setAuditResult(c, err)
+	
+	// For POST requests, update audit context with response data (resource ID, etc.)
+	if c.Request.Method == "POST" && err == nil {
+		h.updateAuditContextFromResponse(c, response)
+	}
 
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": formatErrorMessage(err), "data": response})
@@ -541,119 +546,253 @@ func (h *Handler) GetNetworkSubnets(c *gin.Context) {
 
 // User Management
 func (h *Handler) SetUpdateUserWithAudit(c *gin.Context) {
-	h.handleRequest(c, func(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
-		h.Settings.SetUpdateUser(c)
-		return gin.H{"message": "User operation completed"}, nil
-	})
+	requestDetails, _ := h.getRequestDetails(c)
+	h.setResourceAuditContext(c, requestDetails)
+	h.Settings.SetUpdateUser(c)
+	if c.Writer.Status() >= 400 {
+		h.setAuditResult(c, fmt.Errorf("user operation failed"))
+	} else {
+		h.setAuditResult(c, nil)
+	}
 }
 
 func (h *Handler) DeleteUserWithAudit(c *gin.Context) {
-	h.handleRequest(c, func(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
-		h.Settings.DeleteUser(c)
-		return gin.H{"message": "User deleted"}, nil
-	})
+	requestDetails, _ := h.getRequestDetails(c)
+	h.setResourceAuditContext(c, requestDetails)
+	h.Settings.DeleteUser(c)
+	if c.Writer.Status() >= 400 {
+		h.setAuditResult(c, fmt.Errorf("user deletion failed"))
+	} else {
+		h.setAuditResult(c, nil)
+	}
 }
 
 // Group Management  
 func (h *Handler) SetUpdateGroupWithAudit(c *gin.Context) {
-	h.handleRequest(c, func(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
-		h.Settings.SetUpdateGroup(c)
-		return gin.H{"message": "Group operation completed"}, nil
-	})
+	requestDetails, _ := h.getRequestDetails(c)
+	h.setResourceAuditContext(c, requestDetails)
+	h.Settings.SetUpdateGroup(c)
+	if c.Writer.Status() >= 400 {
+		h.setAuditResult(c, fmt.Errorf("group operation failed"))
+	} else {
+		h.setAuditResult(c, nil)
+	}
 }
 
 func (h *Handler) DeleteGroupWithAudit(c *gin.Context) {
-	h.handleRequest(c, func(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
-		h.Settings.DeleteGroup(c)
-		return gin.H{"message": "Group deleted"}, nil
-	})
+	requestDetails, _ := h.getRequestDetails(c)
+	h.setResourceAuditContext(c, requestDetails)
+	h.Settings.DeleteGroup(c)
+	if c.Writer.Status() >= 400 {
+		h.setAuditResult(c, fmt.Errorf("group deletion failed"))
+	} else {
+		h.setAuditResult(c, nil)
+	}
 }
 
 // Project Management
 func (h *Handler) SetUpdateProjectWithAudit(c *gin.Context) {
-	h.handleRequest(c, func(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
-		h.Settings.SetUpdateProject(c)
-		return gin.H{"message": "Project operation completed"}, nil
-	})
+	requestDetails, _ := h.getRequestDetails(c)
+	h.setResourceAuditContext(c, requestDetails)
+	h.Settings.SetUpdateProject(c)
+	if c.Writer.Status() >= 400 {
+		h.setAuditResult(c, fmt.Errorf("project operation failed"))
+	} else {
+		h.setAuditResult(c, nil)
+	}
 }
 
 func (h *Handler) DeleteProjectWithAudit(c *gin.Context) {
-	h.handleRequest(c, func(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
-		h.Settings.DeleteProject(c)
-		return gin.H{"message": "Project deleted"}, nil
-	})
+	requestDetails, _ := h.getRequestDetails(c)
+	h.setResourceAuditContext(c, requestDetails)
+	h.Settings.DeleteProject(c)
+	if c.Writer.Status() >= 400 {
+		h.setAuditResult(c, fmt.Errorf("project deletion failed"))
+	} else {
+		h.setAuditResult(c, nil)
+	}
 }
 
 // Token Management
 func (h *Handler) SetTokenWithAudit(c *gin.Context) {
-	h.handleRequest(c, func(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
-		h.Settings.SetToken(c)
-		return gin.H{"message": "Token created"}, nil
-	})
+	// Set audit context manually since handleRequest expects ResourceClass operations
+	// Get proper request details
+	requestDetails, _ := h.getRequestDetails(c)
+	h.setResourceAuditContext(c, requestDetails)
+	
+	// Call the settings handler which handles its own response
+	h.Settings.SetToken(c)
+	
+	// Set audit result based on response status
+	if c.Writer.Status() >= 400 {
+		h.setAuditResult(c, fmt.Errorf("token creation failed"))
+	} else {
+		h.setAuditResult(c, nil)
+	}
 }
 
 func (h *Handler) DeleteTokenWithAudit(c *gin.Context) {
-	h.handleRequest(c, func(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
-		h.Settings.DeleteToken(c)
-		return gin.H{"message": "Token deleted"}, nil
-	})
+	// Set audit context manually since handleRequest expects ResourceClass operations
+	requestDetails, _ := h.getRequestDetails(c)
+	h.setResourceAuditContext(c, requestDetails)
+	
+	// Call the settings handler which handles its own response
+	h.Settings.DeleteToken(c)
+	
+	// Set audit result based on response status
+	if c.Writer.Status() >= 400 {
+		h.setAuditResult(c, fmt.Errorf("token deletion failed"))
+	} else {
+		h.setAuditResult(c, nil)
+	}
 }
 
 // OpenRouter Token Management
 func (h *Handler) SetOpenRouterTokenWithAudit(c *gin.Context) {
-	h.handleRequest(c, func(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
-		h.Settings.SetOpenRouterToken(c)
-		return gin.H{"message": "OpenRouter token created"}, nil
-	})
+	requestDetails, _ := h.getRequestDetails(c)
+	h.setResourceAuditContext(c, requestDetails)
+	h.Settings.SetOpenRouterToken(c)
+	if c.Writer.Status() >= 400 {
+		h.setAuditResult(c, fmt.Errorf("openrouter token creation failed"))
+	} else {
+		h.setAuditResult(c, nil)
+	}
 }
 
 func (h *Handler) UpdateOpenRouterTokenWithAudit(c *gin.Context) {
-	h.handleRequest(c, func(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
-		h.Settings.UpdateOpenRouterToken(c)
-		return gin.H{"message": "OpenRouter token updated"}, nil
-	})
+	requestDetails, _ := h.getRequestDetails(c)
+	h.setResourceAuditContext(c, requestDetails)
+	h.Settings.UpdateOpenRouterToken(c)
+	if c.Writer.Status() >= 400 {
+		h.setAuditResult(c, fmt.Errorf("openrouter token update failed"))
+	} else {
+		h.setAuditResult(c, nil)
+	}
 }
 
 func (h *Handler) DeleteOpenRouterTokenWithAudit(c *gin.Context) {
-	h.handleRequest(c, func(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
-		h.Settings.DeleteOpenRouterToken(c)
-		return gin.H{"message": "OpenRouter token deleted"}, nil
-	})
+	requestDetails, _ := h.getRequestDetails(c)
+	h.setResourceAuditContext(c, requestDetails)
+	h.Settings.DeleteOpenRouterToken(c)
+	if c.Writer.Status() >= 400 {
+		h.setAuditResult(c, fmt.Errorf("openrouter token deletion failed"))
+	} else {
+		h.setAuditResult(c, nil)
+	}
 }
 
 // Discovery Token Management
 func (h *Handler) GenerateDiscoveryTokenWithAudit(c *gin.Context) {
-	h.handleRequest(c, func(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
-		h.Settings.GenerateDiscoveryToken(c)
-		return gin.H{"message": "Discovery token generated"}, nil
-	})
+	requestDetails, _ := h.getRequestDetails(c)
+	h.setResourceAuditContext(c, requestDetails)
+	h.Settings.GenerateDiscoveryToken(c)
+	if c.Writer.Status() >= 400 {
+		h.setAuditResult(c, fmt.Errorf("discovery token generation failed"))
+	} else {
+		h.setAuditResult(c, nil)
+	}
 }
 
 func (h *Handler) DeleteDiscoveryTokenWithAudit(c *gin.Context) {
-	h.handleRequest(c, func(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
-		h.Settings.DeleteDiscoveryToken(c)
-		return gin.H{"message": "Discovery token deleted"}, nil
-	})
+	requestDetails, _ := h.getRequestDetails(c)
+	h.setResourceAuditContext(c, requestDetails)
+	h.Settings.DeleteDiscoveryToken(c)
+	if c.Writer.Status() >= 400 {
+		h.setAuditResult(c, fmt.Errorf("discovery token deletion failed"))
+	} else {
+		h.setAuditResult(c, nil)
+	}
 }
 
 // Cloud Config Management
 func (h *Handler) SetCloudWithAudit(c *gin.Context) {
-	h.handleRequest(c, func(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
-		h.Settings.SetCloud(c)
-		return gin.H{"message": "Cloud config created"}, nil
-	})
+	requestDetails, _ := h.getRequestDetails(c)
+	h.setResourceAuditContext(c, requestDetails)
+	h.Settings.SetCloud(c)
+	if c.Writer.Status() >= 400 {
+		h.setAuditResult(c, fmt.Errorf("cloud config creation failed"))
+	} else {
+		h.setAuditResult(c, nil)
+	}
 }
 
 func (h *Handler) UpdateCloudWithAudit(c *gin.Context) {
-	h.handleRequest(c, func(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
-		h.Settings.UpdateCloud(c)
-		return gin.H{"message": "Cloud config updated"}, nil
-	})
+	requestDetails, _ := h.getRequestDetails(c)
+	h.setResourceAuditContext(c, requestDetails)
+	h.Settings.UpdateCloud(c)
+	if c.Writer.Status() >= 400 {
+		h.setAuditResult(c, fmt.Errorf("cloud config update failed"))
+	} else {
+		h.setAuditResult(c, nil)
+	}
 }
 
 func (h *Handler) DeleteCloudWithAudit(c *gin.Context) {
-	h.handleRequest(c, func(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
-		h.Settings.DeleteCloud(c)
-		return gin.H{"message": "Cloud config deleted"}, nil
-	})
+	requestDetails, _ := h.getRequestDetails(c)
+	h.setResourceAuditContext(c, requestDetails)
+	h.Settings.DeleteCloud(c)
+	if c.Writer.Status() >= 400 {
+		h.setAuditResult(c, fmt.Errorf("cloud config deletion failed"))
+	} else {
+		h.setAuditResult(c, nil)
+	}
+}
+
+// updateAuditContextFromResponse updates audit context with response data for CREATE operations
+func (h *Handler) updateAuditContextFromResponse(c *gin.Context, response any) {
+	if response == nil {
+		return
+	}
+	
+	path := c.Request.URL.Path
+	
+	// Handle scenario CREATE responses
+	if strings.Contains(path, "/api/v3/scenario/scenarios") {
+		h.updateScenarioAuditFromResponse(c, response)
+	}
+	// Add other resource types here as needed
+}
+
+// updateScenarioAuditFromResponse extracts scenario ID and name from CREATE response
+func (h *Handler) updateScenarioAuditFromResponse(c *gin.Context, response any) {
+	var scenarioID, scenarioName string
+	
+	// Response could be direct Scenario object or wrapped in gin.H
+	if responseMap, ok := response.(map[string]any); ok {
+		// Try to get data field (if wrapped)
+		if data, exists := responseMap["data"]; exists {
+			if dataMap, ok := data.(map[string]any); ok {
+				// Extract from wrapped data
+				if id, exists := dataMap["id"]; exists {
+					scenarioID = fmt.Sprintf("%v", id)
+				}
+				if name, exists := dataMap["name"]; exists {
+					if nameStr, ok := name.(string); ok {
+						scenarioName = nameStr
+					}
+				}
+			}
+		} else {
+			// Try direct response format
+			if id, exists := responseMap["id"]; exists {
+				scenarioID = fmt.Sprintf("%v", id)
+			}
+			if name, exists := responseMap["name"]; exists {
+				if nameStr, ok := name.(string); ok {
+					scenarioName = nameStr
+				}
+			}
+		}
+	}
+	
+	// Also try if response is models.Scenario directly 
+	if scenario, ok := response.(*models.Scenario); ok {
+		scenarioID = scenario.ID.Hex()
+		scenarioName = scenario.Name
+	}
+	
+	// Update audit context with extracted info
+	if scenarioID != "" || scenarioName != "" {
+		audit.SetAuditResource(c, "scenarios", scenarioID, scenarioName, c.Query("project"))
+	}
 }

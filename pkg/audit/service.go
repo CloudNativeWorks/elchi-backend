@@ -275,7 +275,9 @@ func (s *Service) buildAuditFilter(query AuditQuery) bson.M {
 		filter["action"] = query.Action
 	}
 	if query.ResourceType != "" {
-		filter["resource_type"] = query.ResourceType
+		// Support both exact match and prefix match for resource types
+		// This allows filtering extensions like "extensions/http_protocol_options" with "extensions"
+		filter["resource_type"] = bson.M{"$regex": "^" + query.ResourceType, "$options": "i"}
 	}
 	if query.Project != "" {
 		filter["project"] = query.Project

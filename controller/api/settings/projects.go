@@ -2,6 +2,7 @@ package settings
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -178,30 +179,66 @@ func (handler *AppHandler) SetUpdateProject(c *gin.Context) {
 	defer cancel()
 	var projectWA ProjectWithActiveStatus
 
-	if err := c.BindJSON(&projectWA); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
-		return
+	handler.Logger.Debugf("SetUpdateProject called for project_id: %s", c.Param("project_id"))
+
+	// Try to get cached body first
+	if originalBody, exists := c.Get("_original_body"); exists {
+		if bodyBytes, ok := originalBody.([]byte); ok {
+			handler.Logger.Debugf("Using cached body, length: %d", len(bodyBytes))
+			if err := json.Unmarshal(bodyBytes, &projectWA); err != nil {
+				handler.Logger.Debugf("Cached body unmarshal error: %v", err)
+				c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+				return
+			}
+		} else {
+			handler.Logger.Debugf("Cached body type assertion failed")
+			// Fallback to BindJSON
+			if err := c.BindJSON(&projectWA); err != nil {
+				handler.Logger.Debugf("Fallback BindJSON error: %v", err)
+				c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+				return
+			}
+		}
+	} else {
+		handler.Logger.Debugf("No cached body found, using BindJSON")
+		if err := c.BindJSON(&projectWA); err != nil {
+			handler.Logger.Debugf("Direct BindJSON error: %v", err)
+			c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+			return
+		}
 	}
 
+	handler.Logger.Debugf("Parsed project data: IsCreate=%v, ProjectName=%v", projectWA.IsCreate, projectWA.ProjectName)
+
 	if projectWA.IsCreate {
+		handler.Logger.Debugf("IsCreate=true, creating new project")
 		if !c.GetBool("isOwner") {
+			handler.Logger.Debugf("User is not owner, unauthorized to create project")
 			c.JSON(http.StatusUnauthorized, gin.H{"message": "You are not authorized to create a project"})
 			return
 		}
+		handler.Logger.Debugf("Calling CreateProject...")
 		status, msg, projectID = handler.CreateProject(ctx, userCollection, projectWA)
+		handler.Logger.Debugf("CreateProject returned: status=%d, msg=%s, projectID=%s", status, msg, projectID)
 	} else {
+		handler.Logger.Debugf("IsCreate=false, updating existing project")
 		status, msg = handler.UpdateProject(ctx, userCollection, projectWA, c.Param("project_id"))
 		projectID = c.Param("project_id")
+		handler.Logger.Debugf("UpdateProject returned: status=%d, msg=%s", status, msg)
 	}
 
 	respondWithJSON(c, status, msg, projectID)
 }
 
 func (handler *AppHandler) CreateProject(ctx context.Context, projectCollection *mongo.Collection, projectWA ProjectWithActiveStatus) (int, string, string) {
+	handler.Logger.Debugf("CreateProject started for project: %v", projectWA.ProjectName)
+	
 	count, err := projectCollection.CountDocuments(ctx, bson.M{"projectname": projectWA.ProjectName})
 	if err != nil {
+		handler.Logger.Debugf("Error checking project name uniqueness: %v", err)
 		return http.StatusBadRequest, "error occurred while checking for the projectname", "0"
 	}
+	handler.Logger.Debugf("Project name check completed, count: %d", count)
 
 	if count > 0 {
 		return http.StatusBadRequest, "projectname already exists", "0"
@@ -228,38 +265,55 @@ func (handler *AppHandler) CreateProject(ctx context.Context, projectCollection 
 		return http.StatusBadRequest, "Invalid project ID", "0"
 	}
 
+	handler.Logger.Debugf("Creating default group for project %s", projectID.Hex())
 	collection := handler.Context.Client.Collection("groups")
 	groupResult, err := db.CreateGroup(ctx, collection, "", projectID.Hex())
 	if err != nil {
-		handler.Logger.Infof("Default group not created: %s", err)
+		handler.Logger.Debugf("Default group not created for project %s: %s", projectID.Hex(), err)
+		return http.StatusBadRequest, fmt.Sprintf("Failed to create default group: %v", err), "0"
 	}
 	groupID := groupResult.InsertedID.(primitive.ObjectID).Hex()
+	handler.Logger.Debugf("Created default group %s for project %s", groupID, projectID.Hex())
 
+	handler.Logger.Debugf("Creating default resources for project %s, versions: %v", projectID.Hex(), handler.Context.Config.ElchiVersions)
 	for _, vers := range handler.Context.Config.ElchiVersions {
+		handler.Logger.Debugf("Creating default HttpProtocolOptions for project %s, version %s", projectID.Hex(), vers)
 		if err := db.CreateDefaultHttpProtocolOptions(ctx, handler.Context, projectID.Hex(), vers, groupID); err != nil {
-			handler.Logger.Infof("Default hpo not created for version %s: %s", vers, err)
+			handler.Logger.Debugf("Default hpo not created for project %s version %s: %s", projectID.Hex(), vers, err)
+			return http.StatusBadRequest, fmt.Sprintf("Failed to create default HttpProtocolOptions: %v", err), "0"
 		}
 
+		handler.Logger.Debugf("Creating default UpstreamTLS for project %s, version %s", projectID.Hex(), vers)
 		if err := db.CreateDefaultUpstreamTLS(ctx, handler.Context, projectID.Hex(), vers, groupID); err != nil {
-			handler.Logger.Infof("Default upstream tls not created for version %s: %s", vers, err)
+			handler.Logger.Debugf("Default upstream tls not created for project %s version %s: %s", projectID.Hex(), vers, err)
+			return http.StatusBadRequest, fmt.Sprintf("Failed to create default UpstreamTLS: %v", err), "0"
 		}
 
+		handler.Logger.Debugf("Creating default Cluster for project %s, version %s", projectID.Hex(), vers)
 		if err := db.CreateDefaultCluster(ctx, handler.Context, projectID.Hex(), vers, groupID); err != nil {
-			handler.Logger.Infof("Default cluster not created for version %s: %s", vers, err)
+			handler.Logger.Debugf("Default cluster not created for project %s version %s: %s", projectID.Hex(), vers, err)
+			return http.StatusBadRequest, fmt.Sprintf("Failed to create default Cluster: %v", err), "0"
 		}
 
+		handler.Logger.Debugf("Creating default Router for project %s, version %s", projectID.Hex(), vers)
 		if err := db.CreateDefaultRouter(ctx, handler.Context, projectID.Hex(), vers, groupID); err != nil {
-			handler.Logger.Infof("Default router not created for version %s: %s", vers, err)
+			handler.Logger.Debugf("Default router not created for project %s version %s: %s", projectID.Hex(), vers, err)
+			return http.StatusBadRequest, fmt.Sprintf("Failed to create default Router: %v", err), "0"
 		}
 
+		handler.Logger.Debugf("Creating default StatSinks for project %s, version %s", projectID.Hex(), vers)
 		if err := db.CreateDefaultStatSinks(ctx, handler.Context, projectID.Hex(), vers, groupID); err != nil {
-			handler.Logger.Infof("Default stat sinks not created for version %s: %s", vers, err)
+			handler.Logger.Debugf("Default stat sinks not created for project %s version %s: %s", projectID.Hex(), vers, err)
+			return http.StatusBadRequest, fmt.Sprintf("Failed to create default StatSinks: %v", err), "0"
 		}
 
+		handler.Logger.Debugf("Creating default HCM for project %s, version %s", projectID.Hex(), vers)
 		if err := db.CreateDefaultHCM(ctx, handler.Context, projectID.Hex(), vers, groupID); err != nil {
-			handler.Logger.Infof("Default HCM not created for version %s: %s", vers, err)
+			handler.Logger.Debugf("Default HCM not created for project %s version %s: %s", projectID.Hex(), vers, err)
+			return http.StatusBadRequest, fmt.Sprintf("Failed to create default HCM: %v", err), "0"
 		}
 	}
+	handler.Logger.Debugf("Successfully created all default resources for project %s", projectID.Hex())
 
 	return http.StatusOK, "Successfully created project", projectWA.ID.String()
 }

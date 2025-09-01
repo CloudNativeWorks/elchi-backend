@@ -64,27 +64,17 @@ func (h *Handler) CreateScenarioHandler(c *gin.Context) {
 		return
 	}
 	
-	// Get user details and request details directly without using handleRequest
-	requestDetails, userDetails := h.getRequestDetails(c)
+	// Store request in context for audit
+	c.Set("_scenario_request", request)
 	
-	// Override project from query param (since it's sent as query param for all requests)
-	if projectParam := c.Query("project"); projectParam != "" {
-		requestDetails.Project = projectParam
-	}
-
-	if err := checkRole(c, userDetails); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error(), "data": nil})
-		return
-	}
-
-	// Call scenario create function directly
-	response, err := h.Scenario.CreateScenario(request, requestDetails)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error(), "data": nil})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "Success", "data": response})
+	h.handleRequest(c, func(ctx context.Context, _ models.ResourceClass, reqDetails models.RequestDetails) (any, error) {
+		// Override project from query param
+		if projectParam := c.Query("project"); projectParam != "" {
+			reqDetails.Project = projectParam
+		}
+		
+		return h.Scenario.CreateScenario(request, reqDetails)
+	})
 }
 
 // GetScenariosHandler handles GET /api/v3/scenario/scenarios
@@ -119,32 +109,26 @@ func (h *Handler) UpdateScenarioHandler(c *gin.Context) {
 		return
 	}
 	
-	// Get user details and request details directly without using handleRequest
-	requestDetails, userDetails := h.getRequestDetails(c)
+	// Store request in context for audit
+	c.Set("_scenario_request", request)
+	c.Set("_scenario_id", scenarioID)
 	
-	// Override project from query param (since it's sent as query param for all requests)
-	if projectParam := c.Query("project"); projectParam != "" {
-		requestDetails.Project = projectParam
-	}
-
-	if err := checkRole(c, userDetails); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error(), "data": nil})
-		return
-	}
-
-	// Call scenario update function directly
-	response, err := h.Scenario.UpdateScenario(scenarioID, request, requestDetails)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error(), "data": nil})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "Success", "data": response})
+	h.handleRequest(c, func(ctx context.Context, _ models.ResourceClass, reqDetails models.RequestDetails) (any, error) {
+		// Override project from query param
+		if projectParam := c.Query("project"); projectParam != "" {
+			reqDetails.Project = projectParam
+		}
+		
+		return h.Scenario.UpdateScenario(scenarioID, request, reqDetails)
+	})
 }
 
 // DeleteScenarioHandler handles DELETE /api/v3/scenario/scenarios/:scenario_id
 func (h *Handler) DeleteScenarioHandler(c *gin.Context) {
 	scenarioID := c.Param("scenario_id")
+	
+	// Store scenario ID in context for audit
+	c.Set("_scenario_id", scenarioID)
 	
 	h.handleRequest(c, func(ctx context.Context, _ models.ResourceClass, reqDetails models.RequestDetails) (any, error) {
 		err := h.Scenario.DeleteScenario(scenarioID, reqDetails)
@@ -163,32 +147,25 @@ func (h *Handler) ExecuteScenarioHandler(c *gin.Context) {
 		return
 	}
 	
-	// Get user details and request details directly without using handleRequest
-	requestDetails, userDetails := h.getRequestDetails(c)
+	// Store request in context for audit
+	c.Set("_scenario_request", request)
 	
-	// Use project and version from request body instead of query param
-	requestDetails.Project = request.Project
-	requestDetails.Version = request.Version
-	
-
-	if err := checkRole(c, userDetails); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error(), "data": nil})
-		return
-	}
-
-	// Call scenario execute function directly
-	resources, err := h.Scenario.ExecuteScenario(request, requestDetails)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error(), "data": nil})
-		return
-	}
-	
-	response := models.ExecuteScenarioResponse{
-		Resources: resources,
-		Success:   true,
-		Message:   "Scenario executed successfully",
-	}
-	c.JSON(http.StatusOK, gin.H{"message": "Success", "data": response})
+	h.handleRequest(c, func(ctx context.Context, _ models.ResourceClass, reqDetails models.RequestDetails) (any, error) {
+		// Use project and version from request body
+		reqDetails.Project = request.Project
+		reqDetails.Version = request.Version
+		
+		resources, err := h.Scenario.ExecuteScenario(request, reqDetails)
+		if err != nil {
+			return nil, err
+		}
+		
+		return models.ExecuteScenarioResponse{
+			Resources: resources,
+			Success:   true,
+			Message:   "Scenario executed successfully",
+		}, nil
+	})
 }
 
 // groupValidationErrors groups validation errors by component for better readability
@@ -224,27 +201,23 @@ func (h *Handler) ValidateScenarioHandler(c *gin.Context) {
 		return
 	}
 	
-	// Get user details directly without using handleRequest
-	_, userDetails := h.getRequestDetails(c)
-
-	if err := checkRole(c, userDetails); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error(), "data": nil})
-		return
-	}
-
-	// Call validate function directly
-	errors := h.Scenario.ValidateComponentRules(components)
+	// Store components in context for audit
+	c.Set("_scenario_components", components)
 	
-	// Group errors for better readability
-	groupedErrors := groupValidationErrors(errors)
-	
-	response := gin.H{
-		"valid":          len(errors) == 0,
-		"errors":         errors,          // Original flat list
-		"grouped_errors": groupedErrors,   // Grouped by component
-		"error_count":    len(errors),
-	}
-	c.JSON(http.StatusOK, gin.H{"message": "Success", "data": response})
+	h.handleRequest(c, func(ctx context.Context, _ models.ResourceClass, reqDetails models.RequestDetails) (any, error) {
+		// Call validate function
+		errors := h.Scenario.ValidateComponentRules(components)
+		
+		// Group errors for better readability
+		groupedErrors := groupValidationErrors(errors)
+		
+		return gin.H{
+			"valid":          len(errors) == 0,
+			"errors":         errors,          // Original flat list
+			"grouped_errors": groupedErrors,   // Grouped by component
+			"error_count":    len(errors),
+		}, nil
+	})
 }
 
 // ExportScenariosHandler handles POST /api/v3/scenario/export
@@ -255,34 +228,24 @@ func (h *Handler) ExportScenariosHandler(c *gin.Context) {
 		return
 	}
 	
-	// Get user details and request details directly without using handleRequest
-	requestDetails, userDetails := h.getRequestDetails(c)
+	// Store request in context for audit
+	c.Set("_scenario_request", request)
 	
-	// Override project from query param
-	if projectParam := c.Query("project"); projectParam != "" {
-		requestDetails.Project = projectParam
-	}
-
-	if err := checkRole(c, userDetails); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error(), "data": nil})
-		return
-	}
-
-	// Call export function directly
-	response, err := h.Scenario.ExportScenarios(request, requestDetails)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error(), "data": nil})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "Scenarios exported successfully", "data": response})
+	h.handleRequest(c, func(ctx context.Context, _ models.ResourceClass, reqDetails models.RequestDetails) (any, error) {
+		// Override project from query param
+		if projectParam := c.Query("project"); projectParam != "" {
+			reqDetails.Project = projectParam
+		}
+		
+		return h.Scenario.ExportScenarios(request, reqDetails)
+	})
 }
 
 // ImportScenariosHandler handles POST /api/v3/scenario/import
 func (h *Handler) ImportScenariosHandler(c *gin.Context) {
 	// Try different parsing strategies for different input formats
 	var request models.ImportScenarioRequest
-	var rawData map[string]interface{}
+	var rawData map[string]any
 	
 	// First parse as raw JSON to determine structure
 	if err := c.ShouldBindJSON(&rawData); err != nil {
@@ -292,7 +255,7 @@ func (h *Handler) ImportScenariosHandler(c *gin.Context) {
 	
 	// Check if it's wrapped in a "data" field (export response format)
 	if dataField, hasData := rawData["data"]; hasData {
-		if dataMap, ok := dataField.(map[string]interface{}); ok {
+		if dataMap, ok := dataField.(map[string]any); ok {
 			// Parse the nested data as ExportScenarioResponse
 			dataBytes, _ := json.Marshal(dataMap)
 			var exportData models.ExportScenarioResponse
@@ -358,23 +321,14 @@ func (h *Handler) ImportScenariosHandler(c *gin.Context) {
 		return
 	}
 	
-	// Get user details and request details directly without using handleRequest
-	requestDetails, userDetails := h.getRequestDetails(c)
+	// Store request in context for audit
+	c.Set("_scenario_request", request)
+	c.Set("_raw_data", rawData)
 	
-	// Use project from request body instead of query param for import
-	requestDetails.Project = request.Project
-
-	if err := checkRole(c, userDetails); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error(), "data": nil})
-		return
-	}
-
-	// Call import function directly
-	response, err := h.Scenario.ImportScenarios(request, requestDetails)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error(), "data": nil})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "Scenarios imported successfully", "data": response})
+	h.handleRequest(c, func(ctx context.Context, _ models.ResourceClass, reqDetails models.RequestDetails) (any, error) {
+		// Use project from request body
+		reqDetails.Project = request.Project
+		
+		return h.Scenario.ImportScenarios(request, reqDetails)
+	})
 }

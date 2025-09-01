@@ -221,6 +221,28 @@ func (p *UnDeployResponser) removeServiceFromEnvoys(serviceName, projectName, cl
 	}
 
 	p.Logger.Infof("removeServiceFromEnvoys - Successfully removed client %s from envoys", clientName)
+	
+	// Check if envoys array is now empty and clean up enhanced_errors if it is
+	var updatedService models.Envoys
+	if err := envoysCollection.FindOne(context.Background(), filter).Decode(&updatedService); err == nil {
+		if len(updatedService.Envoys) == 0 {
+			p.Logger.Infof("removeServiceFromEnvoys - Envoys array is empty, cleaning up enhanced_errors")
+			
+			cleanupUpdate := bson.M{
+				"$set": bson.M{
+					"enhanced_errors": []any{},
+				},
+			}
+			
+			if _, err := envoysCollection.UpdateOne(context.Background(), filter, cleanupUpdate); err != nil {
+				p.Logger.Errorf("removeServiceFromEnvoys - Failed to clean up enhanced_errors: %v", err)
+				// Don't fail the operation, just log the error
+			} else {
+				p.Logger.Infof("removeServiceFromEnvoys - Successfully cleaned up enhanced_errors for service %s", serviceName)
+			}
+		}
+	}
+	
 	return nil
 }
 

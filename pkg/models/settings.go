@@ -1,12 +1,13 @@
 package models
 
 type Settings struct {
-	Project          string                `bson:"project"`
-	Tokens           []Token               `bson:"tokens"`
-	OpenRouterToken  string                `bson:"openrouter_token,omitempty"`
-	AIDefaultModel   string                `bson:"ai_default_model,omitempty"`
-	DiscoveryToken   string                `bson:"discovery_token,omitempty"`
+	Project          string                 `bson:"project"`
+	Tokens           []Token                `bson:"tokens"`
+	OpenRouterToken  string                 `bson:"openrouter_token,omitempty"`
+	AIDefaultModel   string                 `bson:"ai_default_model,omitempty"`
+	DiscoveryToken   string                 `bson:"discovery_token,omitempty"`
 	Clouds           map[string]CloudConfig `bson:"clouds,omitempty"`
+	LDAPConfig       *LDAPConfig            `bson:"ldap_config,omitempty"`
 }
 
 type Token struct {
@@ -38,4 +39,17 @@ type CloudAuth struct {
 	// TenantID       string `json:"tenant_id,omitempty" bson:"tenant_id,omitempty"`
 	// ClientID       string `json:"client_id,omitempty" bson:"client_id,omitempty"`
 	// ClientSecret   string `json:"client_secret,omitempty" bson:"client_secret,omitempty"`
+}
+
+// LDAPConfig represents LDAP configuration for authentication
+type LDAPConfig struct {
+	Enabled          bool   `json:"enabled" bson:"enabled"`
+	Server           string `json:"server" bson:"server"`
+	Port             int    `json:"port" bson:"port"`
+	BaseDN           string `json:"base_dn" bson:"base_dn"`
+	UserFilter       string `json:"user_filter" bson:"user_filter"`           // (uid={username})
+	BindUser         string `json:"bind_user" bson:"bind_user"`
+	BindPassword     string `json:"bind_password" bson:"bind_password"`
+	TLSEnabled       bool   `json:"tls_enabled" bson:"tls_enabled"`
+	TLSSkipVerify    bool   `json:"tls_skip_verify" bson:"tls_skip_verify"`
 }

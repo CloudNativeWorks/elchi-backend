@@ -16,6 +16,7 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/controller/crud/common"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/errstr"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/helper"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/ldap"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 )
 
@@ -180,6 +181,8 @@ func (handler *AppHandler) CreateUser(ctx context.Context, userCollection *mongo
 
 	password := helper.HashPassword(*userWG.Password)
 	userWG.Password = &password
+	authType := "local"
+	userWG.AuthType = &authType
 	now := time.Now()
 
 	userWG.CreatedAt = primitive.NewDateTimeFromTime(now)
@@ -280,7 +283,7 @@ func (handler *AppHandler) ListUsers(c *gin.Context) {
 		return
 	}
 
-	opts := options.Find().SetProjection(bson.M{"username": 1, "email": 1, "created_at": 1, "updated_at": 1, "user_id": 1, "groups": 1, "role": 1})
+	opts := options.Find().SetProjection(bson.M{"username": 1, "email": 1, "created_at": 1, "updated_at": 1, "user_id": 1, "groups": 1, "role": 1, "auth_type": 1})
 	cursor, err := userCollection.Find(ctx, filter, opts)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": "could not find records"})
@@ -307,7 +310,7 @@ func (handler *AppHandler) GetUser(c *gin.Context) {
 		return
 	}
 
-	opts := options.FindOne().SetProjection(bson.M{"username": 1, "email": 1, "created_at": 1, "updated_at": 1, "user_id": 1, "groups": 1, "role": 1, "base_group": 1, "base_project": 1, "active": 1})
+	opts := options.FindOne().SetProjection(bson.M{"username": 1, "email": 1, "created_at": 1, "updated_at": 1, "user_id": 1, "groups": 1, "role": 1, "base_group": 1, "base_project": 1, "active": 1, "auth_type": 1})
 	var record bson.M
 	err := userCollection.FindOne(ctx, filter, opts).Decode(&record)
 	if err != nil {
@@ -342,30 +345,37 @@ func (handler *AppHandler) Login() gin.HandlerFunc {
 			return
 		}
 
+		// Step 1: Check if user exists in database
 		err := userCollection.FindOne(ctx, bson.M{"username": user.Username}).Decode(&foundUser)
+		if err == nil {
+			// User found - authenticate based on auth_type
+			if handler.authenticateExistingUser(&foundUser, *user.Password) {
+				handler.generateTokensAndRespond(c, &foundUser)
+				return
+			} else {
+				// Authentication failed for existing user - don't fall through to LDAP user creation
+				if foundUser.AuthType != nil && *foundUser.AuthType == "ldap" {
+					c.JSON(http.StatusUnauthorized, gin.H{"message": "LDAP authentication failed"})
+				} else {
+					c.JSON(http.StatusUnauthorized, gin.H{"message": "invalid username or password"})
+				}
+				return
+			}
+		}
+
+		if err != mongo.ErrNoDocuments {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "database error occurred"})
+			return
+		}
+
+		// Step 2: User not found, try LDAP authentication using any available project config
+		newUser, err := handler.tryLDAPAuthenticationAndCreateUser(ctx, *user.Username, *user.Password)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"message": "username or password is incorrect"})
 			return
 		}
 
-		passwordIsValid, msg := VerifyPassword(*foundUser.Password, *user.Password)
-
-		if !passwordIsValid {
-			c.JSON(http.StatusBadRequest, gin.H{"message": msg})
-			return
-		}
-
-		groups, baseGroup, _ := handler.GetUserGroups(ctx, foundUser.UserID)
-		projects, baseProject := handler.GetUserProject(ctx, foundUser.UserID)
-
-		token, refreshToken, _ := helper.GenerateAllTokens(foundUser.Email, foundUser.Username, foundUser.UserID, groups, projects, baseGroup, baseProject, foundUser.Role)
-
-		foundUser.Token = &token
-		foundUser.RefreshToken = &refreshToken
-
-		UpdateAllTokens(handler, token, refreshToken, foundUser.UserID)
-
-		c.JSON(http.StatusOK, foundUser)
+		handler.generateTokensAndRespond(c, newUser)
 	}
 }
 
@@ -679,4 +689,162 @@ func (handler *AppHandler) DeleteUser(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "User successfully deleted"})
+}
+
+// ================== LDAP AUTHENTICATION HELPERS ==================
+
+// authenticateExistingUser authenticates an existing user based on their auth_type
+func (handler *AppHandler) authenticateExistingUser(user *models.User, password string) bool {
+	// Check auth_type and authenticate accordingly
+	if user.AuthType == nil || *user.AuthType == "local" {
+		// Local user - use bcrypt password verification
+		if user.Password == nil {
+			return false
+		}
+		passwordIsValid, _ := VerifyPassword(*user.Password, password)
+		return passwordIsValid
+	} else if *user.AuthType == "ldap" {
+		// LDAP user - validate against LDAP server using any available project
+		return handler.authenticateWithLDAP(*user.Username, password, user.BaseProject)
+	}
+	return false
+}
+
+// authenticateWithLDAP validates username/password against LDAP using project config
+func (handler *AppHandler) authenticateWithLDAP(username, password string, preferredProject *string) bool {
+	ldapConfig, err := handler.getLDAPConfigForAuthentication(preferredProject)
+	if err != nil || ldapConfig == nil || !ldapConfig.Enabled {
+		return false
+	}
+
+	client, err := ldap.NewClient(ldapConfig)
+	if err != nil {
+		return false
+	}
+	defer client.Close()
+
+	return client.ValidatePassword(username, password) == nil
+}
+
+// tryLDAPAuthenticationAndCreateUser tries LDAP auth and creates user if successful
+func (handler *AppHandler) tryLDAPAuthenticationAndCreateUser(ctx context.Context, username, password string) (*models.User, error) {
+	// Get any available LDAP config from projects
+	ldapConfig, projectID, err := handler.getFirstAvailableLDAPConfig()
+	if err != nil || ldapConfig == nil || !ldapConfig.Enabled {
+		return nil, fmt.Errorf("no LDAP configuration available")
+	}
+
+	// Try LDAP authentication
+	client, err := ldap.NewClient(ldapConfig)
+	if err != nil {
+		return nil, fmt.Errorf("LDAP client error: %w", err)
+	}
+	defer client.Close()
+
+	if err := client.ValidatePassword(username, password); err != nil {
+		return nil, fmt.Errorf("LDAP authentication failed: %w", err)
+	}
+
+	// LDAP authentication successful - create new user
+	return handler.createLDAPUser(ctx, username, projectID)
+}
+
+// createLDAPUser creates a new LDAP user in database
+func (handler *AppHandler) createLDAPUser(ctx context.Context, username, projectID string) (*models.User, error) {
+	userCollection := handler.Context.Client.Collection("users")
+
+	now := time.Now()
+	authType := "ldap"
+	role := models.RoleViewer // Default readonly role
+	active := true
+
+	// Generate a placeholder email for LDAP users since email is required
+	email := fmt.Sprintf("%s@ldap.local", username)
+	
+	newUser := &models.User{
+		ID:          primitive.NewObjectID(),
+		Username:    &username,
+		Email:       &email,
+		Role:        &role,
+		Active:      &active,
+		AuthType:    &authType,
+		BaseProject: &projectID,
+		CreatedAt:   primitive.NewDateTimeFromTime(now),
+		UpdatedAt:   primitive.NewDateTimeFromTime(now),
+		Password:    nil, // No password stored for LDAP users
+	}
+
+	newUser.UserID = newUser.ID.Hex()
+	
+	// Generate tokens for the new LDAP user
+	token, refreshToken, _ := helper.GenerateAllTokens(newUser.Email, newUser.Username, newUser.UserID, nil, nil, nil, nil, newUser.Role)
+	newUser.Token = &token
+	newUser.RefreshToken = &refreshToken
+
+	_, err := userCollection.InsertOne(ctx, newUser)
+	if err != nil {
+		if mongo.IsDuplicateKeyError(err) {
+			return nil, fmt.Errorf("user with username %s already exists", username)
+		}
+		return nil, fmt.Errorf("failed to create LDAP user: %w", err)
+	}
+
+	return newUser, nil
+}
+
+// generateTokensAndRespond generates JWT tokens and sends response
+func (handler *AppHandler) generateTokensAndRespond(c *gin.Context, user *models.User) {
+	ctx := c.Request.Context()
+
+	// Get user groups and projects (existing logic)
+	groups, baseGroup, _ := handler.GetUserGroups(ctx, user.UserID)
+	projects, baseProject := handler.GetUserProject(ctx, user.UserID)
+
+	// Generate JWT tokens
+	token, refreshToken, _ := helper.GenerateAllTokens(user.Email, user.Username, user.UserID, groups, projects, baseGroup, baseProject, user.Role)
+
+	user.Token = &token
+	user.RefreshToken = &refreshToken
+
+	// Update tokens in database
+	UpdateAllTokens(handler, token, refreshToken, user.UserID)
+
+	c.JSON(http.StatusOK, *user)
+}
+
+// getLDAPConfigForAuthentication gets LDAP config from preferred project or any available project
+func (handler *AppHandler) getLDAPConfigForAuthentication(preferredProject *string) (*models.LDAPConfig, error) {
+	ctx := context.Background()
+	settingsCollection := handler.Context.Client.Collection("settings")
+
+	// If preferred project is specified, try to get config from it first
+	if preferredProject != nil && *preferredProject != "" {
+		var settings models.Settings
+		err := settingsCollection.FindOne(ctx, bson.M{"project": *preferredProject}).Decode(&settings)
+		if err == nil && settings.LDAPConfig != nil && settings.LDAPConfig.Enabled {
+			return settings.LDAPConfig, nil
+		}
+	}
+
+	// Otherwise, find any project with enabled LDAP config
+	ldapConfig, _, err := handler.getFirstAvailableLDAPConfig()
+	return ldapConfig, err
+}
+
+// getFirstAvailableLDAPConfig finds the first project with enabled LDAP config
+func (handler *AppHandler) getFirstAvailableLDAPConfig() (*models.LDAPConfig, string, error) {
+	ctx := context.Background()
+	settingsCollection := handler.Context.Client.Collection("settings")
+
+	filter := bson.M{
+		"ldap_config.enabled": true,
+	}
+
+	var settings models.Settings
+	err := settingsCollection.FindOne(ctx, filter).Decode(&settings)
+	if err != nil {
+		return nil, "", fmt.Errorf("no enabled LDAP configuration found")
+	}
+
+	return settings.LDAPConfig, settings.Project, nil
 }

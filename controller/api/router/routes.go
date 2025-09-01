@@ -117,6 +117,14 @@ func initSettingRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		{"POST", "/clouds/:cloud_name", h.SetCloudWithAudit},
 		{"PUT", "/clouds/:cloud_name", h.UpdateCloudWithAudit},
 		{"DELETE", "/clouds/:cloud_name", h.DeleteCloudWithAudit},
+
+		// LDAP configuration endpoints
+		{"GET", "/ldap-config", h.Settings.GetLDAPConfig},
+		{"POST", "/ldap-config", h.SetLDAPConfigWithAudit},
+		{"PUT", "/ldap-config", h.UpdateLDAPConfigWithAudit},
+		{"DELETE", "/ldap-config", h.DeleteLDAPConfigWithAudit},
+		{"POST", "/ldap-config/test", h.TestLDAPConfigWithAudit},
+		{"POST", "/ldap-config/test-auth", h.TestLDAPAuthWithAudit},
 	}
 
 	initRoutes(rg, routes)

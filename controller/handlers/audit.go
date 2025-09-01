@@ -582,3 +582,41 @@ func (h *Handler) getActionFromMethod(method string) string {
 		return ""
 	}
 }
+
+// setLDAPAuditContext sets audit context specifically for LDAP operations
+func (h *Handler) setLDAPAuditContext(c *gin.Context, requestDetails models.RequestDetails) {
+	if h.AuditService == nil {
+		return
+	}
+
+	path := c.Request.URL.Path
+
+	// Only process LDAP-related endpoints
+	if !strings.Contains(path, "/ldap-config") {
+		return
+	}
+
+	// Skip audit for test endpoints and GET operations
+	if strings.Contains(path, "/test") || c.Request.Method == "GET" {
+		return
+	}
+
+	// Determine action based on HTTP method
+	action := ""
+	switch c.Request.Method {
+	case "POST":
+		action = "CREATE_LDAP_CONFIG"
+	case "PUT":
+		action = "UPDATE_LDAP_CONFIG"
+	case "DELETE":
+		action = "DELETE_LDAP_CONFIG"
+	}
+
+	if action == "" {
+		return
+	}
+
+	// Set LDAP-specific audit context
+	audit.SetAuditResource(c, "ldap", "", "ldap-config", requestDetails.Project)
+	audit.SetAuditAction(c, action)
+}

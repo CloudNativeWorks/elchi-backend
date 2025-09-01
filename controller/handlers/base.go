@@ -753,6 +753,54 @@ func (h *Handler) updateAuditContextFromResponse(c *gin.Context, response any) {
 	// Add other resource types here as needed
 }
 
+// ================== LDAP CONFIGURATION AUDIT WRAPPERS ==================
+
+// SetLDAPConfigWithAudit wraps SetLDAPConfig with audit logging
+func (h *Handler) SetLDAPConfigWithAudit(c *gin.Context) {
+	requestDetails, _ := h.getRequestDetails(c)
+	h.setLDAPAuditContext(c, requestDetails)
+	h.Settings.SetLDAPConfig(c)
+	if c.Writer.Status() >= 400 {
+		h.setAuditResult(c, fmt.Errorf("LDAP config creation failed"))
+	} else {
+		h.setAuditResult(c, nil)
+	}
+}
+
+// UpdateLDAPConfigWithAudit wraps UpdateLDAPConfig with audit logging
+func (h *Handler) UpdateLDAPConfigWithAudit(c *gin.Context) {
+	requestDetails, _ := h.getRequestDetails(c)
+	h.setLDAPAuditContext(c, requestDetails)
+	h.Settings.UpdateLDAPConfig(c)
+	if c.Writer.Status() >= 400 {
+		h.setAuditResult(c, fmt.Errorf("LDAP config update failed"))
+	} else {
+		h.setAuditResult(c, nil)
+	}
+}
+
+// DeleteLDAPConfigWithAudit wraps DeleteLDAPConfig with audit logging
+func (h *Handler) DeleteLDAPConfigWithAudit(c *gin.Context) {
+	requestDetails, _ := h.getRequestDetails(c)
+	h.setLDAPAuditContext(c, requestDetails)
+	h.Settings.DeleteLDAPConfig(c)
+	if c.Writer.Status() >= 400 {
+		h.setAuditResult(c, fmt.Errorf("LDAP config deletion failed"))
+	} else {
+		h.setAuditResult(c, nil)
+	}
+}
+
+// TestLDAPConfigWithAudit wraps TestLDAPConfig (no audit for test endpoints)
+func (h *Handler) TestLDAPConfigWithAudit(c *gin.Context) {
+	h.Settings.TestLDAPConfig(c)
+}
+
+// TestLDAPAuthWithAudit wraps TestLDAPAuth (no audit for test endpoints)
+func (h *Handler) TestLDAPAuthWithAudit(c *gin.Context) {
+	h.Settings.TestLDAPAuth(c)
+}
+
 // updateScenarioAuditFromResponse extracts scenario ID and name from CREATE response
 func (h *Handler) updateScenarioAuditFromResponse(c *gin.Context, response any) {
 	var scenarioID, scenarioName string

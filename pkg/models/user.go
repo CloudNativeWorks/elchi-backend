@@ -34,6 +34,7 @@ type User struct {
 	UpdatedAt    primitive.DateTime `json:"updated_at" bson:"updated_at"`
 	ClientIP     *string            `json:"client_ip" bson:"client_ip"`
 	UserID       string             `json:"user_id" bson:"user_id"`
+	AuthType     *string            `json:"auth_type" bson:"auth_type"` // "local" | "ldap"
 }
 
 type Group struct {

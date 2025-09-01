@@ -86,6 +86,7 @@ func createAdminUser(ctx context.Context, db *AppContext) (string, error) {
 	if errors.Is(err, mongo.ErrNoDocuments) {
 		hashedPassword := helper.HashPassword("admin")
 		user.Password = &hashedPassword
+		authType := "local"
 		now := time.Now()
 
 		user.CreatedAt = primitive.NewDateTimeFromTime(now)
@@ -97,6 +98,7 @@ func createAdminUser(ctx context.Context, db *AppContext) (string, error) {
 		user.Role = &adminRole
 		user.BaseGroup = &adminBaseGroup
 		user.Active = &adminActive
+		user.AuthType = &authType
 
 		token, refreshToken, _ := helper.GenerateAllTokens(user.Email, user.Username, user.UserID, nil, nil, nil, nil, user.Role)
 		user.Token = &token

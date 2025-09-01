@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/sirupsen/logrus"
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/config"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 )
 
 type Server struct {
@@ -26,7 +26,7 @@ func NewHTTPServer(router *gin.Engine) *Server {
 	}
 }
 
-func (s *Server) Run(config *config.AppConfig, logger *logrus.Logger) error {
+func (s *Server) Run(config *config.AppConfig, logger *logger.Logger) error {
 	port := 8099
 	addr := fmt.Sprintf(":%d", port)
 	server := &http.Server{

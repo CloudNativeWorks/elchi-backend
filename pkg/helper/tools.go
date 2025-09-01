@@ -11,13 +11,13 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
-	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
 	"context"
 
+	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 
 	"go.mongodb.org/mongo-driver/mongo"
@@ -140,7 +140,7 @@ func RemoveDuplicates(strings *[]string) *[]string {
 	return &result
 }
 
-func MarshalJSON(data any, logger *logrus.Logger) (string, error) {
+func MarshalJSON(data any, logger *logger.Logger) (string, error) {
 	jsonString, err := json.Marshal(data)
 	if err != nil {
 		logger.Debugf("Error marshaling JSON: %v", err)
@@ -179,7 +179,7 @@ func MarshalUnmarshalWithType(data any, msg proto.Message) error {
 	return nil
 }
 
-func ConvertToJSON(v any, logger *logrus.Logger) string {
+func ConvertToJSON(v any, logger *logger.Logger) string {
 	jsonData, err := json.Marshal(v)
 	if err != nil {
 		logger.Infof("JSON convert err: %v", err)

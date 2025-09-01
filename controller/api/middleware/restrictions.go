@@ -101,4 +101,6 @@ var AllowedEndpoints = []string{
 	"/api/v3/jobs/workers",
 	"/api/v3/jobs/stats",
 	"/api/v3/bridge/nodes/:node_id/snapshot",
+	"/api/v3/audit/logs",
+	"/api/v3/audit/stats",
 }

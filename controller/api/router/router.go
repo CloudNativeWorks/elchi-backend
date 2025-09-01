@@ -29,11 +29,18 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 	v3 := api.Group("/v3")
 	op := api.Group("/op")
 	
-	// Add body capture middleware before authentication
+	// Add body capture middleware before authentication for both groups
+	v3.Use(middleware.BodyCaptureMiddleware())
 	op.Use(middleware.BodyCaptureMiddleware())
 	
 	v3.Use(middleware.Authentication())
 	op.Use(middleware.Authentication())
+	
+	// Add audit middleware after authentication for authenticated groups
+	if h.AuditService != nil {
+		v3.Use(middleware.AuditMiddleware(h.AuditService))
+		op.Use(middleware.AuditMiddleware(h.AuditService))
+	}
 
 	apiAuth := e.Group("/auth")
 	apiSettings := v3.Group("/setting")
@@ -51,6 +58,8 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 	apiAI := v3.Group("/ai")
 	apiDiscovery := api.Group("/discovery")
 	apiJobs := v3.Group("/jobs")
+	apiAudit := v3.Group("/audit")
+	apiAudit.Use(middleware.InitSettingMiddleware()) // Only owners and admins can access audit logs
 
 	initAuthRoutes(apiAuth, h)
 	initSettingRoutes(apiSettings, h)
@@ -66,6 +75,7 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 	initAIRoutes(apiAI, h)
 	initDiscoveryRoutes(apiDiscovery, h)
 	initJobRoutes(apiJobs, h)
+	initAuditRoutes(apiAudit, h)
 	initOpenStackRoutes(apiClient, h) // OpenStack routes under /api/op/clients
 
 	logRoutes(e)

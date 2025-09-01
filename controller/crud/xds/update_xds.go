@@ -108,7 +108,7 @@ func (xds *AppHandler) UpdateResource(ctx context.Context, resource models.Resou
 	// Version increment moved to control-plane GenerateSnapshot for centralized control
 	// Keep existing version without manual increment
 	
-	resource.SetTypedConfig(resources.DecodeSetTypedConfigs(resource, xds.Logger.Logger))
+	resource.SetTypedConfig(resources.DecodeSetTypedConfigs(resource, xds.Logger))
 
 	update := bson.M{
 		"$set": bson.M{

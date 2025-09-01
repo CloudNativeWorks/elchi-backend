@@ -78,7 +78,7 @@ func (h *Handler) AnalyzeResourceConfigWithAI(c *gin.Context) {
 
 	openRouterClient := ai.NewOpenRouterClient(aiAPIKey)
 
-	configAnalyzer := ai.NewConfigAnalyzer(h.Settings.Context, openRouterClient, defaultModel, h.Settings.Logger.Logger)
+	configAnalyzer := ai.NewConfigAnalyzer(h.Settings.Context, openRouterClient, defaultModel, h.Settings.Logger)
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 90*time.Second)
 	defer cancel()
@@ -293,7 +293,7 @@ func (h *Handler) AnalyzeLogsWithConfig(c *gin.Context) {
 	openRouterClient := ai.NewOpenRouterClient(aiAPIKey)
 
 	// Create config analyzer
-	configAnalyzer := ai.NewConfigAnalyzer(h.Settings.Context, openRouterClient, defaultModel, h.Settings.Logger.Logger)
+	configAnalyzer := ai.NewConfigAnalyzer(h.Settings.Context, openRouterClient, defaultModel, h.Settings.Logger)
 
 	// Start log analysis
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 120*time.Second) // Longer timeout for log analysis

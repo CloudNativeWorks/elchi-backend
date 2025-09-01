@@ -23,6 +23,7 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/controller/discovery"
 	"github.com/CloudNativeWorks/elchi-backend/controller/handlers"
 	"github.com/CloudNativeWorks/elchi-backend/controller/service"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/audit"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/config"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
 	server "github.com/CloudNativeWorks/elchi-backend/pkg/httpserver"
@@ -87,7 +88,6 @@ var restCmd = &cobra.Command{
 		scenarioHandler := scenario.NewScenarioHandler(appContext)
 		customHandler := custom.NewCustomHandler(appContext)
 		bridgeHandler := bridge.NewBridgeHandler(appContext)
-		userHandler := settings.NewUserHandler(appContext)
 		dependencyHandler := dependency.NewDependencyHandler(appContext)
 
 		serviceHandler := service.NewServiceHandler(appContext)
@@ -138,6 +138,13 @@ var restCmd = &cobra.Command{
 
 		dependencyHandler.StartCacheCleanup(1 * time.Minute)
 
+		// Initialize audit service
+		auditLogger := logger.NewLogger("controller/audit")
+		auditService := audit.NewService(appContext, auditLogger)
+		
+		// Initialize settings handler  
+		userHandler := settings.NewUserHandler(appContext)
+		
 		h := handlers.NewHandler(
 			xdsHandler,
 			extensionHandler,
@@ -152,6 +159,7 @@ var restCmd = &cobra.Command{
 			jobHandler,
 			registryHandler,
 			openstackHandler,
+			auditService,
 		)
 
 		// Initialize async job system workers
@@ -162,7 +170,7 @@ var restCmd = &cobra.Command{
 
 		r := router.InitRouter(h)
 
-		if err := server.NewHTTPServer(r).Run(appConfig, rootLogger.Logger); err != nil {
+		if err := server.NewHTTPServer(r).Run(appConfig, rootLogger); err != nil {
 			rootLogger.Fatalf("Server failed to run: %v", err)
 		}
 	},

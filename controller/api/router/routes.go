@@ -83,40 +83,40 @@ func initSettingRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		{"GET", "/user_list", h.Settings.ListUsers},
 		{"GET", "/user/:user_id", h.Settings.GetUser},
 		{"GET", "/users/:user_id", h.Settings.GetUserByID},
-		{"PUT", "/user/:user_id", h.Settings.SetUpdateUser},
-		{"DELETE", "/user/:user_id", h.Settings.DeleteUser},
+		{"PUT", "/user/:user_id", h.SetUpdateUserWithAudit},
+		{"DELETE", "/user/:user_id", h.DeleteUserWithAudit},
 
 		{"GET", "/group_list", h.Settings.ListGroups},
 		{"GET", "/group/:group_id", h.Settings.GetGroup},
-		{"PUT", "/group/:group_id", h.Settings.SetUpdateGroup},
-		{"DELETE", "/group/:group_id", h.Settings.DeleteGroup},
+		{"PUT", "/group/:group_id", h.SetUpdateGroupWithAudit},
+		{"DELETE", "/group/:group_id", h.DeleteGroupWithAudit},
 
 		{"GET", "/project_list", h.Settings.ListProjects},
 		{"GET", "/project/:project_id", h.Settings.GetProject},
-		{"PUT", "/project/:project_id", h.Settings.SetUpdateProject},
-		{"DELETE", "/project/:project_id", h.Settings.DeleteProject},
+		{"PUT", "/project/:project_id", h.SetUpdateProjectWithAudit},
+		{"DELETE", "/project/:project_id", h.DeleteProjectWithAudit},
 
 		{"GET", "/permissions/:kind/:type/:id", h.Settings.GetPermissions},
 
 		{"GET", "/tokens", h.Settings.GetTokens},
-		{"POST", "/tokens", h.Settings.SetToken},
-		{"DELETE", "/tokens/:token_id", h.Settings.DeleteToken},
+		{"POST", "/tokens", h.SetTokenWithAudit},
+		{"DELETE", "/tokens/:token_id", h.DeleteTokenWithAudit},
 
 		{"GET", "/openrouter-token", h.Settings.GetOpenRouterToken},
-		{"POST", "/openrouter-token", h.Settings.SetOpenRouterToken},
-		{"PUT", "/openrouter-token", h.Settings.UpdateOpenRouterToken},
-		{"DELETE", "/openrouter-token", h.Settings.DeleteOpenRouterToken},
+		{"POST", "/openrouter-token", h.SetOpenRouterTokenWithAudit},
+		{"PUT", "/openrouter-token", h.UpdateOpenRouterTokenWithAudit},
+		{"DELETE", "/openrouter-token", h.DeleteOpenRouterTokenWithAudit},
 
 		{"GET", "/discovery-token", h.Settings.GetDiscoveryToken},
-		{"DELETE", "/discovery-token", h.Settings.DeleteDiscoveryToken},
-		{"POST", "/discovery-token/generate", h.Settings.GenerateDiscoveryToken},
+		{"DELETE", "/discovery-token", h.DeleteDiscoveryTokenWithAudit},
+		{"POST", "/discovery-token/generate", h.GenerateDiscoveryTokenWithAudit},
 
 		// Cloud configuration endpoints
 		{"GET", "/clouds", h.Settings.GetClouds},
 		{"GET", "/clouds/:cloud_name", h.Settings.GetCloud},
-		{"POST", "/clouds/:cloud_name", h.Settings.SetCloud},
-		{"PUT", "/clouds/:cloud_name", h.Settings.UpdateCloud},
-		{"DELETE", "/clouds/:cloud_name", h.Settings.DeleteCloud},
+		{"POST", "/clouds/:cloud_name", h.SetCloudWithAudit},
+		{"PUT", "/clouds/:cloud_name", h.UpdateCloudWithAudit},
+		{"DELETE", "/clouds/:cloud_name", h.DeleteCloudWithAudit},
 	}
 
 	initRoutes(rg, routes)
@@ -307,6 +307,19 @@ func initOpenStackRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		{"GET", "/openstack/networks/:network_id", h.GetNetworkDetails},
 		{"GET", "/openstack/subnets/:subnet_id", h.GetSubnetDetails},
 		{"GET", "/openstack/networks/:network_id/subnets", h.GetNetworkSubnets},
+	}
+
+	initRoutes(rg, routes)
+}
+
+func initAuditRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
+	routes := []struct {
+		method  string
+		path    string
+		handler gin.HandlerFunc
+	}{
+		{"GET", "/logs", h.GetAuditLogs},   // GET /api/v3/audit/logs
+		{"GET", "/stats", h.GetAuditStats}, // GET /api/v3/audit/stats  
 	}
 
 	initRoutes(rg, routes)

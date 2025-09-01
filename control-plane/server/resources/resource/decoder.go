@@ -12,7 +12,6 @@ import (
 	route "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/config/route/v3"
 	hcm "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	"github.com/CloudNativeWorks/versioned-go-control-plane/pkg/cache/types"
-	"github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"google.golang.org/protobuf/proto"
@@ -21,6 +20,7 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/errstr"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/helper"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/resources"
 )
@@ -32,7 +32,7 @@ import (
 // Returns:
 // - ListenerConfig: a structured representation of the listener configuration
 // - error: an error if any occurred during the decoding process
-func (ar *AllResources) DecodeListener(ctx context.Context, rawListenerResource *models.DBResource, context *db.AppContext, logger *logrus.Logger, downstreamAddress string) {
+func (ar *AllResources) DecodeListener(ctx context.Context, rawListenerResource *models.DBResource, context *db.AppContext, logger *logger.Logger, downstreamAddress string) {
 	ar.mutex.Lock()
 	ar.UniqueResources = make(map[string]struct{})
 	ar.mutex.Unlock()
@@ -67,7 +67,7 @@ func SetSocketIPAddress(addr *core.Address, newIP string) error {
 // Returns:
 // - Listener: an initialized listener instance
 // - error: an error if any occurred during the initialization process
-func (ar *AllResources) initializeListener(ctx context.Context, rawListenerResource *models.DBResource, context *db.AppContext, logger *logrus.Logger, downstreamAddress string) error {
+func (ar *AllResources) initializeListener(ctx context.Context, rawListenerResource *models.DBResource, context *db.AppContext, logger *logger.Logger, downstreamAddress string) error {
 	rawListeners, ok := rawListenerResource.Resource.Resource.(primitive.A)
 	if !ok {
 		return errstr.ErrUnexpectedResource
@@ -113,7 +113,7 @@ func (ar *AllResources) initializeListener(ctx context.Context, rawListenerResou
 // - configDiscoveries: a slice of discovered configurations to be processed
 // - context: application context containing database connections and other settings
 // - logger: logger for logging errors and information
-func (ar *AllResources) processConfigDiscoveries(ctx context.Context, configDiscoveries []*models.ConfigDiscovery, context *db.AppContext, logger *logrus.Logger) {
+func (ar *AllResources) processConfigDiscoveries(ctx context.Context, configDiscoveries []*models.ConfigDiscovery, context *db.AppContext, logger *logger.Logger) {
 	for _, configDiscovery := range configDiscoveries {
 		ar.processExtension(ctx, configDiscovery, configDiscovery.ParentName, context, logger)
 	}
@@ -129,7 +129,7 @@ func (ar *AllResources) processConfigDiscoveries(ctx context.Context, configDisc
 // - logger: logger for logging errors and information
 // Returns:
 // - error: an error if any occurred during the processing of the configuration
-func (ar *AllResources) processExtension(ctx context.Context, extension *models.ConfigDiscovery, parentName string, context *db.AppContext, logger *logrus.Logger) {
+func (ar *AllResources) processExtension(ctx context.Context, extension *models.ConfigDiscovery, parentName string, context *db.AppContext, logger *logger.Logger) {
 	uniqKey := fmt.Sprintf("%s__%s__%s", extension.Name, parentName, extension.GType.String())
 	if ar.checkAndMarkDuplicate(uniqKey) {
 		return
@@ -144,7 +144,7 @@ func (ar *AllResources) processExtension(ctx context.Context, extension *models.
 	for _, extConfig := range extConfigs {
 		if extension.GType == models.VirtualHost {
 			uniqKey := fmt.Sprintf("%s__%s", extension.Name, extension.GType.String())
-			ar.AddToCollection(extConfig, extension.GType, uniqKey, &parentName, extension.Name)
+			ar.AddToCollection(extConfig, extension.GType, uniqKey, &parentName, extension.Name, logger)
 		} else {
 			if extension.GType == models.HTTPConnectionManager {
 				hcmConfig, ok := extConfig.(*hcm.HttpConnectionManager)
@@ -219,7 +219,7 @@ func (ar *AllResources) checkAndMarkDuplicate(name string) bool {
 // Returns:
 // - []Resource: a slice containing all resources associated with the parent
 // - error: an error if any occurred during the resource collection process
-func (ar *AllResources) CollectAllResourcesWithParent(ctx context.Context, gtype models.GType, resourceName, parentName string, context *db.AppContext, logger *logrus.Logger) ([]proto.Message, []*models.ConfigDiscovery, error) {
+func (ar *AllResources) CollectAllResourcesWithParent(ctx context.Context, gtype models.GType, resourceName, parentName string, context *db.AppContext, logger *logger.Logger) ([]proto.Message, []*models.ConfigDiscovery, error) {
 	resource, err := resources.GetResourceNGeneral(ctx, context, gtype.CollectionString(), resourceName, ar.Project, ar.ResourceVersion)
 	if err != nil {
 		logger.Errorf("Error getting resource %s: %v", resourceName, err)
@@ -238,7 +238,7 @@ func (ar *AllResources) CollectAllResourcesWithParent(ctx context.Context, gtype
 	switch res := resourceData.(type) {
 	case primitive.A:
 		for _, item := range res {
-			jsonStringStr, err := helper.MarshalJSON(item, context.Logger.Logger)
+			jsonStringStr, err := helper.MarshalJSON(item, context.Logger)
 			if err != nil {
 				logger.Errorf("Error marshaling array item: %v", err)
 				return nil, nil, err
@@ -255,7 +255,7 @@ func (ar *AllResources) CollectAllResourcesWithParent(ctx context.Context, gtype
 			ar.processConfigDiscoveries(ctx, resource.General.ConfigDiscovery, context, logger)
 		}
 	default:
-		jsonStringStr, err := helper.MarshalJSON(resourceData, context.Logger.Logger)
+		jsonStringStr, err := helper.MarshalJSON(resourceData, context.Logger)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -282,7 +282,7 @@ func (ar *AllResources) CollectAllResourcesWithParent(ctx context.Context, gtype
 // - upstreamSettings: settings related to upstream configurations
 // Returns:
 // - error: an error if any occurred during the processing of the configurations and settings
-func (ar *AllResources) processTypedConfigsAndUpstream(ctx context.Context, protoMsg proto.Message, jsonStringStr *string, gtype models.GType, parentName string, context *db.AppContext, logger *logrus.Logger) error {
+func (ar *AllResources) processTypedConfigsAndUpstream(ctx context.Context, protoMsg proto.Message, jsonStringStr *string, gtype models.GType, parentName string, context *db.AppContext, logger *logger.Logger) error {
 	typedConfigPaths := gtype.TypedConfigPaths()
 
 	ar.processTypedConfigPaths(ctx, typedConfigPaths, jsonStringStr, context, logger)
@@ -303,7 +303,7 @@ func (ar *AllResources) processTypedConfigsAndUpstream(ctx context.Context, prot
 // - paths: a slice of paths to the typed configurations to be processed
 // Returns:
 // - error: an error if any occurred during the processing of the configuration paths
-func (ar *AllResources) processTypedConfigPaths(ctx context.Context, configPaths []models.TypedConfigPath, jsonStringStr *string, context *db.AppContext, logger *logrus.Logger) {
+func (ar *AllResources) processTypedConfigPaths(ctx context.Context, configPaths []models.TypedConfigPath, jsonStringStr *string, context *db.AppContext, logger *logger.Logger) {
 	for _, path := range configPaths {
 		if err := ar.processTypedConfigPath(ctx, path, jsonStringStr, context); err != nil {
 			logger.Warnf("Error processing typed config path: %v", err)
@@ -318,7 +318,7 @@ func (ar *AllResources) processTypedConfigPaths(ctx context.Context, configPaths
 // - paths: a slice of paths to the upstream configurations to be processed
 // Returns:
 // - error: an error if any occurred during the processing of the upstream paths
-func (ar *AllResources) processUpstreamPaths(ctx context.Context, upstreamPaths map[string]models.GType, jsonStringStr *string, parentName string, context *db.AppContext, logger *logrus.Logger) {
+func (ar *AllResources) processUpstreamPaths(ctx context.Context, upstreamPaths map[string]models.GType, jsonStringStr *string, parentName string, context *db.AppContext, logger *logger.Logger) {
 	for jsonPath, upstreamType := range upstreamPaths {
 		result := gjson.Get(*jsonStringStr, jsonPath)
 		if result.Exists() {
@@ -334,7 +334,7 @@ func (ar *AllResources) processUpstreamPaths(ctx context.Context, upstreamPaths 
 // - paths: a slice of paths to the upstream configurations to be processed
 // Returns:
 // - error: an error if any occurred during the processing of the upstream paths
-func processUpstreamPaths(ctx context.Context, result gjson.Result, upstreamType models.GType, parentName string, ar *AllResources, context *db.AppContext, logger *logrus.Logger) {
+func processUpstreamPaths(ctx context.Context, result gjson.Result, upstreamType models.GType, parentName string, ar *AllResources, context *db.AppContext, logger *logger.Logger) {
 	if result.IsArray() {
 		result.ForEach(func(_, item gjson.Result) bool {
 			processUpstreamPaths(ctx, item, upstreamType, parentName, ar, context, logger)
@@ -351,7 +351,7 @@ func processUpstreamPaths(ctx context.Context, result gjson.Result, upstreamType
 		for _, protoMsg := range upstreamResourceProtoMsgs {
 			uniqKey := fmt.Sprintf("%s__%s", resourceName, upstreamType.String())
 			if protoMsg != nil {
-				ar.AddToCollection(protoMsg, upstreamType, uniqKey, nil, resourceName)
+				ar.AddToCollection(protoMsg, upstreamType, uniqKey, nil, resourceName, logger)
 			}
 		}
 		if additionalExtResources != nil {
@@ -367,7 +367,7 @@ func processUpstreamPaths(ctx context.Context, result gjson.Result, upstreamType
 // - item: the item to be added to the collection
 // Returns:
 // - error: an error if any occurred during the addition of the item to the collection
-func (ar *AllResources) AddToCollection(resource proto.Message, gtype models.GType, uniqName string, parentName *string, resourceName string) {
+func (ar *AllResources) AddToCollection(resource proto.Message, gtype models.GType, uniqName string, parentName *string, resourceName string, logger *logger.Logger) {
 	ar.mutex.Lock()
 	defer ar.mutex.Unlock()
 	if ar.checkAndMarkDuplicate(uniqName) {

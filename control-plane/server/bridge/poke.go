@@ -37,12 +37,12 @@ func (pss *PokeServiceServer) Poke(ctx context.Context, req *bridge.PokeRequest)
 		return nil, err
 	}
 
-	allResources, err := resource.GenerateSnapshot(ctx, rawListenerResource, req.NodeID, pss.AppContext, pss.Logger.Logger, req.Project, req.Version, req.DownstreamAddress)
+	allResources, err := resource.GenerateSnapshot(ctx, rawListenerResource, req.NodeID, pss.AppContext, pss.Logger, req.Project, req.Version, req.DownstreamAddress)
 	if err != nil {
 		return nil, err
 	}
 
-	err = pss.context.SetSnapshot(ctx, allResources, pss.Logger.Logger, pss.AppContext)
+	err = pss.context.SetSnapshot(ctx, allResources, pss.Logger, pss.AppContext)
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +130,7 @@ func (ps *PokeService) getAllResourcesFromListener(ctx context.Context, listener
 		return nil, err
 	}
 
-	lis, err := resource.GenerateSnapshot(ctx, rawListenerResource, listenerName, ps.appContext, ps.Logger.Logger, project, version, downstreamAddress)
+	lis, err := resource.GenerateSnapshot(ctx, rawListenerResource, listenerName, ps.appContext, ps.Logger, project, version, downstreamAddress)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +214,7 @@ func (ps *PokeService) GetResourceSetSnapshot(ctx context.Context, node, project
 		return err
 	}
 
-	err = ps.Snapshot.SetSnapshot(ctx, allResource, ps.Logger.Logger, ps.appContext)
+	err = ps.Snapshot.SetSnapshot(ctx, allResource, ps.Logger, ps.appContext)
 	if err != nil {
 		ps.Logger.Warnf("%s", err)
 		return err

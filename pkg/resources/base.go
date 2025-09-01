@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -22,6 +21,7 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/pkg/bridge"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/errstr"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 )
 
@@ -201,7 +201,7 @@ func ValidateResourceWithClient(ctx context.Context, resourceGType models.GType,
 	return nil
 }
 
-func PrepareResource(resource models.ResourceClass, requestDetails models.RequestDetails, logger *logrus.Logger, resourceService *bridge.ResourceServiceClient) error {
+func PrepareResource(resource models.ResourceClass, requestDetails models.RequestDetails, logger *logger.Logger, resourceService *bridge.ResourceServiceClient) error {
 	general := resource.GetGeneral()
 	now := time.Now()
 	general.CreatedAt = primitive.NewDateTimeFromTime(now)

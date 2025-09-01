@@ -138,3 +138,4 @@ func ValidateRefreshToken(tokenString string) (models.SignedDetails, error) {
 func respondWithJSON(c *gin.Context, status int, msg, userOrGroupID string) {
 	c.JSON(status, gin.H{"message": msg, "id": userOrGroupID})
 }
+

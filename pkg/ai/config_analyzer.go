@@ -9,8 +9,8 @@ import (
 
 	"github.com/CloudNativeWorks/elchi-backend/controller/dependency"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
-	"github.com/sirupsen/logrus"
 	"go.mongodb.org/mongo-driver/bson"
 )
 
@@ -89,12 +89,12 @@ type ConfigAnalyzer struct {
 	dependencyHandler *dependency.AppHandler
 	aiClient          *OpenRouterClient // Changed from Claude to OpenRouter
 	defaultModel      string            // Default model to use
-	logger            *logrus.Logger
+	logger            *logger.Logger
 	systemPrompt      string // Cached system prompt
 	usageTracker      *UsageTracker
 }
 
-func NewConfigAnalyzer(dbContext *db.AppContext, aiClient *OpenRouterClient, defaultModel string, logger *logrus.Logger) *ConfigAnalyzer {
+func NewConfigAnalyzer(dbContext *db.AppContext, aiClient *OpenRouterClient, defaultModel string, logger *logger.Logger) *ConfigAnalyzer {
 	dependencyHandler := dependency.NewDependencyHandler(dbContext)
 	usageTracker := NewUsageTracker(dbContext)
 	

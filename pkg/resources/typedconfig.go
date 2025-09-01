@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/helper"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 )
 
@@ -28,7 +28,7 @@ func DecodeBase64Config(encodedConfig string) (*models.TypedConfig, error) {
 	return &configData, nil
 }
 
-func GetTypedConfigValue(jsonStringStr, path string, logger *logrus.Logger) *models.TypedConfig {
+func GetTypedConfigValue(jsonStringStr, path string, logger *logger.Logger) *models.TypedConfig {
 	value := gjson.Get(jsonStringStr, path).String()
 
 	if value == "" {
@@ -44,7 +44,7 @@ func GetTypedConfigValue(jsonStringStr, path string, logger *logrus.Logger) *mod
 	return typedConfig
 }
 
-func ProcessTypedConfigs(jsonStringStr string, typedConfigPath models.TypedConfigPath, logger *logrus.Logger) ([]*models.TypedConfig, map[string]*models.TypedConfig) {
+func ProcessTypedConfigs(jsonStringStr string, typedConfigPath models.TypedConfigPath, logger *logger.Logger) ([]*models.TypedConfig, map[string]*models.TypedConfig) {
 	var typedConfigs []*models.TypedConfig
 	typedConfigsMap := make(map[string]*models.TypedConfig)
 	seenConfigs := make(map[string]struct{})
@@ -58,7 +58,7 @@ func ProcessTypedConfigs(jsonStringStr string, typedConfigPath models.TypedConfi
 	return typedConfigs, typedConfigsMap
 }
 
-func handlePerTypedConfig(jsonStringStr string, typedConfigPath models.TypedConfigPath, typedConfigs *[]*models.TypedConfig, typedConfigsMap map[string]*models.TypedConfig, seenConfigs map[string]struct{}, logger *logrus.Logger) {
+func handlePerTypedConfig(jsonStringStr string, typedConfigPath models.TypedConfigPath, typedConfigs *[]*models.TypedConfig, typedConfigsMap map[string]*models.TypedConfig, seenConfigs map[string]struct{}, logger *logger.Logger) {
 	if len(typedConfigPath.ArrayPaths) == 0 {
 		result := gjson.Get(jsonStringStr, typedConfigPath.PathTemplate)
 		if result.Exists() {
@@ -79,7 +79,7 @@ func handlePerTypedConfig(jsonStringStr string, typedConfigPath models.TypedConf
 	}
 }
 
-func handleNonPerTypedConfig(jsonStringStr string, typedConfigPath models.TypedConfigPath, typedConfigs *[]*models.TypedConfig, typedConfigsMap map[string]*models.TypedConfig, seenConfigs map[string]struct{}, logger *logrus.Logger) {
+func handleNonPerTypedConfig(jsonStringStr string, typedConfigPath models.TypedConfigPath, typedConfigs *[]*models.TypedConfig, typedConfigsMap map[string]*models.TypedConfig, seenConfigs map[string]struct{}, logger *logger.Logger) {
 	if len(typedConfigPath.ArrayPaths) == 0 {
 		processPath(jsonStringStr, typedConfigPath.PathTemplate, typedConfigs, typedConfigsMap, seenConfigs, logger)
 	} else {
@@ -92,7 +92,7 @@ func handleNonPerTypedConfig(jsonStringStr string, typedConfigPath models.TypedC
 	}
 }
 
-func processDynamicKey(result gjson.Result, basePath string, typedConfigs *[]*models.TypedConfig, typedConfigsMap map[string]*models.TypedConfig, seenConfigs map[string]struct{}, logger *logrus.Logger) {
+func processDynamicKey(result gjson.Result, basePath string, typedConfigs *[]*models.TypedConfig, typedConfigsMap map[string]*models.TypedConfig, seenConfigs map[string]struct{}, logger *logger.Logger) {
 	result.ForEach(func(key, _ gjson.Result) bool {
 		dynamicKey := key.String()
 		dynamicPath := fmt.Sprintf("%s.%s", basePath, dynamicKey)
@@ -101,7 +101,7 @@ func processDynamicKey(result gjson.Result, basePath string, typedConfigs *[]*mo
 	})
 }
 
-func processPerTypedConfigArray(array []gjson.Result, jsonStringStr, pathTemplate string, arrayPaths []models.ArrayPath, typedConfigs *[]*models.TypedConfig, typedConfigsMap map[string]*models.TypedConfig, seenConfigs map[string]struct{}, logger *logrus.Logger) {
+func processPerTypedConfigArray(array []gjson.Result, jsonStringStr, pathTemplate string, arrayPaths []models.ArrayPath, typedConfigs *[]*models.TypedConfig, typedConfigsMap map[string]*models.TypedConfig, seenConfigs map[string]struct{}, logger *logger.Logger) {
 	placeholderCount := strings.Count(pathTemplate, "%d")
 
 	for i := range array {
@@ -126,7 +126,7 @@ func processPerTypedConfigArray(array []gjson.Result, jsonStringStr, pathTemplat
 	}
 }
 
-func processArray(array []gjson.Result, jsonStringStr, pathTemplate string, arrayPaths []models.ArrayPath, typedConfigs *[]*models.TypedConfig, typedConfigsMap map[string]*models.TypedConfig, seenConfigs map[string]struct{}, logger *logrus.Logger) {
+func processArray(array []gjson.Result, jsonStringStr, pathTemplate string, arrayPaths []models.ArrayPath, typedConfigs *[]*models.TypedConfig, typedConfigsMap map[string]*models.TypedConfig, seenConfigs map[string]struct{}, logger *logger.Logger) {
 	placeholderCount := strings.Count(pathTemplate, "%d")
 
 	for i := range array {
@@ -141,7 +141,7 @@ func processArray(array []gjson.Result, jsonStringStr, pathTemplate string, arra
 	}
 }
 
-func processPath(jsonStringStr, path string, typedConfigs *[]*models.TypedConfig, typedConfigsMap map[string]*models.TypedConfig, seenConfigs map[string]struct{}, logger *logrus.Logger) {
+func processPath(jsonStringStr, path string, typedConfigs *[]*models.TypedConfig, typedConfigsMap map[string]*models.TypedConfig, seenConfigs map[string]struct{}, logger *logger.Logger) {
 	singleTypedConfig := GetTypedConfigValue(jsonStringStr, path+".value", logger)
 
 	if singleTypedConfig != nil {
@@ -191,7 +191,7 @@ func fillIndices(pathTemplate string, indices []any) string {
 	return fmt.Sprintf(pathTemplate, indices...)
 }
 
-func DecodeSetTypedConfigs(resource models.ResourceClass, logger *logrus.Logger) []*models.TypedConfig {
+func DecodeSetTypedConfigs(resource models.ResourceClass, logger *logger.Logger) []*models.TypedConfig {
 	var typedConfigs []*models.TypedConfig
 
 	if paths := resource.GetGtype().TypedConfigPaths(); paths != nil {
@@ -203,7 +203,7 @@ func DecodeSetTypedConfigs(resource models.ResourceClass, logger *logrus.Logger)
 	return typedConfigs
 }
 
-func getTypedConfigs(resource models.ResourceClass, logger *logrus.Logger, paths []models.TypedConfigPath) []*models.TypedConfig {
+func getTypedConfigs(resource models.ResourceClass, logger *logger.Logger, paths []models.TypedConfigPath) []*models.TypedConfig {
 	var typedConfigs []*models.TypedConfig
 	resourceValue := resource.GetResource()
 

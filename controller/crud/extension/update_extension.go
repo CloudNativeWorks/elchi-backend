@@ -61,7 +61,7 @@ func updateResource(ctx context.Context, extension *AppHandler, resource models.
 		return nil, fmt.Errorf("%v", err)
 	}
 
-	resource.SetTypedConfig(resources.DecodeSetTypedConfigs(resource, extension.Logger.Logger))
+	resource.SetTypedConfig(resources.DecodeSetTypedConfigs(resource, extension.Logger))
 
 	update := bson.M{
 		"$set": bson.M{

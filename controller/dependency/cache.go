@@ -71,7 +71,7 @@ func (h *AppHandler) getResourceData(ctx context.Context, collection, name, proj
 	}
 
 	resourceID := resource.ID.Hex()
-	jsonResource := helper.ConvertToJSON(resource, h.Logger.Logger)
+	jsonResource := helper.ConvertToJSON(resource, h.Logger)
 
 	h.setCacheEntry(cacheKey, CacheEntry{
 		ID:   resourceID,

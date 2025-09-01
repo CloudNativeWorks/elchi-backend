@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/sirupsen/logrus"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/CloudNativeWorks/elchi-backend/controller/crud/common"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 )
 
@@ -43,7 +43,7 @@ func (custom *AppHandler) GetCustomResourceList(ctx context.Context, _ models.Re
 	}
 	defer cursor.Close(ctx)
 
-	results, decodeErr := decodeResults(ctx, cursor, requestDetails.Collection, custom.Logger.Logger)
+	results, decodeErr := decodeResults(ctx, cursor, requestDetails.Collection, custom.Logger)
 	if decodeErr != nil {
 		return nil, decodeErr
 	}
@@ -90,7 +90,7 @@ func buildFilters(details models.RequestDetails) bson.M {
 	return filters
 }
 
-func decodeResults(ctx context.Context, cursor *mongo.Cursor, collectionName string, logger *logrus.Logger) ([]Record, error) {
+func decodeResults(ctx context.Context, cursor *mongo.Cursor, collectionName string, logger *logger.Logger) ([]Record, error) {
 	var results []Record
 
 	for cursor.Next(ctx) {

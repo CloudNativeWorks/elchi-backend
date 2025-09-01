@@ -8,11 +8,11 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/CloudNativeWorks/elchi-backend/control-plane/server/resources/common"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 )
 
@@ -27,7 +27,7 @@ func NewResources() *AllResources {
 	}
 }
 
-func GenerateSnapshot(ctx context.Context, rawListenerResource *models.DBResource, listenerName string, db *db.AppContext, logger *logrus.Logger, project, version, downstreamAddress string) (*AllResources, error) {
+func GenerateSnapshot(ctx context.Context, rawListenerResource *models.DBResource, listenerName string, db *db.AppContext, logger *logger.Logger, project, version, downstreamAddress string) (*AllResources, error) {
 	ar := NewResources()
 	var nodeID string
 

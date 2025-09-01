@@ -400,16 +400,106 @@ func (h *JobHandler) GetJobStats(c *gin.Context) {
 		return
 	}
 	
-	// Get basic stats from async system
-	stats, err := h.asyncSystem.GetJobStats(ctx)
+	// Build filter from query parameters (same as ListJobs, but without pagination)
+	filter := &async.JobFilter{}
+	
+	// Status filter
+	if statusParam := c.Query("status"); statusParam != "" {
+		status := job.JobStatus(statusParam)
+		filter.Status = []job.JobStatus{status}
+	}
+	
+	// Multiple status filter
+	if statusesParam := c.QueryArray("statuses"); len(statusesParam) > 0 {
+		var statuses []job.JobStatus
+		for _, s := range statusesParam {
+			statuses = append(statuses, job.JobStatus(s))
+		}
+		filter.Status = statuses
+	}
+	
+	// Type filter
+	if typeParam := c.Query("type"); typeParam != "" {
+		jobType := job.JobType(typeParam)
+		filter.Type = []job.JobType{jobType}
+	}
+	
+	// Project filter (only show stats for accessible projects)
+	if projectParam := c.Query("project"); projectParam != "" {
+		// Check if user has access to this project
+		if err := authorization.ValidateRequestProject(c.Request.Context(), h.dbContext.Client, userDetails, projectParam); err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied to project"})
+			return
+		}
+		filter.Project = projectParam
+	}
+	
+	// CreatedBy filter (users can see their own jobs, admins see all)
+	if userDetails.Role != models.RoleAdmin && userDetails.Role != models.RoleOwner {
+		filter.CreatedBy = userDetails.UserID
+	}
+	
+	// Resource name filter (partial match, case insensitive)
+	if resourceNameParam := c.Query("resource_name"); resourceNameParam != "" {
+		filter.ResourceName = resourceNameParam
+	}
+	
+	// Affected listener filter (exact match)
+	if listenerParam := c.Query("affected_listener"); listenerParam != "" {
+		filter.AffectedListener = listenerParam
+	}
+	
+	// Username filter (partial match, case insensitive)
+	if usernameParam := c.Query("username"); usernameParam != "" {
+		filter.Username = usernameParam
+	}
+	
+	// Date range filters (YYYY-MM-DD format)
+	if startDateParam := c.Query("start_date"); startDateParam != "" {
+		filter.StartDate = startDateParam
+	}
+	if endDateParam := c.Query("end_date"); endDateParam != "" {
+		filter.EndDate = endDateParam
+	}
+	
+	// Get filtered stats from async system
+	stats, err := h.asyncSystem.GetJobStatsFiltered(ctx, filter)
 	if err != nil {
 		h.logger.Errorf("Failed to get job stats: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve job statistics"})
 		return
 	}
 	
+	// Build response with applied filters info
+	appliedFilters := gin.H{}
+	if len(filter.Status) > 0 {
+		appliedFilters["status"] = filter.Status
+	}
+	if len(filter.Type) > 0 {
+		appliedFilters["type"] = filter.Type
+	}
+	if filter.Project != "" {
+		appliedFilters["project"] = filter.Project
+	}
+	if filter.ResourceName != "" {
+		appliedFilters["resource_name"] = filter.ResourceName
+	}
+	if filter.AffectedListener != "" {
+		appliedFilters["affected_listener"] = filter.AffectedListener
+	}
+	if filter.Username != "" {
+		appliedFilters["username"] = filter.Username
+	}
+	if filter.StartDate != "" {
+		appliedFilters["start_date"] = filter.StartDate
+	}
+	if filter.EndDate != "" {
+		appliedFilters["end_date"] = filter.EndDate
+	}
+	
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Success",
 		"data":    stats,
+		"filters": appliedFilters,
 	})
 }

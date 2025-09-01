@@ -45,6 +45,7 @@ type AsyncJobSystem interface {
 	
 	// Statistics and monitoring
 	GetJobStats(ctx context.Context) (*JobStats, error)
+	GetJobStatsFiltered(ctx context.Context, filter *JobFilter) (*JobStats, error)
 	
 	// Internal access
 	GetJobManager() JobManagerInterface
@@ -266,6 +267,78 @@ func (s *asyncJobSystem) GetJobStats(ctx context.Context) (*JobStats, error) {
 	
 	return &JobStats{
 		TotalJobs:      int64(len(allJobs)),
+		JobsByStatus:   statusCounts,
+		JobsByType:     typeCounts,
+		RecentJobs:     recentJobs,
+		QueueSize:      workerStatus.QueueSize,
+		ActiveWorkers:  workerStatus.ActiveWorkers,
+		ProcessingJobs: workerStatus.ProcessingJobs,
+		LastUpdated:    time.Now(),
+	}, nil
+}
+
+// GetJobStatsFiltered returns job statistics with applied filters
+func (s *asyncJobSystem) GetJobStatsFiltered(ctx context.Context, filter *JobFilter) (*JobStats, error) {
+	// Get recent jobs with filter (last 10 matching filter)
+	recentFilter := &JobFilter{
+		Status:           filter.Status,
+		Type:             filter.Type,
+		Project:          filter.Project,
+		CreatedBy:        filter.CreatedBy,
+		ResourceName:     filter.ResourceName,
+		AffectedListener: filter.AffectedListener,
+		Username:         filter.Username,
+		StartDate:        filter.StartDate,
+		EndDate:          filter.EndDate,
+		Limit:            10, // Always limit recent jobs to 10
+	}
+	recentJobs, err := s.jobManager.ListJobs(ctx, recentFilter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get recent jobs: %w", err)
+	}
+	
+	// Get all matching jobs for counting (with reasonable limit)
+	countFilter := &JobFilter{
+		Status:           filter.Status,
+		Type:             filter.Type,
+		Project:          filter.Project,
+		CreatedBy:        filter.CreatedBy,
+		ResourceName:     filter.ResourceName,
+		AffectedListener: filter.AffectedListener,
+		Username:         filter.Username,
+		StartDate:        filter.StartDate,
+		EndDate:          filter.EndDate,
+		Limit:            5000, // Reasonable limit for stats counting
+	}
+	
+	filteredJobs, err := s.jobManager.ListJobs(ctx, countFilter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get jobs for filtered stats: %w", err)
+	}
+	
+	// Count jobs by status and type from filtered results
+	statusCounts := make(map[JobStatus]int64)
+	typeCounts := make(map[JobType]int64)
+	
+	for _, job := range filteredJobs {
+		statusCounts[job.Status]++
+		typeCounts[job.Type]++
+	}
+	
+	// Get worker status (not affected by filters)
+	workerStatus, err := s.GetWorkerStatus(ctx)
+	if err != nil {
+		// Don't fail completely, just set defaults
+		workerStatus = &WorkerStatus{
+			ActiveWorkers:  0,
+			ProcessingJobs: 0,
+			QueueSize:      0,
+			LastActivity:   time.Now(),
+		}
+	}
+	
+	return &JobStats{
+		TotalJobs:      int64(len(filteredJobs)),
 		JobsByStatus:   statusCounts,
 		JobsByType:     typeCounts,
 		RecentJobs:     recentJobs,

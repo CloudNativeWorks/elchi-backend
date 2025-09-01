@@ -18,6 +18,7 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/controller/dependency"
 	"github.com/CloudNativeWorks/elchi-backend/controller/discovery"
 	"github.com/CloudNativeWorks/elchi-backend/controller/service"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/audit"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/authorization"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/errstr"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
@@ -39,36 +40,38 @@ type (
 )
 
 type Handler struct {
-	XDS        *xds.AppHandler
-	Extension  *extension.AppHandler
-	Custom     *custom.AppHandler
-	Settings   *settings.AppHandler
-	dependency *dependency.AppHandler
-	Bridge     *bridge.AppHandler
-	Scenario   *scenario.AppHandler
-	Client     *client.AppHandler
-	Service    *service.AppHandler
-	Discovery  *discovery.DiscoveryHandler
-	Jobs       *JobHandler
-	Registry   *RegistryHandler
-	OpenStack  *openstack.Handler
+	XDS          *xds.AppHandler
+	Extension    *extension.AppHandler
+	Custom       *custom.AppHandler
+	Settings     *settings.AppHandler
+	dependency   *dependency.AppHandler
+	Bridge       *bridge.AppHandler
+	Scenario     *scenario.AppHandler
+	Client       *client.AppHandler
+	Service      *service.AppHandler
+	Discovery    *discovery.DiscoveryHandler
+	Jobs         *JobHandler
+	Registry     *RegistryHandler
+	OpenStack    *openstack.Handler
+	AuditService *audit.Service
 }
 
-func NewHandler(xds *xds.AppHandler, extension *extension.AppHandler, custom *custom.AppHandler, settings *settings.AppHandler, dependency *dependency.AppHandler, stats *bridge.AppHandler, scenario *scenario.AppHandler, client *client.AppHandler, service *service.AppHandler, discovery *discovery.DiscoveryHandler, jobs *JobHandler, registry *RegistryHandler, openstack *openstack.Handler) *Handler {
+func NewHandler(xds *xds.AppHandler, extension *extension.AppHandler, custom *custom.AppHandler, settings *settings.AppHandler, dependency *dependency.AppHandler, stats *bridge.AppHandler, scenario *scenario.AppHandler, client *client.AppHandler, service *service.AppHandler, discovery *discovery.DiscoveryHandler, jobs *JobHandler, registry *RegistryHandler, openstack *openstack.Handler, auditService *audit.Service) *Handler {
 	return &Handler{
-		XDS:        xds,
-		Extension:  extension,
-		Custom:     custom,
-		Settings:   settings,
-		dependency: dependency,
-		Bridge:     stats,
-		Scenario:   scenario,
-		Client:     client,
-		Service:    service,
-		Discovery:  discovery,
-		Jobs:       jobs,
-		Registry:   registry,
-		OpenStack:  openstack,
+		XDS:          xds,
+		Extension:    extension,
+		Custom:       custom,
+		Settings:     settings,
+		dependency:   dependency,
+		Bridge:       stats,
+		Scenario:     scenario,
+		Client:       client,
+		Service:      service,
+		Discovery:    discovery,
+		Jobs:         jobs,
+		Registry:     registry,
+		OpenStack:    openstack,
+		AuditService: auditService,
 	}
 }
 
@@ -77,9 +80,9 @@ func formatErrorMessage(err error) string {
 	if err == nil {
 		return ""
 	}
-	
+
 	errStr := err.Error()
-	
+
 	// Handle MongoDB duplicate key errors
 	if strings.Contains(errStr, "E11000 duplicate key error") {
 		// Extract collection name from error message
@@ -91,12 +94,12 @@ func formatErrorMessage(err error) string {
 				collection = collectionPart
 			}
 		}
-		
+
 		// For MongoDB collation errors, we can't reliably extract the resource name
 		// because it's encoded in CollationKey format. Just use a generic message.
 		return fmt.Sprintf("A %s with this name already exists. Please choose a different name.", collection)
 	}
-	
+
 	// For other errors, return the original message
 	return errStr
 }
@@ -132,7 +135,17 @@ func (h *Handler) handleRequest(c *gin.Context, resFunc ResFunc) {
 		}
 	}
 
+	// Set audit context for resource operations (XDS, Extension, Settings, etc.)
+	h.setResourceAuditContext(c, requestDetails)
+
+	// For PUT requests, capture changes BEFORE the database update
+	if c.Request.Method == "PUT" {
+		h.setAuditChanges(c)
+	}
+
 	response, err := h.dynamicFuncs(c, ctx, resFunc, requestDetails)
+	h.setAuditResult(c, err)
+
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": formatErrorMessage(err), "data": response})
 		return
@@ -203,7 +216,12 @@ func (h *Handler) handleOpRequest(c *gin.Context, opFunc OpFunc) {
 		return
 	}
 
+	// Set audit context for client commands
+	h.setClientCommandAuditContext(c)
+
 	response, err := h.dynamicOpFuncs(c, ctx, opFunc, requestDetails)
+	h.setAuditResult(c, err)
+
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": formatErrorMessage(err), "data": response})
 		return
@@ -211,7 +229,6 @@ func (h *Handler) handleOpRequest(c *gin.Context, opFunc OpFunc) {
 
 	c.JSON(http.StatusOK, response)
 }
-
 
 // HandleK8sDiscovery delegates to discovery handler
 func (h *Handler) HandleK8sDiscovery(c *gin.Context) {
@@ -429,7 +446,7 @@ func decodeR(c *gin.Context) (models.ResourceClass, error) {
 
 func decodeResource(c *gin.Context) (models.ResourceClass, error) {
 	var body models.DBResource
-	
+
 	// Try to get cached body from middleware first
 	if originalBody, exists := c.Get("_original_body"); exists {
 		if bodyBytes, ok := originalBody.([]byte); ok {
@@ -439,7 +456,7 @@ func decodeResource(c *gin.Context) (models.ResourceClass, error) {
 			return &body, nil
 		}
 	}
-	
+
 	// Fallback to normal BindJSON
 	if err := c.BindJSON(&body); err != nil {
 		return nil, err
@@ -449,7 +466,7 @@ func decodeResource(c *gin.Context) (models.ResourceClass, error) {
 
 func decodeResourceOp(c *gin.Context) (models.OperationClass, error) {
 	var body models.Operations
-	
+
 	// Try to get cached body from middleware first
 	if originalBody, exists := c.Get("_original_body"); exists {
 		if bodyBytes, ok := originalBody.([]byte); ok {
@@ -459,7 +476,7 @@ func decodeResourceOp(c *gin.Context) (models.OperationClass, error) {
 			return &body, nil
 		}
 	}
-	
+
 	// Fallback to normal BindJSON
 	if err := c.BindJSON(&body); err != nil {
 		return nil, err
@@ -517,4 +534,126 @@ func (h *Handler) GetSubnetDetails(c *gin.Context) {
 // GetNetworkSubnets delegates to OpenStack handler
 func (h *Handler) GetNetworkSubnets(c *gin.Context) {
 	h.OpenStack.GetNetworkSubnets(c)
+}
+
+// ================== SETTINGS WRAPPERS ==================
+// Settings handlers wrapped with audit functionality
+
+// User Management
+func (h *Handler) SetUpdateUserWithAudit(c *gin.Context) {
+	h.handleRequest(c, func(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
+		h.Settings.SetUpdateUser(c)
+		return gin.H{"message": "User operation completed"}, nil
+	})
+}
+
+func (h *Handler) DeleteUserWithAudit(c *gin.Context) {
+	h.handleRequest(c, func(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
+		h.Settings.DeleteUser(c)
+		return gin.H{"message": "User deleted"}, nil
+	})
+}
+
+// Group Management  
+func (h *Handler) SetUpdateGroupWithAudit(c *gin.Context) {
+	h.handleRequest(c, func(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
+		h.Settings.SetUpdateGroup(c)
+		return gin.H{"message": "Group operation completed"}, nil
+	})
+}
+
+func (h *Handler) DeleteGroupWithAudit(c *gin.Context) {
+	h.handleRequest(c, func(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
+		h.Settings.DeleteGroup(c)
+		return gin.H{"message": "Group deleted"}, nil
+	})
+}
+
+// Project Management
+func (h *Handler) SetUpdateProjectWithAudit(c *gin.Context) {
+	h.handleRequest(c, func(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
+		h.Settings.SetUpdateProject(c)
+		return gin.H{"message": "Project operation completed"}, nil
+	})
+}
+
+func (h *Handler) DeleteProjectWithAudit(c *gin.Context) {
+	h.handleRequest(c, func(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
+		h.Settings.DeleteProject(c)
+		return gin.H{"message": "Project deleted"}, nil
+	})
+}
+
+// Token Management
+func (h *Handler) SetTokenWithAudit(c *gin.Context) {
+	h.handleRequest(c, func(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
+		h.Settings.SetToken(c)
+		return gin.H{"message": "Token created"}, nil
+	})
+}
+
+func (h *Handler) DeleteTokenWithAudit(c *gin.Context) {
+	h.handleRequest(c, func(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
+		h.Settings.DeleteToken(c)
+		return gin.H{"message": "Token deleted"}, nil
+	})
+}
+
+// OpenRouter Token Management
+func (h *Handler) SetOpenRouterTokenWithAudit(c *gin.Context) {
+	h.handleRequest(c, func(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
+		h.Settings.SetOpenRouterToken(c)
+		return gin.H{"message": "OpenRouter token created"}, nil
+	})
+}
+
+func (h *Handler) UpdateOpenRouterTokenWithAudit(c *gin.Context) {
+	h.handleRequest(c, func(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
+		h.Settings.UpdateOpenRouterToken(c)
+		return gin.H{"message": "OpenRouter token updated"}, nil
+	})
+}
+
+func (h *Handler) DeleteOpenRouterTokenWithAudit(c *gin.Context) {
+	h.handleRequest(c, func(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
+		h.Settings.DeleteOpenRouterToken(c)
+		return gin.H{"message": "OpenRouter token deleted"}, nil
+	})
+}
+
+// Discovery Token Management
+func (h *Handler) GenerateDiscoveryTokenWithAudit(c *gin.Context) {
+	h.handleRequest(c, func(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
+		h.Settings.GenerateDiscoveryToken(c)
+		return gin.H{"message": "Discovery token generated"}, nil
+	})
+}
+
+func (h *Handler) DeleteDiscoveryTokenWithAudit(c *gin.Context) {
+	h.handleRequest(c, func(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
+		h.Settings.DeleteDiscoveryToken(c)
+		return gin.H{"message": "Discovery token deleted"}, nil
+	})
+}
+
+// Cloud Config Management
+func (h *Handler) SetCloudWithAudit(c *gin.Context) {
+	h.handleRequest(c, func(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
+		h.Settings.SetCloud(c)
+		return gin.H{"message": "Cloud config created"}, nil
+	})
+}
+
+func (h *Handler) UpdateCloudWithAudit(c *gin.Context) {
+	h.handleRequest(c, func(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
+		h.Settings.UpdateCloud(c)
+		return gin.H{"message": "Cloud config updated"}, nil
+	})
+}
+
+func (h *Handler) DeleteCloudWithAudit(c *gin.Context) {
+	h.handleRequest(c, func(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
+		h.Settings.DeleteCloud(c)
+		return gin.H{"message": "Cloud config deleted"}, nil
+	})
 }

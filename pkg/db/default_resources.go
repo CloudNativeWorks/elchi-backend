@@ -7,18 +7,18 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/errstr"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/helper"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/version"
 )
 
-func createDefaults(ctx context.Context, context *AppContext, logger *logrus.Logger) {
+func createDefaults(ctx context.Context, context *AppContext, logger *logger.Logger) {
 	vrs := version.GetVersion()
 
 	if vrs == "" {

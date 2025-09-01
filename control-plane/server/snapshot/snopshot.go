@@ -9,7 +9,6 @@ import (
 	"github.com/CloudNativeWorks/versioned-go-control-plane/pkg/cache/types"
 	"github.com/CloudNativeWorks/versioned-go-control-plane/pkg/cache/v3"
 	"github.com/CloudNativeWorks/versioned-go-control-plane/pkg/resource/v3"
-	"github.com/sirupsen/logrus"
 
 	xdsResource "github.com/CloudNativeWorks/elchi-backend/control-plane/server/resources/resource"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
@@ -38,7 +37,7 @@ func GetContext() *Context {
 	return ctx
 }
 
-func (c *Context) SetSnapshot(ctx context.Context, allRes *xdsResource.AllResources, logger *logrus.Logger, dbContext *db.AppContext) error {
+func (c *Context) SetSnapshot(ctx context.Context, allRes *xdsResource.AllResources, logger *logger.Logger, dbContext *db.AppContext) error {
 	if allRes == nil {
 		return fmt.Errorf("resources cannot be nil")
 	}

@@ -146,7 +146,7 @@ func (xds *AppHandler) SetResource(ctx context.Context, resource models.Resource
 	}
 
 	general := resource.GetGeneral()
-	err := resources.PrepareResource(resource, requestDetails, xds.Logger.Logger, xds.ResourceService)
+	err := resources.PrepareResource(resource, requestDetails, xds.Logger, xds.ResourceService)
 	if err != nil {
 		return nil, err
 	}
@@ -236,7 +236,7 @@ func (xds *AppHandler) createBootstrap(ctx context.Context, listenerGeneral mode
 		return "", 0, err
 	}
 
-	err = resources.PrepareResource(resource, requestDetails, xds.Logger.Logger, xds.ResourceService)
+	err = resources.PrepareResource(resource, requestDetails, xds.Logger, xds.ResourceService)
 	if err != nil {
 		return "", 0, err
 	}

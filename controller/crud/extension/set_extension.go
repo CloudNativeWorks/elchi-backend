@@ -40,7 +40,7 @@ func parseDuplicateKeyError(err error, resourceName string) error {
 func (extension *AppHandler) SetExtension(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
 	general := resource.GetGeneral()
 	resourceID := ""
-	err := resources.PrepareResource(resource, requestDetails, extension.Logger.Logger, extension.ResourceService)
+	err := resources.PrepareResource(resource, requestDetails, extension.Logger, extension.ResourceService)
 	if err != nil {
 		return nil, err
 	}

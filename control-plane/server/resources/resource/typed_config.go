@@ -16,7 +16,7 @@ import (
 )
 
 func (ar *AllResources) GetTypedConfigs(ctx context.Context, paths []models.TypedConfigPath, jsonData any, context *db.AppContext) (any, error) {
-	jsonStringStr, err := helper.MarshalJSON(jsonData, context.Logger.Logger)
+	jsonStringStr, err := helper.MarshalJSON(jsonData, context.Logger)
 	if err != nil {
 		return jsonData, err
 	}
@@ -37,7 +37,7 @@ func (ar *AllResources) GetTypedConfigs(ctx context.Context, paths []models.Type
 }
 
 func (ar *AllResources) processTypedConfigPath(ctx context.Context, pathd models.TypedConfigPath, jsonStringStr *string, context *db.AppContext) error {
-	_, typedConfigsMap := resources.ProcessTypedConfigs(*jsonStringStr, pathd, context.Logger.Logger)
+	_, typedConfigsMap := resources.ProcessTypedConfigs(*jsonStringStr, pathd, context.Logger)
 
 	for path, tempTypedConfig := range typedConfigsMap {
 		conf, err := resources.GetResourceNGeneral(ctx, context, tempTypedConfig.Collection, tempTypedConfig.Name, ar.Project, ar.ResourceVersion)
@@ -55,11 +55,11 @@ func (ar *AllResources) processTypedConfigPath(ctx context.Context, pathd models
 		}
 		typedConfigStr := string(typedConfigJSON)
 
-		ar.processUpstreamPaths(ctx, tempTypedConfig.Gtype.UpstreamPaths(), &typedConfigStr, tempTypedConfig.ParentName, context, context.Logger.Logger)
+		ar.processUpstreamPaths(ctx, tempTypedConfig.Gtype.UpstreamPaths(), &typedConfigStr, tempTypedConfig.ParentName, context, context.Logger)
 
-		ar.processConfigDiscoveries(ctx, conf.General.ConfigDiscovery, context, context.Logger.Logger)
+		ar.processConfigDiscoveries(ctx, conf.General.ConfigDiscovery, context, context.Logger)
 
-		ar.processTypedConfigPaths(ctx, tempTypedConfig.Gtype.TypedConfigPaths(), &typedConfigStr, context, context.Logger.Logger)
+		ar.processTypedConfigPaths(ctx, tempTypedConfig.Gtype.TypedConfigPaths(), &typedConfigStr, context, context.Logger)
 
 		typedConfig, err := decodeTypedConfig([]byte(typedConfigStr), tempTypedConfig.Gtype)
 		if err != nil {

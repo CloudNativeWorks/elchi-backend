@@ -752,6 +752,7 @@ func (handler *AppHandler) tryLDAPAuthenticationAndCreateUser(ctx context.Contex
 // createLDAPUser creates a new LDAP user in database
 func (handler *AppHandler) createLDAPUser(ctx context.Context, username, projectID string) (*models.User, error) {
 	userCollection := handler.Context.Client.Collection("users")
+	projectCollection := handler.Context.Client.Collection("projects")
 
 	now := time.Now()
 	authType := "ldap"
@@ -781,12 +782,34 @@ func (handler *AppHandler) createLDAPUser(ctx context.Context, username, project
 	newUser.Token = &token
 	newUser.RefreshToken = &refreshToken
 
+	// Insert the user first
 	_, err := userCollection.InsertOne(ctx, newUser)
 	if err != nil {
 		if mongo.IsDuplicateKeyError(err) {
 			return nil, fmt.Errorf("user with username %s already exists", username)
 		}
 		return nil, fmt.Errorf("failed to create LDAP user: %w", err)
+	}
+
+	// Add user to the project's members array for proper authorization
+	projectObjectID, err := primitive.ObjectIDFromHex(projectID)
+	if err != nil {
+		handler.Logger.Errorf("Invalid project ID format when adding LDAP user to project: %v", err)
+		return newUser, nil // Return user anyway, but log the error
+	}
+
+	// Add user ID to project members
+	projectFilter := bson.M{"_id": projectObjectID}
+	projectUpdate := bson.M{
+		"$addToSet": bson.M{
+			"members": newUser.UserID,
+		},
+	}
+	
+	_, err = projectCollection.UpdateOne(ctx, projectFilter, projectUpdate)
+	if err != nil {
+		handler.Logger.Errorf("Failed to add LDAP user to project members: %v", err)
+		// Don't fail user creation if project update fails
 	}
 
 	return newUser, nil

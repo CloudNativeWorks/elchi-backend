@@ -1,0 +1,115 @@
+{
+    "general": {
+        "name": "routesdee333",
+        "version": "v1.33.5",
+        "type": "route",
+        "gtype": "envoy.config.route.v3.RouteConfiguration",
+        "project": "683b2148ff7e3ae67d825cfa",
+        "canonical_name": "config.route.v3.RouteConfiguration",
+        "metadata": {},
+        "category": "route",
+        "permissions": {
+            "users": [],
+            "groups": []
+        },
+        "config_discovery": [
+            {
+                "name": "asdefefe",
+                "gtype": "envoy.config.route.v3.VirtualHost",
+                "priority": 0,
+                "category": "vhds",
+                "canonical_name": "config.route.v3.VirtualHost",
+                "parent_name": "routesdee333"
+            }
+        ],
+        "collection": "routes"
+    },
+    "resource": {
+        "resource": {
+            "name": "routesdee333",
+            "virtual_hosts": [
+                {
+                    "name": "newVirtualHost1",
+                    "domains": [
+                        "*"
+                    ],
+                    "routes": [
+                        {
+                            "name": "newRoute1",
+                            "match": {
+                                "prefix": "/",
+                                "case_sensitive": false
+                            },
+                            "route": {
+                                "cluster": "cf-test-cls"
+                            }
+                        }
+                    ],
+                    "per_request_buffer_limit_bytes": 343434
+                }
+            ],
+            "vhds": {
+                "config_source": {
+                    "api_config_source": {
+                        "api_type": "DELTA_GRPC",
+                        "transport_api_version": "V3",
+                        "grpc_services": [
+                            {
+                                "envoy_grpc": {
+                                    "cluster_name": "elchi-control-plane"
+                                },
+                                "timeout": "5.0s",
+                                "initial_metadata": [
+                                    {
+                                        "key": "nodeid",
+                                        "value": "__NODEID__"
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    "initial_fetch_timeout": "2.0s",
+                    "resource_api_version": "V3"
+                }
+            },
+            "internal_only_headers": [
+                "dad",
+                "dee"
+            ],
+            "response_headers_to_add": [
+                {
+                    "header": {
+                        "key": "ded",
+                        "value": "fee"
+                    },
+                    "append_action": "OVERWRITE_IF_EXISTS_OR_ADD",
+                    "keep_empty_value": true
+                }
+            ],
+            "response_headers_to_remove": [
+                "dfe",
+                "feeee"
+            ],
+            "request_headers_to_add": [
+                {
+                    "header": {
+                        "key": "deef",
+                        "value": "fevv"
+                    },
+                    "append_action": "APPEND_IF_EXISTS_OR_ADD",
+                    "keep_empty_value": true
+                }
+            ],
+            "request_headers_to_remove": [
+                "fefe",
+                "fbv"
+            ],
+            "most_specific_header_mutations_wins": true,
+            "validate_clusters": true,
+            "max_direct_response_body_size_bytes": 2323,
+            "ignore_port_in_host_matching": true,
+            "ignore_path_parameters_in_path_matching": true
+        },
+        "version": "1"
+    }
+}

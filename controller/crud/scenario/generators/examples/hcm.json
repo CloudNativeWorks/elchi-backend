@@ -1,0 +1,155 @@
+{
+    "general": {
+        "name": "dfdvdve",
+        "version": "v1.33.5",
+        "type": "network_filter",
+        "gtype": "envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager",
+        "project": "683b2148ff7e3ae67d825cfa",
+        "canonical_name": "envoy.filters.network.http_connection_manager",
+        "metadata": {},
+        "category": "envoy.filters.network",
+        "permissions": {
+            "users": [],
+            "groups": []
+        },
+        "config_discovery": [
+            {
+                "name": "basicccccccccc",
+                "gtype": "envoy.extensions.filters.http.basic_auth.v3.BasicAuth",
+                "priority": 0,
+                "category": "envoy.filters.http",
+                "canonical_name": "envoy.filters.http.basic_auth",
+                "collection": "filters",
+                "type": "http_filter",
+                "parent_name": "basicccccccccc"
+            },
+            {
+                "name": "default-router",
+                "gtype": "envoy.extensions.filters.http.router.v3.Router",
+                "priority": 1,
+                "category": "envoy.filters.http",
+                "canonical_name": "envoy.filters.http.router",
+                "collection": "filters",
+                "type": "http_filter",
+                "parent_name": "default-router"
+            }
+        ],
+        "collection": "filters"
+    },
+    "resource": {
+        "resource": {
+            "codec_type": "AUTO",
+            "stat_prefix": "asd",
+            "rds": {
+                "config_source": {
+                    "ads": {},
+                    "initial_fetch_timeout": "2.0s",
+                    "resource_api_version": "V3"
+                },
+                "route_config_name": "route"
+            },
+            "route_config": {
+                "name": "dsasad",
+                "virtual_hosts": [
+                    {
+                        "name": "newVirtualHost1",
+                        "domains": [
+                            "*"
+                        ],
+                        "routes": [
+                            {
+                                "name": "newRoute1",
+                                "match": {
+                                    "prefix": "/",
+                                    "case_sensitive": true
+                                },
+                                "route": {
+                                    "cluster": "aacls"
+                                }
+                            }
+                        ]
+                    }
+                ],
+                "vhds": {
+                    "config_source": {
+                        "api_config_source": {
+                            "api_type": "DELTA_GRPC",
+                            "transport_api_version": "V3",
+                            "grpc_services": [
+                                {
+                                    "envoy_grpc": {
+                                        "cluster_name": "elchi-control-plane"
+                                    },
+                                    "timeout": "5.0s",
+                                    "initial_metadata": [
+                                        {
+                                            "key": "nodeid",
+                                            "value": "__NODEID__"
+                                        }
+                                    ]
+                                }
+                            ]
+                        },
+                        "initial_fetch_timeout": "2.0s",
+                        "resource_api_version": "V3"
+                    }
+                }
+            },
+            "access_log": [
+                {
+                    "name": "envoy.access_loggers.file",
+                    "typed_config": {
+                        "type_url": "envoy.extensions.access_loggers.file.v3.FileAccessLog",
+                        "value": "eyJuYW1lIjoiZmFmYWZhZmFmIiwiY2Fub25pY2FsX25hbWUiOiJlbnZveS5hY2Nlc3NfbG9nZ2Vycy5maWxlIiwiZ3R5cGUiOiJlbnZveS5leHRlbnNpb25zLmFjY2Vzc19sb2dnZXJzLmZpbGUudjMuRmlsZUFjY2Vzc0xvZyIsInR5cGUiOiJhY2Nlc3NfbG9nIiwiY2F0ZWdvcnkiOiJlbnZveS5hY2Nlc3NfbG9nZ2VycyIsImNvbGxlY3Rpb24iOiJleHRlbnNpb25zIn0="
+                    }
+                }
+            ],
+            "http_filters": [
+                {
+                    "name": "basicccccccccc",
+                    "config_discovery": {
+                        "config_source": {
+                            "ads": {},
+                            "initial_fetch_timeout": "2.0s",
+                            "resource_api_version": "V3"
+                        },
+                        "type_urls": [
+                            "envoy.extensions.filters.http.basic_auth.v3.BasicAuth"
+                        ]
+                    },
+                    "is_optional": false,
+                    "disabled": false
+                },
+                {
+                    "name": "default-router",
+                    "config_discovery": {
+                        "config_source": {
+                            "ads": {},
+                            "initial_fetch_timeout": "2.0s",
+                            "resource_api_version": "V3"
+                        },
+                        "type_urls": [
+                            "envoy.extensions.filters.http.router.v3.Router"
+                        ]
+                    },
+                    "is_optional": false,
+                    "disabled": false
+                }
+            ],
+            "add_user_agent": true,
+            "server_name": "asd",
+            "server_header_transformation": "OVERWRITE",
+            "max_request_headers_kb": 2323,
+            "stream_idle_timeout": "23.0s",
+            "request_timeout": "23.0s",
+            "request_headers_timeout": "23.0s",
+            "delayed_close_timeout": "23.0s",
+            "use_remote_address": true,
+            "skip_xff_append": true,
+            "via": "wwew",
+            "generate_request_id": true,
+            "proxy_100_continue": true
+        },
+        "version": "1"
+    }
+}

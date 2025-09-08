@@ -1,0 +1,66 @@
+package handlers
+
+import (
+	"github.com/CloudNativeWorks/elchi-backend/controller/client/processor"
+	"github.com/CloudNativeWorks/elchi-backend/controller/client/responser"
+	"github.com/CloudNativeWorks/elchi-backend/controller/client/services"
+	"github.com/CloudNativeWorks/elchi-backend/controller/cloud/openstack"
+	"github.com/CloudNativeWorks/elchi-backend/controller/crud/xds"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/registry"
+)
+
+type Client struct {
+	Context        *db.AppContext
+	Service        *services.ClientService
+	logger         *logger.Logger
+	cmdFactory     *processor.CommandProcessorFactory
+	responser      *responser.CommandResponserFactory
+	registryClient *registry.RegistryClient
+}
+
+func NewClientHandler(context *db.AppContext, xdsHandler *xds.AppHandler, clientService *services.ClientService, openStackHandler *openstack.Handler) *Client {
+	h := &Client{
+		Context:    context,
+		Service:    clientService,
+		logger:     logger.NewLogger("controller/client/handler"),
+		responser:  responser.NewCommandResponserFactory(),
+		cmdFactory: processor.NewCommandProcessorFactory(),
+	}
+
+	processorLogger := logger.NewLogger("controller/client/processor")
+	responserLogger := logger.NewLogger("controller/client/responser")
+
+	// Processor Register
+	h.cmdFactory.RegisterProcessor("DEPLOY", &processor.DeployProcessor{XDSHandler: xdsHandler, Logger: processorLogger, Service: clientService, OpenStackHandler: openStackHandler})
+	h.cmdFactory.RegisterProcessor("SERVICE", &processor.ServiceProcessor{XDSHandler: xdsHandler, Logger: processorLogger})
+	h.cmdFactory.RegisterProcessor("UPDATE_BOOTSTRAP", &processor.BootstrapProcessor{XDSHandler: xdsHandler, Logger: processorLogger, Service: clientService})
+	h.cmdFactory.RegisterProcessor("UNDEPLOY", &processor.UnDeployProcessor{XDSHandler: xdsHandler, Logger: processorLogger})
+	h.cmdFactory.RegisterProcessor("PROXY", &processor.ProxyProcessor{XDSHandler: xdsHandler, Logger: processorLogger})
+	h.cmdFactory.RegisterProcessor("CLIENT_LOGS", &processor.GeneralLogProcessor{Logger: processorLogger})
+	h.cmdFactory.RegisterProcessor("CLIENT_STATS", &processor.ClientStatsProcessor{Logger: processorLogger})
+	h.cmdFactory.RegisterProcessor("NETWORK", &processor.NetworkProcessor{Logger: processorLogger})
+	h.cmdFactory.RegisterProcessor("FRR", &processor.FRRProcessor{Logger: processorLogger})
+	h.cmdFactory.RegisterProcessor("FRR_LOGS", &processor.GeneralLogProcessor{Logger: processorLogger})
+	h.cmdFactory.RegisterProcessor("ENVOY_VERSION", &processor.EnvoyVersionProcessor{Logger: processorLogger})
+
+	// Responser Register
+	h.responser.RegisterResponser("DEPLOY", &responser.DeployResponser{XDSHandler: xdsHandler, Logger: responserLogger, Service: clientService, OpenStackHandler: openStackHandler})
+	h.responser.RegisterResponser("SERVICE", &responser.ServiceResponser{})
+	h.responser.RegisterResponser("UPDATE_BOOTSTRAP", &responser.BootstrapResponser{})
+	h.responser.RegisterResponser("UNDEPLOY", &responser.UnDeployResponser{XDSHandler: xdsHandler, Logger: responserLogger, Service: clientService, OpenStackHandler: openStackHandler})
+	h.responser.RegisterResponser("PROXY", &responser.ProxyResponser{})
+	h.responser.RegisterResponser("CLIENT_LOGS", &responser.GeneralLogResponser{})
+	h.responser.RegisterResponser("CLIENT_STATS", &responser.ClientStatsResponser{})
+	h.responser.RegisterResponser("NETWORK", &responser.NetworkResponser{})
+	h.responser.RegisterResponser("FRR", &responser.FRRResponser{})
+	h.responser.RegisterResponser("FRR_LOGS", &responser.GeneralLogResponser{})
+	h.responser.RegisterResponser("ENVOY_VERSION", &responser.EnvoyVersionResponser{})
+	return h
+}
+
+// SetRegistryClient sets the registry client for command routing
+func (h *Client) SetRegistryClient(registryClient *registry.RegistryClient) {
+	h.registryClient = registryClient
+}

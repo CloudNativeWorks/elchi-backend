@@ -1,0 +1,106 @@
+package catalog
+
+import "github.com/CloudNativeWorks/elchi-backend/pkg/models"
+
+// FluentdAccessLogDefinition defines the fluentd access log component
+var FluentdAccessLogDefinition = models.ComponentDefinition{
+	Name:          "access_log_fluentd",
+	Label:         "Fluentd Access Log",
+	Description:   "Access logger that sends logs to Fluentd",
+	Category:      "envoy.access_loggers",
+	Collection:    "extensions",
+	CanonicalName: "envoy.access_loggers.fluentd",
+	GType:         "envoy.extensions.access_loggers.fluentd.v3.FluentdAccessLogConfig",
+	Priority:      420,
+	AvailableFields: []models.AvailableField{
+		{
+			Name:                 "name",
+			Label:                "Access Log Name",
+			Description:          "Unique name for the access log configuration",
+			Type:                 models.FieldTypeString,
+			RequiredForCreation:  true,
+			RequiredForExecution: true,
+			UseComponentName:     true,
+			ValidationRules:      []string{"required", "unique"},
+		},
+		{
+			Name:                 "cluster",
+			Label:                "Fluentd Cluster",
+			Description:          "The cluster that points to Fluentd service",
+			Type:                 models.FieldTypeSelect,
+			RequiredForCreation:  true,
+			RequiredForExecution: true,
+			ApiEndpoint:          "/api/v3/custom/resource_list_search?collection=clusters",
+			HasMetadata:          true,
+			UseInScenario:        false, // Don't include scenario clusters
+			UseApi:               true,  // Only API clusters
+			ValidationRules:      []string{"required"},
+		},
+		{
+			Name:                 "tag",
+			Label:                "Fluentd Tag",
+			Description:          "The tag to use for Fluentd messages",
+			Type:                 models.FieldTypeString,
+			RequiredForCreation:  true,
+			RequiredForExecution: true,
+			ValidationRules:      []string{"required"},
+		},
+		{
+			Name:                 "stat_prefix",
+			Label:                "Statistics Prefix",
+			Description:          "The prefix to use for statistics",
+			Type:                 models.FieldTypeString,
+			RequiredForCreation:  false,
+			RequiredForExecution: false,
+			DefaultValue:         "fluentd",
+		},
+		{
+			Name:                 "buffer_flush_interval",
+			Label:                "Buffer Flush Interval",
+			Description:          "How often to flush the buffer to Fluentd (e.g., 1s, 5s)",
+			Type:                 models.FieldTypeString,
+			RequiredForCreation:  false,
+			RequiredForExecution: false,
+			DefaultValue:         "1s",
+			ValidationRules:      []string{"duration"},
+		},
+		{
+			Name:                 "buffer_size_bytes",
+			Label:                "Buffer Size (Bytes)",
+			Description:          "Size of the buffer in bytes",
+			Type:                 models.FieldTypeInt,
+			RequiredForCreation:  false,
+			RequiredForExecution: false,
+			DefaultValue:         16384,
+		},
+		{
+			Name:                 "record",
+			Label:                "Log Record Fields",
+			Description:          "Key-value pairs for log record format",
+			Type:                 models.FieldTypeObject,
+			RequiredForCreation:  false,
+			RequiredForExecution: false,
+			DefaultValue: map[string]string{
+				"protocol":                  "%PROTOCOL%",
+				"duration_ms":               "%DURATION%",
+				"request_method":            "%REQ(:METHOD)%",
+				"request_path":              "%REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%",
+				"response_code":             "%RESPONSE_CODE%",
+				"response_flags":            "%RESPONSE_FLAGS%",
+				"bytes_received":            "%BYTES_RECEIVED%",
+				"bytes_sent":                "%BYTES_SENT%",
+				"upstream_host":             "%UPSTREAM_HOST%",
+				"upstream_cluster":          "%UPSTREAM_CLUSTER%",
+				"user_agent":                "%REQ(USER-AGENT)%",
+				"downstream_remote_address": "%DOWNSTREAM_REMOTE_ADDRESS%",
+				"request_id":                "%REQ(X-REQUEST-ID)%",
+				"start_time":                "%START_TIME%",
+			},
+		},
+	},
+	Rules: models.ComponentRule{
+		ConflictWith: []string{"access_log_file", "access_log_stdout"}, // Only one access log type allowed per scenario
+		MinCount:     0,
+		MaxCount:     10,
+	},
+}

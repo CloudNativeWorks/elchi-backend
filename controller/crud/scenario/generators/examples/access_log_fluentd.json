@@ -1,0 +1,51 @@
+{
+    "general": {
+        "name": "fluentd",
+        "version": "v1.35.0",
+        "type": "access_log",
+        "gtype": "envoy.extensions.access_loggers.fluentd.v3.FluentdAccessLogConfig",
+        "project": "68ac8add4d6ae9208b24492b",
+        "collection": "extensions",
+        "canonical_name": "envoy.access_loggers.fluentd",
+        "category": "envoy.access_loggers",
+        "metadata": {},
+        "permissions": {
+            "users": [],
+            "groups": []
+        },
+        "created_at": {
+            "$date": "2025-09-04T14:38:22.895Z"
+        },
+        "updated_at": {
+            "$date": "2025-09-04T14:38:37.515Z"
+        },
+        "config_discovery": [],
+        "typed_config": null
+    },
+    "resource": {
+        "version": "2",
+        "resource": {
+            "cluster": "asd33",
+            "tag": "asdd",
+            "stat_prefix": "asdssd",
+            "buffer_flush_interval": "2.0s",
+            "buffer_size_bytes": 23,
+            "record": {
+                "upstream_cluster": "%UPSTREAM_CLUSTER%",
+                "upstream_host": "%UPSTREAM_HOST%",
+                "bytes_received": "%BYTES_RECEIVED%",
+                "duration_ms": "%DURATION%",
+                "method": "%REQ(:METHOD)%",
+                "path": "%REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%",
+                "protocol": "%PROTOCOL%",
+                "start_time": "%START_TIME%",
+                "user_agent": "%REQ(USER-AGENT)%",
+                "bytes_sent": "%BYTES_SENT%",
+                "downstream_remote_address": "%DOWNSTREAM_REMOTE_ADDRESS%",
+                "request_id": "%REQ(X-REQUEST-ID)%",
+                "response_code": "%RESPONSE_CODE%",
+                "response_flags": "%RESPONSE_FLAGS%"
+            }
+        }
+    }
+}

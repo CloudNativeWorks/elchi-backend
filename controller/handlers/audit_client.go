@@ -103,7 +103,7 @@ func (h *Handler) setClientDeleteAuditContext(c *gin.Context) {
 	// Don't set command details for DELETE - it's not a command operation
 }
 
-// hasProxyQueriesInRequest checks if PROXY command has queries field (indicates config change)
+// hasProxyQueriesInRequest checks if PROXY command is a config change operation (has queries indicating modification)
 func (h *Handler) hasProxyQueriesInRequest(c *gin.Context) bool {
 	// Get cached body from middleware
 	originalBody, exists := c.Get("_original_body")
@@ -122,13 +122,19 @@ func (h *Handler) hasProxyQueriesInRequest(c *gin.Context) bool {
 		return false
 	}
 
-	// Check if command.queries exists and is not empty
+	// Check if command.queries exists and is not empty (indicates config modification)
 	if command, ok := requestBody["command"].(map[string]any); ok {
 		if queries, ok := command["queries"].(map[string]any); ok {
-			// If queries map exists and has at least one entry, it's a config change
-			return len(queries) > 0
+			// Only audit if queries exist and contain actual modification parameters
+			// Skip read-only queries like {"format": "json"}
+			for key := range queries {
+				if key != "format" && key != "include_hidden" && key != "filter" {
+					// This is a modification query (like "level" for logging)
+					return true
+				}
+			}
 		}
 	}
 
-	return false
+	return false // Read-only operations without modification queries should not be audited
 }

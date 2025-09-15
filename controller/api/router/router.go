@@ -30,7 +30,7 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 	v3 := api.Group("/v3")
 	op := api.Group("/op")
 
-	// Add body capture middleware before authentication for both groups
+	// Add body capture middleware before authentication for groups
 	v3.Use(middleware.BodyCaptureMiddleware())
 	op.Use(middleware.BodyCaptureMiddleware())
 
@@ -65,6 +65,7 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 	apiAudit.Use(middleware.InitSettingMiddleware()) // Only owners and admins can access audit logs
 	apiTemplates := v3.Group("/templates")
 	apiRouteMap := v3.Group("/routemap")
+	apiSnippets := v3.Group("/snippets")
 
 	initAuthRoutes(apiAuth, h)
 	initSettingRoutes(apiSettings, h)
@@ -83,6 +84,7 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 	initAuditRoutes(apiAudit, h)
 	initTemplateRoutes(apiTemplates, h)
 	initRouteMapRoutes(apiRouteMap, h)
+	initSnippetRoutes(apiSnippets, h)
 	initOpenStackRoutes(apiClient, h) // OpenStack routes under /api/op/clients
 
 	logRoutes(e)

@@ -9,6 +9,7 @@ var Collections = []string{
 	"extensions",
 	"filters",
 	"scenarios",
+	"snippets",
 }
 
 var AllowedEndpoints = []string{
@@ -113,4 +114,10 @@ var AllowedEndpoints = []string{
 	"/api/v3/templates/:gtype",
 	"/api/v3/routemap/supported-types",
 	"/api/v3/routemap/:name",
+	// Snippet endpoints
+	"/api/v3/snippets",
+	"/api/v3/snippets/search",
+	"/api/v3/snippets/stats",
+	"/api/v3/snippets/batch",
+	"/api/v3/snippets/:id",
 }

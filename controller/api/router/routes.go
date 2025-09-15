@@ -379,3 +379,23 @@ func initTemplateRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 
 	initRoutes(rg, routes)
 }
+
+func initSnippetRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
+	routes := []struct {
+		method  string
+		path    string
+		handler gin.HandlerFunc
+	}{
+		{"POST", "", h.Snippet.CreateSnippet},                     // POST /api/v3/snippets
+		{"GET", "", h.Snippet.ListSnippets},                       // GET /api/v3/snippets
+		{"GET", "/search", h.Snippet.SearchSnippets},              // GET /api/v3/snippets/search
+		{"GET", "/stats", h.Snippet.GetSnippetStats},              // GET /api/v3/snippets/stats
+		{"POST", "/batch", h.Snippet.BatchCreateSnippets},         // POST /api/v3/snippets/batch
+		{"DELETE", "/batch", h.Snippet.BatchDeleteSnippets},       // DELETE /api/v3/snippets/batch
+		{"GET", "/:id", h.Snippet.GetSnippet},                     // GET /api/v3/snippets/:id
+		{"PUT", "/:id", h.Snippet.UpdateSnippet},                  // PUT /api/v3/snippets/:id
+		{"DELETE", "/:id", h.Snippet.DeleteSnippet},               // DELETE /api/v3/snippets/:id
+	}
+
+	initRoutes(rg, routes)
+}

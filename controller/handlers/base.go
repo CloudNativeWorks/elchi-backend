@@ -57,6 +57,7 @@ type Handler struct {
 	AuditService *audit.Service
 	Template     *ResourceTemplateHandler
 	RouteMap     *routemap.RouteMapHandler
+	Snippet      *SnippetHandler
 }
 
 // getDatabaseConnection returns the first available database connection from handlers
@@ -81,7 +82,7 @@ func (h *Handler) getDatabaseConnection() *mongo.Database {
 }
 
 func NewHandler(xds *xds.AppHandler, extension *extension.AppHandler, custom *custom.AppHandler, settings *settings.AppHandler, dependency *dependency.AppHandler, stats *bridge.AppHandler, scenario *scenario.AppHandler, client *client.AppHandler, service *service.AppHandler, discovery *discovery.DiscoveryHandler, jobs *JobHandler, registry *RegistryHandler, openstack *openstack.Handler, auditService *audit.Service, template *ResourceTemplateHandler, routeMap *routemap.RouteMapHandler) *Handler {
-	return &Handler{
+	handler := &Handler{
 		XDS:          xds,
 		Extension:    extension,
 		Custom:       custom,
@@ -99,6 +100,11 @@ func NewHandler(xds *xds.AppHandler, extension *extension.AppHandler, custom *cu
 		Template:     template,
 		RouteMap:     routeMap,
 	}
+	
+	// Initialize snippet handler
+	handler.Snippet = NewSnippetHandler(handler)
+	
+	return handler
 }
 
 // formatErrorMessage extracts a more user-friendly error message from raw MongoDB errors

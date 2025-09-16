@@ -62,12 +62,20 @@ func (xds *AppHandler) DelResource(ctx context.Context, _ models.ResourceClass, 
 		return nil, err
 	}
 
-	// For listeners, check managed flag before deletion
+	// For listeners, check managed flag and service deployment status before deletion
 	var isManaged bool
 	if resourceType == "listeners" {
 		var listenerDoc models.DBResource
 		if err := collection.FindOne(ctx, filter).Decode(&listenerDoc); err == nil {
 			isManaged = listenerDoc.General.Managed
+		}
+		
+		// Only check service deployments for managed listeners
+		if isManaged {
+			// Check if service has active client deployments
+			if err := xds.checkServiceHasActiveClients(ctx, requestDetails); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -134,6 +142,42 @@ func (xds *AppHandler) delAdminPort(ctx context.Context, requestDetails models.R
 		return err
 	}
 
+	return nil
+}
+
+// checkServiceHasActiveClients checks if a service has active client deployments
+func (xds *AppHandler) checkServiceHasActiveClients(ctx context.Context, requestDetails models.RequestDetails) error {
+	serviceCollection := xds.Context.Client.Collection("services")
+	serviceFilter := bson.M{
+		"name":    requestDetails.Name,
+		"project": requestDetails.Project,
+		"version": requestDetails.Version,
+	}
+	
+	var service models.Service
+	err := serviceCollection.FindOne(ctx, serviceFilter).Decode(&service)
+	if err != nil {
+		// Service doesn't exist, no clients to check
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil
+		}
+		return fmt.Errorf("failed to check service status: %w", err)
+	}
+	
+	// Check if service has active clients
+	if len(service.Clients) > 0 {
+		clientDetails := make([]string, 0, len(service.Clients))
+		for _, client := range service.Clients {
+			clientDetails = append(clientDetails, fmt.Sprintf("Client: %s (IP: %s)", 
+				client.ClientID, client.DownstreamAddress))
+		}
+		
+		return fmt.Errorf("cannot delete listener '%s': service has %d active deployment(s):\n%s", 
+			requestDetails.Name, 
+			len(service.Clients), 
+			strings.Join(clientDetails, "\n"))
+	}
+	
 	return nil
 }
 

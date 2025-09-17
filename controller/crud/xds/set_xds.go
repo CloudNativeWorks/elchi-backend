@@ -76,9 +76,8 @@ func (xds *AppHandler) populateEndpointFromDiscovery(ctx context.Context, resour
 
 		if err != nil {
 			if err == mongo.ErrNoDocuments {
-				// No cluster found, skip
-				xds.Logger.Warnf("No discovery data found for cluster: %s", discoveryConfig.ClusterName)
-				continue
+				// No cluster found, return error to prevent creating endpoint with invalid cluster
+				return fmt.Errorf("discovery cluster not found: %s. Please ensure the cluster is registered before creating endpoints", discoveryConfig.ClusterName)
 			}
 			return fmt.Errorf("failed to query discovery data: %v", err)
 		}
@@ -236,8 +235,7 @@ func (xds *AppHandler) prepareResourceForInsertion(ctx context.Context, resource
 
 	// Populate endpoint from discovery if elchi_discovery is present
 	if err := xds.populateEndpointFromDiscovery(ctx, resource); err != nil {
-		xds.Logger.Debugf("Failed to populate endpoint from discovery: %v (continuing)", err)
-		// Continue even if population fails - user might want to create endpoint without initial nodes
+		return fmt.Errorf("failed to populate endpoint from discovery: %v", err)
 	}
 
 	return nil

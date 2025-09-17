@@ -104,8 +104,7 @@ func (xds *AppHandler) UpdateResource(ctx context.Context, resource models.Resou
 	// Populate endpoint from discovery if needed
 	if needsPopulate {
 		if err := xds.populateEndpointFromDiscovery(ctx, resource); err != nil {
-			xds.Logger.Errorf("Failed to populate endpoint from discovery: %v", err)
-			// Continue even if population fails
+			return nil, fmt.Errorf("failed to populate endpoint from discovery: %v", err)
 		}
 	}
 

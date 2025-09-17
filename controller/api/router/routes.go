@@ -304,6 +304,8 @@ func initDiscoveryRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 	}{
 		{"POST", "/k8s", h.HandleK8sDiscovery},
 		{"GET", "/clusters", h.GetClusters},
+		{"GET", "/clusters/:id/usage", h.GetClusterUsage},
+		{"DELETE", "/clusters/:id", h.DeleteCluster},
 	}
 
 	initRoutes(rg, routes)

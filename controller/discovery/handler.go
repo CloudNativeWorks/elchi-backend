@@ -196,17 +196,135 @@ func (dh *DiscoveryHandler) GetClusters(c *gin.Context) {
 		return
 	}
 
-	// Filter to return only required fields
+	// Filter to return only required fields including ID
 	filteredClusters := make([]gin.H, len(clusters))
 	for i, cluster := range clusters {
 		filteredClusters[i] = gin.H{
+			"id":              cluster.ID,
 			"cluster_name":    cluster.ClusterName,
 			"project":         cluster.Project,
 			"nodes":           cluster.Nodes,
 			"last_seen":       cluster.LastSeen,
 			"cluster_version": cluster.ClusterVersion,
+			"node_count":      cluster.NodeCount,
+			"created_at":      cluster.CreatedAt,
+			"updated_at":      cluster.UpdatedAt,
 		}
 	}
 
 	c.JSON(http.StatusOK, filteredClusters)
+}
+
+// DeleteCluster deletes a cluster by ID
+func (dh *DiscoveryHandler) DeleteCluster(c *gin.Context) {
+	clusterID := c.Param("id")
+	if clusterID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Missing cluster ID",
+			"message": "Cluster ID is required",
+		})
+		return
+	}
+
+	project := c.Query("project")
+	if project == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Missing project parameter",
+			"message": "Project is required",
+		})
+		return
+	}
+
+	dh.logger.Infof("Deleting cluster ID: %s from project: %s", clusterID, project)
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	err := dh.service.DeleteCluster(ctx, clusterID, project)
+	if err != nil {
+		dh.logger.Errorf("Failed to delete cluster: %v", err)
+		
+		// Check if it's a usage error (cluster being used)
+		if strings.Contains(err.Error(), "is being used by") {
+			c.JSON(http.StatusConflict, gin.H{
+				"error":   "Cluster in use",
+				"message": err.Error(),
+			})
+			return
+		}
+		
+		// Check if it's a not found error
+		if strings.Contains(err.Error(), "cluster not found") || strings.Contains(err.Error(), "invalid cluster ID") {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error":   "Cluster not found",
+				"message": err.Error(),
+			})
+			return
+		}
+		
+		// Generic server error
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to delete cluster",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Cluster deleted successfully",
+	})
+}
+
+// GetClusterUsage returns which endpoints are using a specific cluster
+func (dh *DiscoveryHandler) GetClusterUsage(c *gin.Context) {
+	clusterID := c.Param("id")
+	if clusterID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Missing cluster ID",
+			"message": "Cluster ID is required",
+		})
+		return
+	}
+
+	project := c.Query("project")
+	if project == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Missing project parameter",
+			"message": "Project is required",
+		})
+		return
+	}
+
+	dh.logger.Infof("Getting cluster usage for cluster ID: %s in project: %s", clusterID, project)
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	usage, err := dh.service.GetClusterUsage(ctx, clusterID, project)
+	if err != nil {
+		dh.logger.Errorf("Failed to get cluster usage: %v", err)
+		
+		// Check if it's a not found error
+		if strings.Contains(err.Error(), "cluster not found") || strings.Contains(err.Error(), "invalid cluster ID") {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error":   "Cluster not found",
+				"message": err.Error(),
+			})
+			return
+		}
+		
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to get cluster usage",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"cluster_id":   clusterID,
+		"project":      project,
+		"usage_count":  len(usage),
+		"endpoints":    usage,
+	})
 }

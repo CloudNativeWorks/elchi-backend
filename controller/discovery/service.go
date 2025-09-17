@@ -3,6 +3,7 @@ package discovery
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -120,6 +121,9 @@ func (ds *DiscoveryService) ProcessK8sDiscovery(
 			} else {
 				ds.logger.Infof("Updated endpoint %s with %d nodes from cluster %s",
 					endpoint.General.Name, updateResult.AddedNodes, request.Data.ClusterInfo.ClusterName)
+
+				// Log discovery audit (only when IP changes and snapshot is triggered)
+				ds.logDiscoveryAudit(ctx, endpoint, updateResult, request.Data.ClusterInfo.ClusterName)
 
 				// Trigger async snapshot update with fast response (preliminary job)
 				ds.triggerAsyncSnapshotUpdate(ctx, endpoint, project)
@@ -494,6 +498,89 @@ func (ds *DiscoveryService) ValidateDiscoveryToken(ctx context.Context, token, p
 	return true, nil
 }
 
+// getClusterByID retrieves a cluster by its ID
+func (ds *DiscoveryService) getClusterByID(ctx context.Context, clusterID, project string) (*ClusterDiscovery, error) {
+	discoveryCollection := ds.dbContext.Client.Collection("discovery")
+	
+	// Convert string ID to ObjectID
+	objectID, err := primitive.ObjectIDFromHex(clusterID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid cluster ID format: %v", err)
+	}
+
+	filter := bson.M{
+		"_id":     objectID,
+		"project": project,
+	}
+
+	var cluster ClusterDiscovery
+	err = discoveryCollection.FindOne(ctx, filter).Decode(&cluster)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, fmt.Errorf("cluster not found with ID: %s", clusterID)
+		}
+		return nil, fmt.Errorf("failed to get cluster: %v", err)
+	}
+
+	return &cluster, nil
+}
+
+// GetClusterUsage returns which endpoints are using a specific cluster by ID
+func (ds *DiscoveryService) GetClusterUsage(ctx context.Context, clusterID, project string) ([]ClusterUsageInfo, error) {
+	// First, get the cluster name from the cluster ID
+	cluster, err := ds.getClusterByID(ctx, clusterID, project)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cluster: %v", err)
+	}
+
+	// Find endpoints that reference this cluster in their elchi_discovery configs
+	filter := bson.M{
+		"general.project": project,
+		"general.elchi_discovery": bson.M{
+			"$elemMatch": bson.M{
+				"cluster_name": cluster.ClusterName,
+			},
+		},
+	}
+
+	cursor, err := ds.dbContext.Client.Collection("endpoints").Find(ctx, filter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query endpoints: %v", err)
+	}
+	defer cursor.Close(ctx)
+
+	var usage []ClusterUsageInfo
+	for cursor.Next(ctx) {
+		var endpoint models.DBResource
+		if err := cursor.Decode(&endpoint); err != nil {
+			ds.logger.Warnf("Failed to decode endpoint: %v", err)
+			continue
+		}
+
+		// Extract cluster usage details
+		usageInfo := ClusterUsageInfo{
+			EndpointName: endpoint.General.Name,
+			ResourceID:   endpoint.General.Name, // Use name as resource ID
+			Version:      endpoint.General.Version,
+			Project:      endpoint.General.Project,
+			UpdatedAt:    time.Unix(int64(endpoint.General.UpdatedAt)/1000, 0),
+		}
+
+		// Count IPs for this cluster
+		currentIPs := ds.extractCurrentIPsForCluster(endpoint, cluster.ClusterName)
+		usageInfo.IPCount = len(currentIPs)
+		usageInfo.IPs = currentIPs
+
+		usage = append(usage, usageInfo)
+	}
+
+	if err := cursor.Err(); err != nil {
+		return nil, fmt.Errorf("cursor error: %v", err)
+	}
+
+	return usage, nil
+}
+
 // registerCluster registers or updates cluster information in discovery collection
 func (ds *DiscoveryService) registerCluster(ctx context.Context, request K8sDiscoveryRequest, project string) error {
 	discoveryCollection := ds.dbContext.Client.Collection("discovery")
@@ -849,4 +936,162 @@ func (ds *DiscoveryService) updateClusterNodeIPs(ctx context.Context, request K8
 	nodeIPs := ds.extractNodeIPsFromRequest(request, "") // Use default behavior for logging
 	ds.logger.Infof("Updated cluster %s nodes in discovery: %v", request.Data.ClusterInfo.ClusterName, nodeIPs)
 	return nil
+}
+
+// checkClusterUsage checks if a cluster is being used by any endpoints
+func (ds *DiscoveryService) checkClusterUsage(ctx context.Context, clusterName, project string) error {
+	endpointsCollection := ds.dbContext.Client.Collection("endpoints")
+	
+	// Find any endpoints that have this cluster in their elchi_discovery
+	filter := bson.M{
+		"general.project": project,
+		"general.elchi_discovery": bson.M{
+			"$elemMatch": bson.M{
+				"cluster_name": clusterName,
+			},
+		},
+	}
+	
+	// Count documents instead of fetching all for performance
+	count, err := endpointsCollection.CountDocuments(ctx, filter)
+	if err != nil {
+		return fmt.Errorf("failed to check cluster usage: %w", err)
+	}
+	
+	if count > 0 {
+		// Get endpoint names for detailed error message
+		cursor, err := endpointsCollection.Find(ctx, filter, options.Find().SetProjection(bson.M{"general.name": 1}))
+		if err != nil {
+			return fmt.Errorf("cannot delete cluster '%s': it is being used by %d endpoint(s)", clusterName, count)
+		}
+		defer cursor.Close(ctx)
+		
+		var usedByEndpoints []string
+		for cursor.Next(ctx) {
+			var endpoint struct {
+				General struct {
+					Name string `bson:"name"`
+				} `bson:"general"`
+			}
+			if err := cursor.Decode(&endpoint); err == nil {
+				usedByEndpoints = append(usedByEndpoints, endpoint.General.Name)
+			}
+		}
+		
+		endpointList := strings.Join(usedByEndpoints, ", ")
+		if len(usedByEndpoints) > 5 {
+			endpointList = strings.Join(usedByEndpoints[:5], ", ") + fmt.Sprintf(" and %d more", len(usedByEndpoints)-5)
+		}
+		
+		return fmt.Errorf("cannot delete cluster '%s': it is being used by %d endpoint(s): %s", 
+			clusterName, count, endpointList)
+	}
+	
+	return nil
+}
+
+// DeleteCluster deletes a cluster by ID from discovery collection
+func (ds *DiscoveryService) DeleteCluster(ctx context.Context, clusterID, project string) error {
+	discoveryCollection := ds.dbContext.Client.Collection("discovery")
+	
+	// Convert string ID to ObjectID
+	objectID, err := primitive.ObjectIDFromHex(clusterID)
+	if err != nil {
+		return fmt.Errorf("invalid cluster ID format: %w", err)
+	}
+	
+	// Find the cluster first to get cluster name for usage check
+	var cluster ClusterDiscovery
+	filter := bson.M{
+		"_id":     objectID,
+		"project": project,
+	}
+	
+	err = discoveryCollection.FindOne(ctx, filter).Decode(&cluster)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return fmt.Errorf("cluster not found")
+		}
+		return fmt.Errorf("failed to find cluster: %w", err)
+	}
+	
+	// Check if cluster is being used by any endpoints
+	if err := ds.checkClusterUsage(ctx, cluster.ClusterName, project); err != nil {
+		return err
+	}
+	
+	// Delete the cluster
+	result, err := discoveryCollection.DeleteOne(ctx, filter)
+	if err != nil {
+		return fmt.Errorf("failed to delete cluster: %w", err)
+	}
+	
+	if result.DeletedCount == 0 {
+		return fmt.Errorf("cluster not found")
+	}
+	
+	ds.logger.Infof("Deleted cluster: %s (ID: %s) from project: %s", cluster.ClusterName, clusterID, project)
+	return nil
+}
+
+// logDiscoveryAudit logs discovery-related endpoint updates for audit trail
+func (ds *DiscoveryService) logDiscoveryAudit(ctx context.Context, endpoint models.DBResource, updateResult EndpointUpdateResult, clusterName string) {
+	// Create audit collection if doesn't exist
+	auditCollection := ds.dbContext.Client.Collection("audit")
+	
+	// Extract cluster information from elchi_discovery
+	var allClusters []string
+	for _, discovery := range endpoint.General.ElchiDiscovery {
+		allClusters = append(allClusters, discovery.ClusterName)
+	}
+	
+	// Get previous IPs (before change was applied in memory)
+	// Note: Since we already updated in memory, we need to extract differently
+	// For now, calculate from the change delta
+	currentIPs := updateResult.UpdatedIPs
+	previousCount := len(currentIPs) - updateResult.AddedNodes + updateResult.RemovedNodes
+	
+	auditEntry := bson.M{
+		"timestamp":     time.Now(),
+		"action":        "DISCOVERY_UPDATE_ENDPOINT",
+		"resource_type": "endpoints",
+		"resource_id":   endpoint.ID.Hex(),
+		"resource_name": endpoint.General.Name,
+		"project":       endpoint.General.Project,
+		"version":       endpoint.General.Version,
+		"user_id":       "system",
+		"username":      "discovery-service",
+		"user_role":     "system",
+		"source":        "k8s_discovery",
+		"changes": bson.M{
+			"before": bson.M{
+				"cluster":     clusterName,
+				"ip_count":    previousCount,
+				"cluster_ips": fmt.Sprintf("Previous IP count: %d", previousCount),
+			},
+			"after": bson.M{
+				"cluster":     clusterName,
+				"ip_count":    len(currentIPs),
+				"cluster_ips": currentIPs,
+				"added_nodes": updateResult.AddedNodes,
+				"removed_nodes": updateResult.RemovedNodes,
+			},
+		},
+		"details": bson.M{
+			"trigger_cluster":    clusterName,
+			"all_clusters":       allClusters,
+			"endpoint_name":      endpoint.General.Name,
+			"discovery_count":    len(endpoint.General.ElchiDiscovery),
+			"snapshot_triggered": true,
+		},
+		"success": true,
+	}
+	
+	// Insert audit entry (don't fail the main operation if audit fails)
+	if _, err := auditCollection.InsertOne(ctx, auditEntry); err != nil {
+		ds.logger.Warnf("Failed to insert discovery audit log for endpoint %s: %v", endpoint.General.Name, err)
+	} else {
+		ds.logger.Infof("Discovery audit logged for endpoint %s - cluster: %s, IP changes: +%d/-%d", 
+			endpoint.General.Name, clusterName, updateResult.AddedNodes, updateResult.RemovedNodes)
+	}
 }

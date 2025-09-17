@@ -64,7 +64,7 @@ type DiscoveryProcessResult struct {
 
 // ClusterDiscovery represents cluster registration in discovery collection
 type ClusterDiscovery struct {
-	ID                string     `json:"id,omitempty" bson:"_id,omitempty"`
+	ID                string     `json:"id" bson:"_id,omitempty"`
 	ClusterName       string     `json:"cluster_name" bson:"cluster_name"`
 	Project           string     `json:"project" bson:"project"`
 	Nodes             []NodeInfo `json:"nodes" bson:"nodes"`
@@ -75,4 +75,15 @@ type ClusterDiscovery struct {
 	ClusterVersion    string     `json:"cluster_version" bson:"cluster_version"`
 	DiscoveryDuration string     `json:"discovery_duration" bson:"discovery_duration"`
 	LastRequestTime   time.Time  `json:"last_request_time" bson:"last_request_time"`
+}
+
+// ClusterUsageInfo represents endpoint usage information for a specific cluster
+type ClusterUsageInfo struct {
+	EndpointName string    `json:"endpoint_name"`
+	ResourceID   string    `json:"resource_id"`
+	Version      string    `json:"version"`
+	Project      string    `json:"project"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	IPCount      int       `json:"ip_count"`
+	IPs          []string  `json:"ips"`
 }

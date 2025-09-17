@@ -265,6 +265,16 @@ func (h *Handler) GetClusters(c *gin.Context) {
 	h.Discovery.GetClusters(c)
 }
 
+// DeleteCluster delegates to discovery handler
+func (h *Handler) DeleteCluster(c *gin.Context) {
+	h.Discovery.DeleteCluster(c)
+}
+
+// GetClusterUsage delegates to discovery handler
+func (h *Handler) GetClusterUsage(c *gin.Context) {
+	h.Discovery.GetClusterUsage(c)
+}
+
 func (h *Handler) getRequestDetails(c *gin.Context) (models.RequestDetails, models.UserDetails) {
 	userDetails, _ := GetUserDetails(c)
 

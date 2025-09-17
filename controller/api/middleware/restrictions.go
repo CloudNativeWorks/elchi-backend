@@ -101,6 +101,8 @@ var AllowedEndpoints = []string{
 	"/api/v3/ai/models/test",
 	"/api/discovery/k8s",
 	"/api/discovery/clusters",
+	"/api/discovery/clusters/:id",
+	"/api/discovery/clusters/:id/usage",
 	"/api/v3/jobs",
 	"/api/v3/jobs/:id",
 	"/api/v3/jobs/:id/retry",

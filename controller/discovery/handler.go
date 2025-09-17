@@ -117,7 +117,7 @@ func (dh *DiscoveryHandler) HandleK8sDiscovery(c *gin.Context) {
 	}
 
 	// Process discovery
-	dh.logger.Infof("Processing K8s discovery for cluster: %s, project: %s, nodes: %d, initial: %t",
+	dh.logger.Debugf("Processing K8s discovery for cluster: %s, project: %s, nodes: %d, initial: %t",
 		discoveryRequest.Data.ClusterInfo.ClusterName, discoveryRequest.Project, len(discoveryRequest.Data.Nodes), isInitial)
 
 	// Log node roles summary
@@ -138,7 +138,7 @@ func (dh *DiscoveryHandler) HandleK8sDiscovery(c *gin.Context) {
 	}
 
 	if len(nodeRoleCounts) > 0 {
-		dh.logger.Infof("Node roles summary - Masters: %d, Workers: %d, All roles: %v",
+		dh.logger.Debugf("Node roles summary - Masters: %d, Workers: %d, All roles: %v",
 			masterCount, workerCount, nodeRoleCounts)
 	}
 

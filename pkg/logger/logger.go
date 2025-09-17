@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 
@@ -51,11 +52,43 @@ func Init(config Config) error {
 		logger.SetFormatter(&logrus.TextFormatter{
 			FullTimestamp:          true,
 			CallerPrettyfier:       callerPrettyfier,
-			DisableSorting:         true,
+			DisableSorting:         false,  // Enable sorting for consistent field order
 			DisableTimestamp:       false,
 			DisableLevelTruncation: true,
-			ForceColors:            true,
-			PadLevelText:           true,
+			ForceColors:            true,   // Force colors for all outputs
+			DisableColors:          false,  // Keep colors enabled
+			PadLevelText:           true,   // Keep level padding for consistency
+			SortingFunc: func(keys []string) {
+				// Define custom field order for HTTP logs
+				order := map[string]int{
+					"statusCode":     1,
+					"responseTime":   2,
+					"clientIP":       3,
+					"requestMethod":  4,
+					"requestPath":    5,
+					"requestUri":     6,
+					"username":       7,
+					"userAgent":      8,
+					"requestReferer": 9,
+				}
+				
+				// Sort based on predefined order, then alphabetically for unknown fields
+				sort.Slice(keys, func(i, j int) bool {
+					orderI, hasI := order[keys[i]]
+					orderJ, hasJ := order[keys[j]]
+					
+					if hasI && hasJ {
+						return orderI < orderJ
+					}
+					if hasI {
+						return true
+					}
+					if hasJ {
+						return false
+					}
+					return keys[i] < keys[j]
+				})
+			},
 		})
 	}
 

@@ -36,9 +36,16 @@ func GinLog(logger *logrus.Logger) gin.HandlerFunc {
 			"clientIP":       clientIP,
 			"requestMethod":  c.Request.Method,
 			"requestPath":    path,
-			"requestReferer": referer,
 			"userAgent":      clientUserAgent,
 			"requestUri":     requestURI,
+			"requestReferer": referer,
+		}
+
+		// Add username if available (from JWT claims)
+		if username, exists := c.Get("username"); exists {
+			if usernamePtr, ok := username.(*string); ok && usernamePtr != nil {
+				fields["username"] = *usernamePtr
+			}
 		}
 
 		if len(c.Errors) > 0 {
@@ -51,7 +58,12 @@ func GinLog(logger *logrus.Logger) gin.HandlerFunc {
 			case statusCode > 399:
 				logger.WithFields(fields).Warnf("HTTP Status Failed")
 			default:
-				logger.WithFields(fields).Infof("HTTP Status OK")
+				// Use debug level for discovery K8s endpoint
+				if path == "/api/discovery/k8s" {
+					logger.WithFields(fields).Debugf("HTTP Status OK")
+				} else {
+					logger.WithFields(fields).Infof("HTTP Status OK")
+				}
 			}
 		}
 	}

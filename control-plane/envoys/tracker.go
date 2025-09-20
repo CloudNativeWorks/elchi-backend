@@ -1,0 +1,52 @@
+package envoys
+
+import (
+	"context"
+	"time"
+
+	"go.mongodb.org/mongo-driver/mongo"
+
+	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
+	"github.com/CloudNativeWorks/versioned-go-control-plane/pkg/cache/v3"
+)
+
+func (e *EnvoyConnTracker) TrackClientUp(dbClient *mongo.Database, nodeID, address, version, downstreamAddress, clientName string, streamID int64, logger *logger.Logger) {
+	count := e.IncAndGet(nodeID)
+	e.dbOpChan <- dbOperation{
+		nodeID:      nodeID,
+		count:       count,
+		op:          "inc",
+		dbClient:    dbClient,
+		address:     address,
+		version:     version,
+		downAddress: downstreamAddress,
+		clientName:  clientName,
+		logger:      logger,
+	}
+}
+
+func (e *EnvoyConnTracker) TrackClientDown(dbClient *mongo.Database, cache cache.SnapshotCache, nodeID string, streamID int64, logger *logger.Logger) {
+	count := e.DecAndGet(nodeID)
+	e.dbOpChan <- dbOperation{
+		nodeID:     nodeID,
+		count:      count,
+		op:         "dec",
+		dbClient:   dbClient,
+		logger:     logger,
+		isUndeploy: false,
+	}
+	logger.Infof("Client with NodeID %s removed", nodeID)
+}
+
+func (e *EnvoyConnTracker) AddOrUpdateError(dbClient *mongo.Database, nodeID, resourceID, errorMsg, nonce string, logger *logger.Logger) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Use enhanced error handling for better user experience
+	InsertEnhancedError(ctx, dbClient, nodeID, resourceID, errorMsg, nonce, logger)
+}
+
+// AutoResolveAllErrors wraps the auto-resolve functionality for tracker context
+func (e *EnvoyConnTracker) AutoResolveAllErrors(ctx context.Context, dbClient *mongo.Database, nodeID string, logger *logger.Logger) {
+	AutoResolveAllErrors(ctx, dbClient, nodeID, logger)
+}

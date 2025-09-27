@@ -1,0 +1,49 @@
+{
+    "general": {
+        "name": "resource",
+        "version": "v1.35.0",
+        "type": "access_log",
+        "gtype": "envoy.extensions.access_loggers.stream.v3.StdoutAccessLog",
+        "project": "68ac8add4d6ae9208b24492b",
+        "collection": "extensions",
+        "canonical_name": "envoy.access_loggers.stdout",
+        "category": "envoy.access_loggers",
+        "metadata": {},
+        "permissions": {
+            "users": [],
+            "groups": []
+        },
+        "created_at": {
+            "$date": "2025-09-04T14:39:13.634Z"
+        },
+        "updated_at": {
+            "$date": "2025-09-04T14:39:13.634Z"
+        }
+    },
+    "resource": {
+        "version": "3",
+        "resource": {
+            "log_format": {
+                "text_format_source": {
+                    "inline_string": "[%START_TIME%] \"%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)% %PROTOCOL%\" %RESPONSE_CODE% %RESPONSE_FLAGS% %BYTES_RECEIVED% %BYTES_SENT% %DURATION% %RESP(X-ENVOY-UPSTREAM-SERVICE-TIME)% \"%REQ(X-FORWARDED-FOR)%\" \"%REQ(USER-AGENT)%\" \"%REQ(X-REQUEST-ID)%\" \"%REQ(:AUTHORITY)%\" \"%UPSTREAM_HOST%\"\\n"
+                },
+                "json_format": {
+                    "protocol": "%PROTOCOL%",
+                    "response_code": "%RESPONSE_CODE%",
+                    "bytes_received": "%BYTES_RECEIVED%",
+                    "bytes_sent": "%BYTES_SENT%",
+                    "duration_ms": "%DURATION%",
+                    "request_id": "%REQ(X-REQUEST-ID)%",
+                    "upstream_cluster": "%UPSTREAM_CLUSTER%",
+                    "start_time": "%START_TIME%",
+                    "path": "%REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%",
+                    "response_flags": "%RESPONSE_FLAGS%",
+                    "upstream_host": "%UPSTREAM_HOST%",
+                    "downstream_remote_address": "%DOWNSTREAM_REMOTE_ADDRESS%",
+                    "user_agent": "%REQ(USER-AGENT)%",
+                    "method": "%REQ(:METHOD)%"
+                }
+            }
+        }
+    }
+}

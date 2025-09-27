@@ -8,7 +8,3 @@ var (
 func GetVersion() string {
 	return Version
 }
-
-func GetControlPlaneVersion() string {
-	return ControlPlaneVersion
-}

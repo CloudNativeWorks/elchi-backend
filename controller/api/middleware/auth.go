@@ -10,18 +10,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// getRecommendedAction returns the recommended frontend action based on error type
-func getRecommendedAction(errorType string) string {
-	switch errorType {
-	case "TOKEN_EXPIRED":
-		return "REFRESH_TOKEN"
-	case "TOKEN_INVALID", "TOKEN_ERROR":
-		return "REDIRECT_TO_LOGIN"
-	default:
-		return "REDIRECT_TO_LOGIN"
-	}
-}
-
 // RespondWithAuthError provides consistent authentication/authorization error responses
 func RespondWithAuthError(c *gin.Context, errorType string, message string) {
 	var statusCode int

@@ -58,6 +58,7 @@ func Contains(s []string, str string) bool {
 	return false
 }
 
+// This is unused just for development debugging
 func PrettyPrint(data any) {
 	if data == nil {
 		return
@@ -80,14 +81,6 @@ func PrettyPrint(data any) {
 	}
 
 	fmt.Println(string(prettyJSON))
-}
-
-func ToBool(strBool string) bool {
-	boolean, err := strconv.ParseBool(strBool)
-	if err != nil {
-		fmt.Println(err)
-	}
-	return boolean
 }
 
 // Password policy constants

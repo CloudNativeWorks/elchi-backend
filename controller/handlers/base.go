@@ -558,11 +558,6 @@ func (h *Handler) GetClientOpenStackInterfaces(c *gin.Context) {
 	h.OpenStack.GetClientInterfaces(c)
 }
 
-// GetNetworkDetails delegates to OpenStack handler
-func (h *Handler) GetNetworkDetails(c *gin.Context) {
-	h.OpenStack.GetNetworkDetails(c)
-}
-
 // GetSubnetAvailableIPs delegates to OpenStack handler
 func (h *Handler) GetSubnetAvailableIPs(c *gin.Context) {
 	h.OpenStack.GetSubnetAvailableIPs(c)

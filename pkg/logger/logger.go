@@ -2,13 +2,11 @@ package logger
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
-	"sync"
 
 	"github.com/sirupsen/logrus"
 )
@@ -130,13 +128,6 @@ func NewLogger(module string) *Logger {
 	}
 }
 
-// SetOutput sets the logger output
-func SetOutput(output io.Writer) {
-	if globalLogger != nil {
-		globalLogger.SetOutput(output)
-	}
-}
-
 // callerPrettyfier is used to format the caller information
 func callerPrettyfier(f *runtime.Frame) (string, string) {
 	// Walk up the stack until we find the actual caller
@@ -238,46 +229,9 @@ func (l *Logger) WithError(err error) *logrus.Entry {
 	return l.WithFields(Fields{"error": err})
 }
 
-// Middleware functions for global access if needed
-func Debug(args ...any) {
-	if globalLogger != nil {
-		globalLogger.Debug(args...)
-	}
-}
-
-func Debugf(format string, args ...any) {
-	if globalLogger != nil {
-		globalLogger.Debugf(format, args...)
-	}
-}
-
-func Info(args ...any) {
-	if globalLogger != nil {
-		globalLogger.Info(args...)
-	}
-}
-
 func Infof(format string, args ...any) {
 	if globalLogger != nil {
 		globalLogger.Infof(format, args...)
-	}
-}
-
-func Warn(args ...any) {
-	if globalLogger != nil {
-		globalLogger.Warn(args...)
-	}
-}
-
-func Warnf(format string, args ...any) {
-	if globalLogger != nil {
-		globalLogger.Warnf(format, args...)
-	}
-}
-
-func Error(args ...any) {
-	if globalLogger != nil {
-		globalLogger.Error(args...)
 	}
 }
 
@@ -287,106 +241,8 @@ func Errorf(format string, args ...any) {
 	}
 }
 
-func Fatal(args ...any) {
-	if globalLogger != nil {
-		globalLogger.Fatal(args...)
-	}
-}
-
 func Fatalf(format string, args ...any) {
 	if globalLogger != nil {
 		globalLogger.Fatalf(format, args...)
 	}
-}
-
-func WithFields(fields Fields) *logrus.Entry {
-	if globalLogger != nil {
-		return globalLogger.WithFields(fields)
-	}
-	return nil
-}
-
-func WithError(err error) *logrus.Entry {
-	if globalLogger != nil {
-		return globalLogger.WithError(err)
-	}
-	return nil
-}
-
-// SetLevel sets the log level for the logger
-func SetLevel(level string) error {
-	if globalLogger == nil {
-		return fmt.Errorf("logger not initialized")
-	}
-
-	logLevel, err := logrus.ParseLevel(level)
-	if err != nil {
-		return fmt.Errorf("invalid log level: %v", err)
-	}
-
-	globalLogger.SetLevel(logLevel)
-	return nil
-}
-
-// GetLevel returns the current log level
-func GetLevel() string {
-	if globalLogger == nil {
-		return "unknown"
-	}
-	return globalLogger.GetLevel().String()
-}
-
-// IsLevelEnabled checks if a log level is enabled
-func IsLevelEnabled(level string) bool {
-	if globalLogger == nil {
-		return false
-	}
-
-	logLevel, err := logrus.ParseLevel(level)
-	if err != nil {
-		return false
-	}
-
-	return globalLogger.IsLevelEnabled(logLevel)
-}
-
-// BufferedLogger provides buffered logging capabilities
-type BufferedLogger struct {
-	*Logger
-	buffer    []string
-	bufferMux sync.Mutex
-	flushSize int
-}
-
-// NewBufferedLogger creates a new buffered logger
-func NewBufferedLogger(module string, flushSize int) *BufferedLogger {
-	return &BufferedLogger{
-		Logger:    NewLogger(module),
-		buffer:    make([]string, 0, flushSize),
-		flushSize: flushSize,
-	}
-}
-
-// BufferInfo buffers an info message
-func (bl *BufferedLogger) BufferInfo(format string, args ...interface{}) {
-	bl.bufferMux.Lock()
-	defer bl.bufferMux.Unlock()
-
-	msg := fmt.Sprintf(format, args...)
-	bl.buffer = append(bl.buffer, msg)
-
-	if len(bl.buffer) >= bl.flushSize {
-		bl.Flush()
-	}
-}
-
-// Flush writes all buffered messages
-func (bl *BufferedLogger) Flush() {
-	bl.bufferMux.Lock()
-	defer bl.bufferMux.Unlock()
-
-	for _, msg := range bl.buffer {
-		bl.Info(msg)
-	}
-	bl.buffer = bl.buffer[:0]
 }

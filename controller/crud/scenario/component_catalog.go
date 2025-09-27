@@ -26,11 +26,6 @@ func (t *AppHandler) GetComponentDefinitionByType(componentType string) (*models
 	return def, nil
 }
 
-// GetComponents returns all available component definitions
-func (t *AppHandler) GetComponents() []models.ComponentDefinition {
-	return catalog.GetComponentCatalog()
-}
-
 // ValidateComponentRules validates if component combination follows rules (creation context)
 func (t *AppHandler) ValidateComponentRules(components []models.ComponentInstance) []string {
 	return t.ValidateComponentRulesWithContext(components, ValidationContextCreation)

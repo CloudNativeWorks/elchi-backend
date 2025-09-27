@@ -349,8 +349,6 @@ func (m *ControlPlaneManager) healthCheckLoop() {
 			m.logger.Debugf("🔍 Health check loop terminated by context")
 			return
 		case <-ticker.C:
-			m.logger.Debug("🔍 Health check tick")
-
 			// Check if we're connected
 			if m.getConnectionState() != StateConnected {
 				continue
@@ -369,8 +367,6 @@ func (m *ControlPlaneManager) healthCheckLoop() {
 			if err := m.client.HealthCheck(); err != nil {
 				m.logger.Errorf("Health check failed: %v", err)
 				m.handleConnectionFailure("health check")
-			} else {
-				m.logger.Debugf("Health check passed - registry connection healthy")
 			}
 		}
 	}
@@ -447,7 +443,7 @@ func (m *ControlPlaneManager) GetAllNodes() []ControlPlaneNodeInfo {
 		status := m.snapshotContext.Cache.Cache.GetStatusInfo(nodeID)
 		if status != nil {
 			// 🛡️ ROBUST VERSION RESOLUTION for all nodes
-			finalVersion := m.resolveAllNodeVersionRobust(nodeID)
+			finalVersion := m.resolveNodeVersion(nodeID, false) // false = may not be connected
 
 			// Get last watch time
 			lastWatchTime := status.GetLastDeltaWatchRequestTime()
@@ -466,17 +462,23 @@ func (m *ControlPlaneManager) GetAllNodes() []ControlPlaneNodeInfo {
 	return nodes
 }
 
-// 🛡️ resolveAllNodeVersionRobust provides robust version resolution for all nodes (connected/disconnected)
-func (m *ControlPlaneManager) resolveAllNodeVersionRobust(nodeID string) string {
+// 🛡️ resolveNodeVersion provides robust version resolution for nodes with context-aware logging
+func (m *ControlPlaneManager) resolveNodeVersion(nodeID string, isConnected bool) string {
 	// 1. Primary: Use stored version from NotifySnapshotDelivered (most reliable)
 	if storedVersion, exists := m.NodeVersions[nodeID]; exists && storedVersion != "" {
-		m.logger.Debugf("✅ Using stored version for node %s: %s", nodeID, storedVersion)
 		return storedVersion
 	}
 
 	// 2. Fallback 1: Use control-plane version as last resort
 	if m.Config != nil && m.Config.Version != "" {
-		m.logger.Warnf("⚠️  No reliable version for node %s, falling back to control-plane version: %s", nodeID, m.Config.Version)
+		// Use different log levels based on whether the node is connected
+		if isConnected {
+			// Connected nodes should have version, so this is more critical
+			m.logger.Errorf("🚨 CRITICAL: No reliable version for connected node %s, falling back to control-plane version: %s", nodeID, m.Config.Version)
+		} else {
+			// Disconnected nodes might not have version, less critical
+			m.logger.Warnf("⚠️  No reliable version for node %s, falling back to control-plane version: %s", nodeID, m.Config.Version)
+		}
 		// Store fallback version
 		m.NodeVersions[nodeID] = m.Config.Version
 		return m.Config.Version
@@ -499,7 +501,7 @@ func (m *ControlPlaneManager) GetConnectedNodes() []ControlPlaneNodeInfo {
 	for _, node := range connectedNodes {
 		if node.Connected {
 			// 🛡️ ROBUST VERSION RESOLUTION with prioritized fallbacks
-			finalVersion := m.resolveNodeVersionRobust(node)
+			finalVersion := m.resolveNodeVersion(node.NodeID, true) // true = connected node
 
 			nodes = append(nodes, ControlPlaneNodeInfo{
 				NodeID:   node.NodeID,
@@ -510,32 +512,6 @@ func (m *ControlPlaneManager) GetConnectedNodes() []ControlPlaneNodeInfo {
 	}
 
 	return nodes
-}
-
-// 🛡️ resolveNodeVersionRobust provides robust version resolution for nodes
-func (m *ControlPlaneManager) resolveNodeVersionRobust(node snapshot.ConnectedNode) string {
-	nodeID := node.NodeID
-
-	// 1. Primary: Use stored version from NotifySnapshotDelivered (most reliable)
-	if storedVersion, exists := m.NodeVersions[nodeID]; exists && storedVersion != "" {
-		m.logger.Debugf("✅ Using stored version for node %s: %s", nodeID, storedVersion)
-		return storedVersion
-	}
-
-	// NOTE: node.Version is incremental snapshot version (1,2,3...), NOT Envoy version!
-	// So we skip it and use control-plane version as fallback
-
-	// 2. Fallback 1: Use control-plane version as last resort
-	if m.Config != nil && m.Config.Version != "" {
-		m.logger.Errorf("🚨 CRITICAL: No reliable version for node %s, falling back to control-plane version: %s", nodeID, m.Config.Version)
-		// Store fallback version
-		m.NodeVersions[nodeID] = m.Config.Version
-		return m.Config.Version
-	}
-
-	// 3. Absolute fallback: Use unknown but warn heavily
-	m.logger.Errorf("🚨 FATAL: No version available anywhere for node %s, using 'unknown' - THIS SHOULD NEVER HAPPEN!", nodeID)
-	return "unknown"
 }
 
 // GetConnectedNodeCount returns the number of connected nodes

@@ -32,16 +32,6 @@ type RetryConfig struct {
 	MaxAttempts    int
 }
 
-// DefaultRetryConfig returns the standard retry configuration with unlimited attempts
-func DefaultRetryConfig() RetryConfig {
-	return RetryConfig{
-		InitialBackoff: 1 * time.Second,
-		MaxBackoff:     30 * time.Second,
-		Multiplier:     1.5,
-		MaxAttempts:    0, // 0 means unlimited attempts - will respect context timeout
-	}
-}
-
 // AggressiveRetryConfig returns a more aggressive retry configuration for critical operations
 func AggressiveRetryConfig() RetryConfig {
 	return RetryConfig{

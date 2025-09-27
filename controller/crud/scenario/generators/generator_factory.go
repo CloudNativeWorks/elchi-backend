@@ -15,15 +15,6 @@ type GeneratorFactory struct {
 	managed          bool              // Whether resources should be saved to database
 }
 
-// NewGeneratorFactory creates a new generator factory
-func NewGeneratorFactory(project, version string, user models.UserDetails) *GeneratorFactory {
-	return &GeneratorFactory{
-		project: project,
-		version: version,
-		user:    user,
-	}
-}
-
 // NewGeneratorFactoryWithMapping creates a new generator factory with component type mapping
 func NewGeneratorFactoryWithMapping(project, version string, user models.UserDetails, componentTypeMap map[string]string, managed bool) *GeneratorFactory {
 	return &GeneratorFactory{
@@ -62,23 +53,6 @@ func (gf *GeneratorFactory) CreateGenerator(componentType string) (ComponentGene
 		return NewFluentdAccessLogGenerator(gf.project, gf.version, gf.user), nil
 	default:
 		return nil, fmt.Errorf("unsupported component type: %s", componentType)
-	}
-}
-
-// GetSupportedTypes returns all supported component types
-func (gf *GeneratorFactory) GetSupportedTypes() []string {
-	return []string{
-		"listener",
-		"cluster",
-		"http_connection_manager",
-		"route",
-		"virtual_host",
-		"endpoint",
-		"tcp_proxy",
-		"router_filter",
-		"access_log_file",
-		"access_log_stdout",
-		"access_log_fluentd",
 	}
 }
 

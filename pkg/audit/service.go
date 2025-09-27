@@ -161,41 +161,6 @@ func (s *Service) StoreAsync(entry *models.AuditEntry) {
 	}
 }
 
-// Shutdown gracefully shuts down the audit service
-func (s *Service) Shutdown(ctx context.Context) error {
-	// First signal all goroutines to stop accepting new work
-	close(s.shutdown)
-
-	// Give a moment for goroutines to detect shutdown signal
-	time.Sleep(100 * time.Millisecond)
-
-	// Then close batch channel to stop accepting new entries (after goroutines are aware of shutdown)
-	func() {
-		defer func() {
-			if recover() != nil {
-				// Channel already closed, ignore
-			}
-		}()
-		close(s.batch)
-	}()
-
-	// Wait for all goroutines to finish or context to timeout
-	done := make(chan struct{})
-	go func() {
-		s.wg.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		s.logger.Info("Audit service shutdown completed")
-		return nil
-	case <-ctx.Done():
-		s.logger.Warn("Audit service shutdown timeout")
-		return ctx.Err()
-	}
-}
-
 // startBatchProcessor starts the background processor for batch inserts
 func (s *Service) startBatchProcessor() {
 	s.wg.Add(1)
@@ -498,24 +463,6 @@ func (s *Service) GetStats(ctx context.Context, query AuditQuery) (*AuditStats, 
 	}
 
 	return s.parseStatsResult(results), nil
-}
-
-// CleanupOldEntries removes audit entries older than specified duration
-func (s *Service) CleanupOldEntries(ctx context.Context, olderThan time.Duration) (int64, error) {
-	collection := s.db.Client.Collection("audit_logs")
-	cutoffTime := time.Now().Add(-olderThan)
-
-	filter := map[string]any{
-		"timestamp": map[string]any{"$lt": cutoffTime},
-	}
-
-	result, err := collection.DeleteMany(ctx, filter)
-	if err != nil {
-		return 0, s.logAndWrapError("cleanup", "delete_old_entries", err)
-	}
-
-	s.logger.Infof("Cleaned up %d old audit entries", result.DeletedCount)
-	return result.DeletedCount, nil
 }
 
 // ================== HELPER METHODS ==================

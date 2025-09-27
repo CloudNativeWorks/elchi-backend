@@ -105,15 +105,6 @@ func ValidateExtensionResource(resource models.ResourceClass) error {
 	return nil
 }
 
-// GetValidationErrorMessage formats validation error for user-friendly response
-func GetValidationErrorMessage(err error) string {
-	if resourceErr, ok := err.(*ResourceNameError); ok {
-		return resourceErr.Error()
-	}
-
-	return err.Error()
-}
-
 // ValidationFunction represents a validation function for a specific GType
 type ValidationFunction func(resource models.ResourceClass, requestDetails models.RequestDetails, logger *logger.Logger) (any, error)
 

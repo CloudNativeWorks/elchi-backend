@@ -4,11 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os"
 	"time"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/grpclog"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
@@ -111,17 +109,6 @@ func (s *Server) Run(db *db.AppContext) {
 	}
 }
 
-// setupKeepaliveLogging enables detailed gRPC keepalive logging for debugging
-func (s *Server) setupKeepaliveLogging() {
-	// Set gRPC log verbosity to debug level for keepalive events
-	os.Setenv("GRPC_GO_LOG_VERBOSITY_LEVEL", "99")
-	os.Setenv("GRPC_GO_LOG_SEVERITY_LEVEL", "debug")
-
-	// Enable gRPC internal logging
-	grpclog.SetLoggerV2(grpclog.NewLoggerV2(os.Stdout, os.Stderr, os.Stderr))
-
-}
-
 func (s *Server) registerServer(grpcServer *grpc.Server, db *db.AppContext) {
 	// envoy ads & vhds services
 	discoverygrpc.RegisterAggregatedDiscoveryServiceServer(grpcServer, s.xdsServer)
@@ -136,11 +123,6 @@ func (s *Server) registerServer(grpcServer *grpc.Server, db *db.AppContext) {
 	grpc_health_v1.RegisterHealthServer(grpcServer, s.healthServer)
 	s.healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
 	s.logger.Info("Health check server registered and serving status set to SERVING")
-}
-
-// GetRoutingManager returns the routing manager
-func (s *Server) GetRoutingManager() *registry.ControlPlaneManager {
-	return s.routingManager
 }
 
 // logInterceptor logs unary RPC calls for debugging

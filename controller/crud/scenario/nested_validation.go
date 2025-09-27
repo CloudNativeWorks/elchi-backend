@@ -165,36 +165,3 @@ func validateSubFieldsWithContext(comp models.ComponentInstance, availableSubFie
 
 	return errors
 }
-
-// GetFlattenedSelectedFields flattens nested field selections for easier processing
-func GetFlattenedSelectedFields(comp models.ComponentInstance) map[string]interface{} {
-	flattened := make(map[string]interface{})
-
-	for _, selectedField := range comp.SelectedFields {
-		// Add top-level field
-		flattened[selectedField.FieldName] = selectedField.Value
-
-		// Add nested fields
-		if selectedField.NestedSelection != nil {
-			nestedPrefix := selectedField.FieldName + "." + selectedField.NestedSelection.SelectedChoice
-			flattened[selectedField.FieldName+"._choice"] = selectedField.NestedSelection.SelectedChoice
-
-			for _, subField := range selectedField.NestedSelection.SubFields {
-				subFieldKey := nestedPrefix + "." + subField.FieldName
-				flattened[subFieldKey] = subField.Value
-
-				// Handle recursive nesting
-				if subField.NestedSelection != nil {
-					subNestedPrefix := subFieldKey + "." + subField.NestedSelection.SelectedChoice
-					flattened[subFieldKey+"._choice"] = subField.NestedSelection.SelectedChoice
-
-					for _, subSubField := range subField.NestedSelection.SubFields {
-						flattened[subNestedPrefix+"."+subSubField.FieldName] = subSubField.Value
-					}
-				}
-			}
-		}
-	}
-
-	return flattened
-}

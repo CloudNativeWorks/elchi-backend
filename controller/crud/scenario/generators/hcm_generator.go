@@ -13,14 +13,6 @@ type HCMGenerator struct {
 	metadataProcessor *MetadataProcessor
 }
 
-// NewHCMGenerator creates a new HCM generator
-func NewHCMGenerator(project, version string, user models.UserDetails) *HCMGenerator {
-	return &HCMGenerator{
-		BaseGenerator:     NewBaseGenerator(project, version, user),
-		metadataProcessor: NewMetadataProcessor(),
-	}
-}
-
 // NewHCMGeneratorWithMapping creates a new HCM generator with component type mapping
 func NewHCMGeneratorWithMapping(project, version string, user models.UserDetails, componentTypeMap map[string]string) *HCMGenerator {
 	return &HCMGenerator{

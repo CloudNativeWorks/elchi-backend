@@ -195,9 +195,3 @@ type PaginationHelper struct {
 	CollectionName string
 }
 
-// NewPaginationHelper creates a new pagination helper
-func NewPaginationHelper(collectionName string) *PaginationHelper {
-	return &PaginationHelper{
-		CollectionName: collectionName,
-	}
-}

@@ -2,7 +2,6 @@ package xds
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/gin-gonic/gin"
 
@@ -63,53 +62,6 @@ func (s *AsyncXDSService) initializeAsyncSystem() (async.AsyncJobSystem, error) 
 	})
 }
 
-// analyzeDependencies analyzes resource dependencies
-func (s *AsyncXDSService) analyzeDependencies(ctx context.Context, asyncSystem async.AsyncJobSystem, resource models.ResourceClass, requestDetails models.RequestDetails, project string) (*async.DependencyAnalysis, error) {
-	analysisReq := &async.AnalysisRequest{
-		ResourceType: resource.GetGeneral().GType,
-		ResourceName: requestDetails.Name,
-		Project:      project,
-		Version:      requestDetails.Version,
-		Action:       "UPDATE",
-	}
-
-	return asyncSystem.AnalyzeDependencies(ctx, analysisReq)
-}
-
-// createAsyncJob creates a background job for processing
-func (s *AsyncXDSService) createAsyncJob(ctx context.Context, asyncSystem async.AsyncJobSystem, resource models.ResourceClass, requestDetails models.RequestDetails, analysis *async.DependencyAnalysis, project string) (*async.Job, error) {
-	// Determine initial status
-	initialStatus := job.JobStatusPending
-	if len(analysis.AffectedListeners) == 0 {
-		initialStatus = job.JobStatusNoWorkNeeded
-	}
-
-	jobReq := &async.CreateJobRequest{
-		Type:   job.JobTypeSnapshotUpdate,
-		Status: initialStatus,
-		Metadata: &job.JobMetadata{
-			SourceResource: &job.SourceResource{
-				Type:       resource.GetGeneral().GType.String(),
-				Name:       requestDetails.Name,
-				Collection: requestDetails.Collection,
-				Action:     job.ActionType("UPDATE"),
-				ProjectID:  project,
-				Version:    requestDetails.Version,
-			},
-			TriggerUser: &job.TriggerUser{
-				ID:       requestDetails.User.UserID,
-				Username: requestDetails.User.UserName,
-				Role:     string(requestDetails.User.Role),
-			},
-			AffectedListeners: analysis.AffectedListeners,
-			TotalAffected:     len(analysis.AffectedListeners),
-			AnalysisDuration:  analysis.DurationMS,
-		},
-	}
-
-	return asyncSystem.CreateJob(ctx, jobReq)
-}
-
 // createPreliminaryJob creates a job without dependency analysis for fast response
 func (s *AsyncXDSService) createPreliminaryJob(ctx context.Context, asyncSystem async.AsyncJobSystem, resource models.ResourceClass, requestDetails models.RequestDetails, project string) (*async.Job, error) {
 	jobReq := &async.CreateJobRequest{
@@ -142,21 +94,6 @@ func (s *AsyncXDSService) createPreliminaryJob(ctx context.Context, asyncSystem 
 func (s *AsyncXDSService) fallbackToSyncProcessing(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails, project string) (gin.H, error) {
 	changedResources := crud.HandleResourceChange(ctx, resource, requestDetails, s.handler.Context, project, s.handler.PokeService)
 	return gin.H{"message": "Success", "data": changedResources}, nil
-}
-
-// buildSuccessResponse builds the success response with job information
-func (s *AsyncXDSService) buildSuccessResponse(backgroundJob *async.Job, analysis *async.DependencyAnalysis) gin.H {
-	return gin.H{
-		"message": "Success",
-		"data": gin.H{
-			"task_id":              backgroundJob.JobID,
-			"affected_listeners":   analysis.AffectedListeners,
-			"dependency_chain":     analysis.DependencyChain,
-			"status":               "processing",
-			"message":              fmt.Sprintf("Background job created to update %d listeners", len(analysis.AffectedListeners)),
-			"analysis_duration_ms": analysis.DurationMS,
-		},
-	}
 }
 
 // buildFastResponse builds the fast response with preliminary job information

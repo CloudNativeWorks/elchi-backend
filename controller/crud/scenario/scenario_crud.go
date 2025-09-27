@@ -473,15 +473,6 @@ func (t *AppHandler) getCollectionName(componentType string) string {
 	}
 }
 
-// getMapKeys returns map keys for debugging
-func getMapKeys(m map[string]interface{}) []string {
-	keys := make([]string, 0, len(m))
-	for key := range m {
-		keys = append(keys, key)
-	}
-	return keys
-}
-
 // ExportScenarios exports multiple scenarios by IDs
 func (t *AppHandler) ExportScenarios(request models.ExportScenarioRequest, reqDetails models.RequestDetails) (*models.ExportScenarioResponse, error) {
 	// Build filter for scenarios

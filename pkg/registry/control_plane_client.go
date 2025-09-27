@@ -200,7 +200,6 @@ func (r *ControlPlaneRegistryClient) HealthCheck() error {
 		return fmt.Errorf("registry unhealthy: %s", response.Message)
 	}
 
-	r.logger.Debug("Health check passed")
 	return nil
 }
 

@@ -8,20 +8,6 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 )
 
-// GenerateResourceFromComponent generates Envoy resource JSON from component instance using new generator system
-func GenerateResourceFromComponent(componentInstance models.ComponentInstance, project, version string, user models.UserDetails) (any, error) {
-	// Create generator factory
-	factory := generators.NewGeneratorFactory(project, version, user)
-
-	// Generate component using appropriate generator
-	return factory.GenerateComponent(componentInstance)
-}
-
-// GenerateEnvoyResourceDocument generates Envoy resource in database format using new generator system
-func GenerateEnvoyResourceDocument(componentInstance models.ComponentInstance, reqDetails models.RequestDetails, version string) (any, error) {
-	return GenerateEnvoyResourceDocumentWithMapping(componentInstance, reqDetails, version, nil, true) // Default managed to true
-}
-
 // GenerateEnvoyResourceDocumentWithMapping generates Envoy resource with component type mapping for listener network filters
 // Returns single document for components that generate one resource, multiple documents for listeners with TLS+HTTP
 func GenerateEnvoyResourceDocumentWithMapping(componentInstance models.ComponentInstance, reqDetails models.RequestDetails, version string, componentTypeMap map[string]string, managed bool) (any, error) {
@@ -63,38 +49,6 @@ func updateGeneralSection(general map[string]interface{}) {
 	}
 }
 
-// GenerateScenarioResources generates all resources from a scenario using new generator system
-func GenerateScenarioResources(scenario models.Scenario, executionRequest models.ExecuteScenarioRequest, project, version string, user models.UserDetails) ([]map[string]interface{}, error) {
-	var resources []map[string]interface{}
-
-	// If executionRequest provides component instances with values, use those
-	// Otherwise use the scenario's component definitions
-	componentsToProcess := scenario.Components
-	if len(executionRequest.Components) > 0 {
-		componentsToProcess = executionRequest.Components
-	}
-
-	// Create generator factory
-	factory := generators.NewGeneratorFactory(project, version, user)
-
-	for _, componentInstance := range componentsToProcess {
-		result, err := factory.GenerateComponent(componentInstance)
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate resource for component %s: %w", componentInstance.Name, err)
-		}
-
-		// All generators now return single document
-		document, ok := result.(map[string]interface{})
-		if !ok {
-			return nil, fmt.Errorf("unexpected result type from generator for component %s: %T", componentInstance.Name, result)
-		}
-
-		resources = append(resources, document)
-	}
-
-	return resources, nil
-}
-
 // ValidateComponentInstance validates component instance for scenario creation (lenient)
 func ValidateComponentInstance(componentInstance models.ComponentInstance) error {
 	// Find component definition
@@ -129,12 +83,6 @@ func ValidateComponentInstance(componentInstance models.ComponentInstance) error
 	// Note: Cluster endpoint/EDS choice validation now handled by nested choice structure
 
 	return nil
-}
-
-// ValidateComponentInstanceForExecution validates component instance for execution (stricter validation)
-func ValidateComponentInstanceForExecution(componentInstance models.ComponentInstance) error {
-	// For single component validation, use a slice with just this component
-	return ValidateComponentInstanceForExecutionWithContext(componentInstance, []models.ComponentInstance{componentInstance})
 }
 
 // ValidateComponentInstanceForExecutionWithContext validates component instance for execution with full scenario context

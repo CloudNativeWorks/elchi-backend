@@ -13,23 +13,6 @@ type ListenerGenerator struct {
 	metadataProcessor *MetadataProcessor
 }
 
-// NewListenerGenerator creates a new listener generator
-func NewListenerGenerator(project, version string, user models.UserDetails) *ListenerGenerator {
-	return &ListenerGenerator{
-		BaseGenerator:     NewBaseGenerator(project, version, user),
-		metadataProcessor: NewMetadataProcessor(),
-	}
-}
-
-// NewListenerGeneratorWithMapping creates a new listener generator with component type mapping
-func NewListenerGeneratorWithMapping(project, version string, user models.UserDetails, componentTypeMap map[string]string) *ListenerGenerator {
-	return &ListenerGenerator{
-		BaseGenerator:     NewBaseGenerator(project, version, user),
-		componentTypeMap:  componentTypeMap,
-		metadataProcessor: NewMetadataProcessor(),
-	}
-}
-
 // NewListenerGeneratorWithManagedMapping creates a new listener generator with component type mapping and managed setting
 func NewListenerGeneratorWithManagedMapping(project, version string, user models.UserDetails, componentTypeMap map[string]string, managed bool) *ListenerGenerator {
 	return &ListenerGenerator{

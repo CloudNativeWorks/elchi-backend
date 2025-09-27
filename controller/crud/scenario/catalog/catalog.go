@@ -21,11 +21,6 @@ var ComponentCatalog = []models.ComponentDefinition{
 	FluentdAccessLogDefinition,
 }
 
-// GetComponentCatalog returns all available component definitions
-func GetComponentCatalog() []models.ComponentDefinition {
-	return ComponentCatalog
-}
-
 // GetComponentCatalogSorted returns all available component definitions sorted by priority
 func GetComponentCatalogSorted() []models.ComponentDefinition {
 	// Create a copy to avoid modifying the original slice

@@ -232,20 +232,3 @@ func (c *OpenRouterClient) GetModels(ctx context.Context) ([]ModelInfo, error) {
 	return models, nil
 }
 
-// TestConnection tests the OpenRouter API connection with a simple request
-func (c *OpenRouterClient) TestConnection(ctx context.Context) error {
-	testReq := OpenRouterRequest{
-		Model:       DefaultModel,
-		MaxTokens:   10,
-		Temperature: 0.1,
-		Messages: []OpenRouterMessage{
-			{
-				Role:    "user",
-				Content: "Say hello",
-			},
-		},
-	}
-
-	_, err := c.GetCompletion(ctx, testReq)
-	return err
-}

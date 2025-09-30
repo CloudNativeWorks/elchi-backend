@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -30,6 +31,36 @@ type Client struct {
 	// Client-level request serialization to prevent concurrent gRPC calls
 	clientMutexes sync.Map // clientID -> *sync.Mutex mapping
 	cleanupTicker *time.Ticker
+	
+	// Request deduplication to handle duplicate frontend requests
+	activeRequests sync.Map // requestHash -> chan struct{} (completion channel)
+}
+
+// ClearActiveRequestsForClient removes all active requests related to a specific client
+// Called when client disconnects to prevent stale request blocking
+func (c *Client) ClearActiveRequestsForClient(clientID string) {
+	c.logger.Errorf("🚨 EMERGENCY DEBUG: Clearing active requests for disconnected client: %s", clientID)
+	
+	// Iterate through all active requests and close channels for this client
+	c.activeRequests.Range(func(key, value interface{}) bool {
+		requestHash := key.(string)
+		completionChan := value.(chan struct{})
+		
+		// Hash contains client ID, so we can check if this request belongs to the disconnected client
+		if strings.Contains(requestHash, clientID) {
+			c.logger.Errorf("🚨 EMERGENCY DEBUG: Removing active request hash for client %s: %s", clientID, requestHash)
+			c.activeRequests.Delete(requestHash)
+			
+			// Close the channel to unblock any waiting requests
+			select {
+			case <-completionChan:
+				// Channel already closed
+			default:
+				close(completionChan)
+			}
+		}
+		return true // Continue iteration
+	})
 }
 
 func NewClientHandler(dbContext *db.AppContext, xdsHandler *xds.AppHandler, clientService *services.ClientService, openStackHandler *openstack.Handler) *Client {
@@ -77,6 +108,10 @@ func NewClientHandler(dbContext *db.AppContext, xdsHandler *xds.AppHandler, clie
 
 	// Start mutex cleanup routine
 	h.startMutexCleanup()
+	
+	// Set callback for client disconnect events to clear active requests
+	h.logger.Errorf("🚨 EMERGENCY DEBUG: Setting disconnect callback for client service")
+	clientService.SetClientDisconnectedCallback(h.ClearActiveRequestsForClient)
 
 	return h
 }

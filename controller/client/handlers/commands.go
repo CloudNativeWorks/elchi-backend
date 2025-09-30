@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"os"
 	"time"
@@ -180,12 +181,30 @@ func (h *Client) processClientsInParallel(ctx context.Context, clients []models.
 		go func(index int, client models.ServiceClients) {
 			// Acquire semaphore
 			semaphore <- struct{}{}
-			defer func() { <-semaphore }()
+			defer func() { 
+				<-semaphore 
+				// Recover from any panics to prevent goroutine hanging
+				if r := recover(); r != nil {
+					h.logger.Errorf("Panic in client processing goroutine for client %s: %v", client.ClientID, r)
+					resultChan <- ClientProcessResult{
+						ClientID: client.ClientID,
+						Result:   nil,
+						Error:    fmt.Errorf("panic in client processing: %v", r),
+						Index:    index,
+					}
+				}
+			}()
 
-			h.logger.Debugf("Processing client %s in parallel (%d/%d)", client.ClientID, index+1, len(clients))
+			// Create timeout context for this individual client processing
+			clientCtx, clientCancel := context.WithTimeout(ctx, 30*time.Second)
+			defer clientCancel()
 
-			// Process single client
-			response, err := h.sendCommandWithLocationCheck(ctx, requestDetails, client, op, processor)
+			// Process single client with timeout protection
+			response, err := h.sendCommandWithLocationCheck(clientCtx, requestDetails, client, op, processor)
+
+			if err != nil {
+				h.logger.Debugf("Client %s processing failed: %v", client.ClientID, err)
+			}
 
 			resultChan <- ClientProcessResult{
 				ClientID: client.ClientID,
@@ -196,14 +215,51 @@ func (h *Client) processClientsInParallel(ctx context.Context, clients []models.
 		}(i, client)
 	}
 
-	// Collect results in order
-	for i := 0; i < len(clients); i++ {
-		result := <-resultChan
-		results[result.Index] = result // Store by index to maintain order
+	// Collect results in order with timeout protection and duplicate detection
+	collectedResults := 0
+	collectedClientIDs := make(map[string]bool) // Track which clients we've already collected
+	
+	for collectedResults < len(clients) {
+		select {
+		case result := <-resultChan:
+			// Check for duplicate response from same client
+			if collectedClientIDs[result.ClientID] {
+				h.logger.Warnf("🔍 DUPLICATE RESPONSE detected from client %s - ignoring", result.ClientID)
+				continue // Ignore duplicate response
+			}
+			
+			// Mark client as collected and store result
+			collectedClientIDs[result.ClientID] = true
+			results[result.Index] = result // Store by index to maintain order
+			collectedResults++
+			h.logger.Debugf("Collected result %d/%d from client %s", collectedResults, len(clients), result.ClientID)
+		case <-time.After(60 * time.Second):
+			h.logger.Errorf("Timeout waiting for results: collected %d/%d results", collectedResults, len(clients))
+			// Create error results for missing clients
+			for i := range len(clients) {
+				if results[i].ClientID == "" { // Empty result means not received
+					results[i] = ClientProcessResult{
+						ClientID: clients[i].ClientID,
+						Result:   nil,
+						Error:    fmt.Errorf("timeout waiting for client processing result"),
+						Index:    i,
+					}
+					h.logger.Errorf("Creating timeout error for client %s at index %d", clients[i].ClientID, i)
+				}
+			}
+			// Exit the main loop after timeout
+			collectedResults = len(clients)
+		case <-ctx.Done():
+			h.logger.Errorf("Context cancelled while waiting for results: collected %d/%d results", collectedResults, len(clients))
+			return nil, ctx.Err()
+		}
 	}
 
-	// Process results in original order
+	// Process results in original order with partial success support
 	finalResults := make([]any, 0, len(clients))
+	var failedClients []string
+	successCount := 0
+
 	for i, result := range results {
 		h.logger.Debugf("Processing result for client %s at index %d", result.ClientID, i)
 
@@ -211,35 +267,66 @@ func (h *Client) processClientsInParallel(ctx context.Context, clients []models.
 			// Handle forwarded response
 			if forwardedResp, ok := result.Error.(*ForwardedResponse); ok {
 				if err := h.handleForwardedResponse(forwardedResp, &finalResults); err != nil {
-					return nil, err
+					h.logger.Errorf("Failed to handle forwarded response for client %s: %v", result.ClientID, err)
+					failedClients = append(failedClients, result.ClientID)
+					continue
 				}
+				successCount++
 				continue
 			}
 
-			// Regular error
+			// PARTIAL SUCCESS: Log error but continue with other clients
 			h.logger.WithFields(logger.Fields{
 				"client_id": result.ClientID,
 				"error":     result.Error,
 				"index":     i,
-			}).Errorf("Parallel command processing error")
-			return nil, fmt.Errorf("command sending error for client %s: %v", result.ClientID, result.Error)
+			}).Warnf("Client %s failed in parallel processing, continuing with others", result.ClientID)
+			
+			failedClients = append(failedClients, result.ClientID)
+			continue
 		}
 
 		// Process local response
 		if response, ok := result.Result.(*pb.CommandResponse); ok {
 			if err := h.processLocalResponse(op, response, result.ClientID, &finalResults); err != nil {
-				return nil, err
+				h.logger.Errorf("Failed to process response for client %s: %v", result.ClientID, err)
+				failedClients = append(failedClients, result.ClientID)
+				continue
 			}
+			successCount++
+		} else {
+			h.logger.Errorf("Invalid response type from client %s", result.ClientID)
+			failedClients = append(failedClients, result.ClientID)
+			continue
 		}
+	}
+
+	// PARTIAL SUCCESS REPORTING
+	totalClients := len(clients)
+	if successCount == 0 {
+		// All clients failed
+		return nil, fmt.Errorf("all %d clients failed in parallel processing: %v", totalClients, failedClients)
+	}
+
+	if len(failedClients) > 0 {
+		// Some clients failed, log warning but return partial results
+		h.logger.Warnf("PARTIAL SUCCESS (parallel): %d/%d clients succeeded, failed clients: %v", 
+			successCount, totalClients, failedClients)
+	} else {
+		// All clients succeeded
+		h.logger.Infof("FULL SUCCESS (parallel): All %d clients processed successfully", totalClients)
 	}
 
 	h.logger.Infof("Parallel processing completed for %d clients, returning %d responses", len(clients), len(finalResults))
 	return finalResults, nil
 }
 
-// processClientSequential processes clients sequentially with serialization to prevent gRPC concurrent calls
+// processClientSequential processes clients sequentially with partial success support
 func (h *Client) processClientSequential(ctx context.Context, clients []models.ServiceClients, op models.OperationClass, processor processor.CommandProcessor, requestDetails models.RequestDetails) ([]any, error) {
 	result := []any{}
+	var failedClients []string
+	successCount := 0
+
 	for i, client := range clients {
 		h.logger.Infof("Processing client %s (%d/%d)", client.ClientID, i+1, len(clients))
 
@@ -249,30 +336,56 @@ func (h *Client) processClientSequential(ctx context.Context, clients []models.S
 			// Check if this is a forwarded response with raw JSON
 			if forwardedResp, ok := err.(*ForwardedResponse); ok {
 				if err := h.handleForwardedResponse(forwardedResp, &result); err != nil {
-					return nil, err
+					h.logger.Errorf("Failed to handle forwarded response for client %s: %v", client.ClientID, err)
+					failedClients = append(failedClients, client.ClientID)
+					continue
 				}
+				successCount++
 				continue
 			}
 
-			// Regular error
+			// PARTIAL SUCCESS: Log error but continue with other clients
 			h.logger.WithFields(logger.Fields{
 				"client_id":          client.ClientID,
 				"downstream_address": client.DownstreamAddress,
 				"error":              err,
-			}).Errorf("Command sending error")
-			return nil, fmt.Errorf("command sending error for client %s: %v", client.ClientID, err)
+			}).Warnf("Client %s failed, continuing with others", client.ClientID)
+			
+			failedClients = append(failedClients, client.ClientID)
+			continue
 		}
 
 		// This is a local response - process normally
 		if cmdResponse, ok := response.(*pb.CommandResponse); ok {
 			if err := h.processLocalResponse(op, cmdResponse, client.ClientID, &result); err != nil {
-				return nil, err
+				h.logger.Errorf("Failed to process response for client %s: %v", client.ClientID, err)
+				failedClients = append(failedClients, client.ClientID)
+				continue
 			}
+			successCount++
 		} else {
 			h.logger.Errorf("Invalid response type from client %s", client.ClientID)
-			return nil, fmt.Errorf("invalid response type from client %s", client.ClientID)
+			failedClients = append(failedClients, client.ClientID)
+			continue
 		}
 	}
+
+	// PARTIAL SUCCESS REPORTING
+	totalClients := len(clients)
+	if successCount == 0 {
+		// All clients failed
+		return nil, fmt.Errorf("all %d clients failed: %v", totalClients, failedClients)
+	}
+
+	if len(failedClients) > 0 {
+		// Some clients failed, log warning but return partial results
+		h.logger.Warnf("PARTIAL SUCCESS: %d/%d clients succeeded, failed clients: %v", 
+			successCount, totalClients, failedClients)
+	} else {
+		// All clients succeeded
+		h.logger.Infof("FULL SUCCESS: All %d clients processed successfully", totalClients)
+	}
+
 	return result, nil
 }
 
@@ -370,24 +483,23 @@ func (h *Client) executeForwardRequest(req *http.Request, targetURL string) ([]b
 }
 
 func (h *Client) HandleSendCommand(ctx context.Context, op models.OperationClass, requestDetails models.RequestDetails) (any, error) {
-	h.logger.Debugf("=== HandleSendCommand START ===")
-	h.logger.Debugf("Command Type: %s", op.GetType())
-	h.logger.Debugf("Command SubType: %s", op.GetSubType())
-	h.logger.Debugf("Command Name: %s", op.GetCommandName())
-	h.logger.Debugf("Command Project: %s", op.GetCommandProject())
-	h.logger.Debugf("Is Forwarded: %v", requestDetails.IsForwarded)
+	// Generate unique request ID for debugging with random component to prevent collisions
+	requestID := fmt.Sprintf("%d_%d", time.Now().UnixNano(), rand.Int31())
+	
+	h.logger.Debugf("Processing command %s for %d clients", op.GetType(), len(op.GetClients()))
 
 	// Performance timing
 	startTime := time.Now()
 	defer func() {
 		duration := time.Since(startTime)
-		h.logger.Infof("Command processing took %v", duration)
-		h.logger.Infof("=== HandleSendCommand END ===")
+		h.logger.WithFields(logger.Fields{
+			"request_id": requestID,
+			"duration": duration,
+		}).Infof("=== HandleSendCommand END [%s] took %v ===", requestID, duration)
 	}()
 
 	// Check if this is a forwarded request to prevent infinite loops
 	if requestDetails.IsForwarded {
-		h.logger.Debugf("Processing forwarded request, using direct execution only")
 		return h.executeDirectCommand(ctx, op, requestDetails)
 	}
 
@@ -399,13 +511,6 @@ func (h *Client) HandleSendCommand(ctx context.Context, op models.OperationClass
 
 	// Get or fetch clients
 	clients := op.GetClients()
-	h.logger.Debugf("Clients from operation payload: %d", len(clients))
-
-	// Debug log each client in payload
-	for i, client := range clients {
-		h.logger.Debugf("Client[%d] from payload - ClientID: %s, DownstreamAddress: '%s', InterfaceID: '%s'",
-			i, client.ClientID, client.DownstreamAddress, client.InterfaceID)
-	}
 
 	if len(clients) == 0 {
 		h.logger.Infof("No clients in payload, fetching from database...")
@@ -450,9 +555,6 @@ func (h *Client) HandleSendCommand(ctx context.Context, op models.OperationClass
 
 // executeDirectCommand executes command directly without routing (for forwarded requests)
 func (h *Client) executeDirectCommand(_ context.Context, op models.OperationClass, requestDetails models.RequestDetails) (any, error) {
-	h.logger.Debugf("=== DIRECT EXECUTION START ===")
-	h.logger.Debugf("Is Forwarded Request: %v", requestDetails.IsForwarded)
-	h.logger.Debugf("Original Body Size: %d bytes", len(requestDetails.OriginalBody))
 
 	clients := op.GetClients()
 	result := []any{}
@@ -475,11 +577,7 @@ func (h *Client) executeDirectCommand(_ context.Context, op models.OperationClas
 		}
 	}
 
-	h.logger.Infof("Direct execution for %d clients (forwarded request)", len(clients))
-
-	for i, client := range clients {
-		h.logger.Infof("Processing client %s (%d/%d) - direct execution", client.ClientID, i+1, len(clients))
-
+	for _, client := range clients {
 		processedPayload, err := processor.ValidateAndTransform(op, requestDetails, client)
 		if err != nil {
 			h.logger.Errorf("Validation failed for client %s: %v", client.ClientID, err)
@@ -501,11 +599,8 @@ func (h *Client) executeDirectCommand(_ context.Context, op models.OperationClas
 		processedResponse := responser.ValidateAndTransform(op, response)
 		result = append(result, processedResponse)
 
-		h.logger.Infof("Successfully processed client %s via direct execution", client.ClientID)
 	}
 
-	h.logger.Infof("Direct execution completed for %d clients, returning %d responses", len(clients), len(result))
-	h.logger.Debugf("=== DIRECT EXECUTION END ===")
 	return result, nil
 }
 
@@ -513,39 +608,53 @@ func (h *Client) executeDirectCommand(_ context.Context, op models.OperationClas
 func (h *Client) sendCommandWithLocationCheck(ctx context.Context, requestDetails models.RequestDetails, client models.ServiceClients, op models.OperationClass, processor processor.CommandProcessor) (*pb.CommandResponse, error) {
 	clientID := client.ClientID
 
-	// Strategy 1: Check if client is connected locally first (connection check only)
+	// Try local client first
 	if h.Service.IsClientConnected(clientID) {
-		// Client is local - do validate & transform then send
-		h.logger.Debugf("Client %s is local, processing with validate & transform", clientID)
-
 		processedPayload, err := processor.ValidateAndTransform(op, requestDetails, client)
 		if err != nil {
-			return nil, fmt.Errorf("command validation error for local client %s: %v", clientID, err)
+			return nil, fmt.Errorf("command validation error for client %s: %v", clientID, err)
 		}
 
 		return h.Service.SendCommand(clientID, op.GetTypeNum(), op.GetSubTypeNum(), processedPayload)
 	}
 
-	// Strategy 2: Client not local, use registry + forwarding (NO validate & transform)
-	h.logger.Infof("Client %s not local, checking registry availability", clientID)
-
+	// Strategy 2: Client not local, use registry + forwarding
 	if h.registryClient == nil {
-		h.logger.Errorf("Client %s not found locally and no registry client available (nil)", clientID)
 		return nil, fmt.Errorf("client %s not found and no registry available", clientID)
 	}
 
-	h.logger.Debugf("Registry client object exists for client %s, checking connection...", clientID)
-
 	if !h.registryClient.IsConnected() {
-		h.logger.Errorf("Client %s not found locally and registry client not connected yet (waiting for connection)", clientID)
 		return nil, fmt.Errorf("client %s not found and registry not connected", clientID)
 	}
-
-	h.logger.Infof("Registry client available and connected for client %s", clientID)
-
-	// Get client location from registry
-	h.logger.Infof("Requesting client location from registry for client: %s", clientID)
-	clientLocation, err := h.registryClient.GetClientLocation(clientID)
+	
+	// Create timeout context for registry lookup
+	registryCtx, registryCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer registryCancel()
+	
+	// Use a channel to make the registry call interruptible
+	type registryResult struct {
+		location *pb.GetControllerClusterResponse
+		err      error
+	}
+	
+	resultChan := make(chan registryResult, 1)
+	go func() {
+		location, err := h.registryClient.GetClientLocation(clientID)
+		resultChan <- registryResult{location: location, err: err}
+	}()
+	
+	var clientLocation *pb.GetControllerClusterResponse
+	var err error
+	
+	select {
+	case result := <-resultChan:
+		clientLocation = result.location
+		err = result.err
+	case <-registryCtx.Done():
+		h.logger.Errorf("Registry lookup timeout for client %s after 10s", clientID)
+		return nil, fmt.Errorf("registry lookup timeout for client %s", clientID)
+	}
+	
 	if err != nil {
 		h.logger.Errorf("Failed to get client location from registry for client %s: %v", clientID, err)
 		return nil, fmt.Errorf("failed to find client %s: %v", clientID, err)
@@ -594,7 +703,7 @@ func (e *ForwardedResponse) Error() string {
 }
 
 // forwardCommandViaHTTP forwards command to another controller via HTTP with authentication
-func (h *Client) forwardCommandViaHTTP(ctx context.Context, requestDetails models.RequestDetails, targetControllerID, clientID string, cmdType pb.CommandType, subCmdType pb.SubCommandType, _ any) (*pb.CommandResponse, error) {
+func (h *Client) forwardCommandViaHTTP(ctx context.Context, requestDetails models.RequestDetails, targetControllerID, clientID string, _ pb.CommandType, _ pb.SubCommandType, _ any) (*pb.CommandResponse, error) {
 	// Build target URL
 	targetURL := h.buildTargetURL(targetControllerID, requestDetails)
 
@@ -752,7 +861,6 @@ func (h *Client) filterRequestBodyForClient(originalBody []byte, targetClientID 
 
 // tryDirectSend attempts to send command directly to local client
 func (h *Client) tryDirectSend(clientID string, cmdType pb.CommandType, subType pb.SubCommandType, payload any) (*pb.CommandResponse, error) {
-	// Check if client is connected to this controller
 	if h.Service.IsClientConnected(clientID) {
 		return h.Service.SendCommand(clientID, cmdType, subType, payload)
 	}
@@ -784,8 +892,6 @@ func (h *Client) processClientWithSafeguards(ctx context.Context, requestDetails
 	// Client-level serialization to prevent "SendHeader called multiple times"
 	mutex := h.getClientMutex(client.ClientID)
 
-	h.logger.Debugf("🔍 DEBUG: Acquiring mutex for client %s", client.ClientID)
-
 	// Try to acquire lock with timeout to prevent deadlocks
 	mutexCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -799,25 +905,8 @@ func (h *Client) processClientWithSafeguards(ctx context.Context, requestDetails
 	select {
 	case <-done:
 		defer mutex.Unlock()
-		h.logger.Debugf("🔍 DEBUG: Mutex acquired for client %s", client.ClientID)
 	case <-mutexCtx.Done():
-		h.logger.Errorf("🔍 DEBUG: Mutex timeout for client %s, aborting", client.ClientID)
 		return nil, fmt.Errorf("mutex timeout for %s", client.ClientID)
-	}
-
-	// IMPORTANT: Health check ONLY for local clients
-	// Remote clients will be forwarded and shouldn't fail health check
-	h.logger.Debugf("🔍 DEBUG: Checking if client %s is local", client.ClientID)
-	if h.Service.IsClientConnected(client.ClientID) {
-		// Client is local, do health check
-		h.logger.Debugf("🔍 DEBUG: Client %s is local, performing health check", client.ClientID)
-		if !h.Service.IsConnectionHealthy(client.ClientID) {
-			h.logger.Warnf("🔍 DEBUG: Local client %s connection unhealthy, skipping command", client.ClientID)
-			return nil, fmt.Errorf("local client connection unhealthy: %s", client.ClientID)
-		}
-		h.logger.Debugf("Local client %s passed health check", client.ClientID)
-	} else {
-		h.logger.Debugf("Client %s is not local, will be forwarded or handled via registry", client.ClientID)
 	}
 
 	// Send command with existing logic (handles both local and remote)

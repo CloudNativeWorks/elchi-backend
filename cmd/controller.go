@@ -120,7 +120,8 @@ var restCmd = &cobra.Command{
 		clientHandler.SetRegistryClient(registryClient)
 
 		// Start periodic client-registry synchronization
-		clientHandler.Service.StartPeriodicSync(2 * time.Minute)
+		// Increased from 2 minutes to 5 minutes for better stability and reduced false positives
+		clientHandler.Service.StartPeriodicSync(5 * time.Minute)
 
 		// Sync all existing clients with registry after client handler is set up
 		go func() {

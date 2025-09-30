@@ -102,25 +102,62 @@ func (s *Server) Ping(ctx context.Context, req *pb.PingRequest) (*pb.PingRespons
 	client.UpdateLastSeen()
 	
 	// Mark client as connected if it wasn't already (ping means client is alive)
+	wasConnected := client.Connected
 	if !client.Connected {
 		client.Connected = true
-		s.logger.Debugf("Client %s marked as connected after ping", req.ClientId)
+		s.logger.WithFields(logger.Fields{
+			"client_id":     req.ClientId,
+			"was_connected": wasConnected,
+			"source":        "ping_handler",
+		}).Infof("🟢 Client %s marked as connected after ping (was_connected: %v)", req.ClientId, wasConnected)
 	}
 
 	// Also update in database asynchronously
-	go func(clientID string, lastSeen time.Time) {
+	go func(clientID string, lastSeen time.Time, wasConnectedBefore bool) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
+		// Update client in memory first to get consistent data
+		var connectTime time.Time
+		var connectReason string
+		
+		if clientInfo, err := s.clientService.GetClient(clientID); err == nil {
+			clientInfo.UpdateLastSeen()
+			if !clientInfo.Connected {
+				// Client was disconnected, now reconnecting via ping
+				clientInfo.Connected = true
+				clientInfo.ConnectTime = time.Now()
+				clientInfo.ConnectReason = "ping_reconnection"
+			}
+			connectTime = clientInfo.ConnectTime
+			connectReason = clientInfo.ConnectReason
+		} else {
+			// Client not in memory, use current time for connect info
+			connectTime = time.Now()
+			connectReason = "ping_received"
+		}
+
 		filter := bson.M{"client_id": clientID}
 		update := bson.M{"$set": bson.M{
-			"last_seen": lastSeen,
-			"connected": true,  // Ping means client is connected
+			"last_seen":      lastSeen,
+			"connected":      true,  // Ping means client is connected
+			"connect_time":   connectTime,
+			"connect_reason": connectReason,
 		}}
-		if _, err := s.clientService.Context.Client.Collection("clients").UpdateOne(ctx, filter, update); err != nil {
+		
+		result, err := s.clientService.Context.Client.Collection("clients").UpdateOne(ctx, filter, update)
+		if err != nil {
 			s.logger.Errorf("Failed to update client status in DB for client %s: %v", clientID, err)
+		} else {
+			s.logger.WithFields(logger.Fields{
+				"client_id":        clientID,
+				"was_connected":    wasConnectedBefore,
+				"matched_count":    result.MatchedCount,
+				"modified_count":   result.ModifiedCount,
+				"source":          "ping_handler_db",
+			}).Debugf("✅ Client %s connection status updated in DB via ping", clientID)
 		}
-	}(req.ClientId, client.LastSeen)
+	}(req.ClientId, client.LastSeen, wasConnected)
 
 	// Calculate latency if timestamp provided
 	latencyMsg := "pong"

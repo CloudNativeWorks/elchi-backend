@@ -100,6 +100,18 @@ func (s *ClientService) syncSingleClient(ctx context.Context, dbClient *client.C
 	registryFound := err == nil && location.ControllerId != ""
 	
 	if registryFound {
+		// CRITICAL FIX: Only sync if this is the responsible controller OR client is locally connected
+		currentControllerID := s.registryClient.GetControllerID()
+		isResponsibleController := location.ControllerId == currentControllerID
+		
+		if !isResponsibleController && !isLocallyConnected {
+			// This client belongs to another controller and we don't have it locally
+			// Skip sync to prevent interference - let the owner controller handle it
+			s.logger.Debugf("⏭️  SYNC-SKIP: Client %s belongs to controller %s, we are %s, and not locally connected - skipping sync", 
+				clientID, location.ControllerId, currentControllerID)
+			return false
+		}
+		
 		return s.handleRegistryFoundClient(ctx, dbClient, location, isLocallyConnected, lastSeenAge)
 	} else {
 		return s.handleRegistryMissingClient(ctx, dbClient, err, isLocallyConnected, lastSeenAge)

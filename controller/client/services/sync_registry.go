@@ -172,6 +172,30 @@ func (s *ClientService) handleOwnRegistryClient(ctx context.Context, clientID st
 	} else {
 		// Client correctly registered and locally connected - all good
 		s.logger.Infof("✅ Client %s correctly registered and locally connected - keeping as connected", clientID)
+		
+		// Update connect time in DB to reflect current sync time when confirmed connected
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			
+			filter := bson.M{"client_id": clientID}
+			update := bson.M{"$set": bson.M{
+				"connected":      true,
+				"connect_time":   time.Now(),
+				"connect_reason": "sync_confirmed_connected",
+			}}
+			
+			result, err := s.Context.Client.Collection("clients").UpdateOne(ctx, filter, update)
+			if err != nil {
+				s.logger.Errorf("Failed to update client connect time in DB (sync): %v", err)
+			} else {
+				s.logger.WithFields(logger.Fields{
+					"client_id":      clientID,
+					"matched_count":  result.MatchedCount,
+					"modified_count": result.ModifiedCount,
+				}).Debugf("✅ Client connect time updated in DB (sync confirmed): %s", clientID)
+			}
+		}()
 	}
 	return false
 }

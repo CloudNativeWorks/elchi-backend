@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/CloudNativeWorks/elchi-backend/controller/client/client"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	pb "github.com/CloudNativeWorks/elchi-proto/client"
 	"go.mongodb.org/mongo-driver/bson"
 )
@@ -17,7 +18,7 @@ func (s *ClientService) SyncClientsWithRegistry(ctx context.Context) error {
 		return nil
 	}
 
-	s.logger.Debugf("Starting client-registry sync process")
+	s.logger.Infof("🔄 SYNC-START: Starting client-registry sync process")
 
 	// Get all clients marked as connected in DB
 	connectedClients, err := s.getConnectedClientsFromDB(ctx)
@@ -26,7 +27,17 @@ func (s *ClientService) SyncClientsWithRegistry(ctx context.Context) error {
 		return err
 	}
 
-	s.logger.Debugf("Found %d clients marked as connected in DB", len(connectedClients))
+	s.logger.Infof("🔄 SYNC-DEBUG: Found %d clients marked as connected in DB", len(connectedClients))
+	
+	// Log each client found in DB
+	for i, client := range connectedClients {
+		s.logger.WithFields(logger.Fields{
+			"index":      i,
+			"client_id":  client.ClientID,
+			"connected":  client.Connected,
+			"last_seen": client.LastSeen,
+		}).Infof("🔄 SYNC-DEBUG: DB Client %d - %s", i+1, client.ClientID)
+	}
 
 	syncCount := 0
 	for _, dbClient := range connectedClients {
@@ -100,20 +111,39 @@ func (s *ClientService) handleRegistryFoundClient(ctx context.Context, dbClient 
 	clientID := dbClient.ClientID
 	currentControllerID := s.registryClient.GetControllerID()
 	
+	// DEBUG: Add detailed controller ID comparison logging
+	s.logger.WithFields(logger.Fields{
+		"client_id":            clientID,
+		"registry_controller":  location.ControllerId,
+		"current_controller":   currentControllerID,
+		"are_equal":           location.ControllerId == currentControllerID,
+		"locally_connected":    isLocallyConnected,
+		"last_seen_age":       lastSeenAge,
+	}).Infof("🔍 SYNC-DEBUG: Controller ID comparison for client %s", clientID)
+	
 	if location.ControllerId == currentControllerID {
 		// Client correctly registered to this controller
+		s.logger.Infof("✅ Client %s correctly registered to THIS controller (%s)", clientID, currentControllerID)
 		return s.handleOwnRegistryClient(ctx, clientID, isLocallyConnected, lastSeenAge)
 	} else {
 		// Client registered to different controller
+		s.logger.Warnf("❌ Client %s registered to DIFFERENT controller (registry=%s, current=%s)", 
+			clientID, location.ControllerId, currentControllerID)
 		return s.handleForeignRegistryClient(ctx, clientID, location.ControllerId, isLocallyConnected)
 	}
 }
 
 // handleOwnRegistryClient handles clients registered to this controller
 func (s *ClientService) handleOwnRegistryClient(ctx context.Context, clientID string, isLocallyConnected bool, lastSeenAge time.Duration) bool {
+	s.logger.WithFields(logger.Fields{
+		"client_id":         clientID,
+		"locally_connected": isLocallyConnected,
+		"last_seen_age":    lastSeenAge,
+	}).Infof("🔍 SYNC-DEBUG: handleOwnRegistryClient for client %s", clientID)
+	
 	if !isLocallyConnected {
 		// Registry says ours but not locally connected - stale registry entry
-		s.logger.Warnf("Client %s in registry but not locally connected, cleaning up registry", clientID)
+		s.logger.Warnf("⚠️  Client %s in registry but not locally connected, cleaning up registry", clientID)
 		if notifyErr := s.registryClient.NotifyClientDisconnected(clientID); notifyErr != nil {
 			s.logger.Errorf("Failed to cleanup stale registry entry for %s: %v", clientID, notifyErr)
 		}
@@ -127,8 +157,10 @@ func (s *ClientService) handleOwnRegistryClient(ctx context.Context, clientID st
 			}
 			return true
 		}
+	} else {
+		// Client correctly registered and locally connected - all good
+		s.logger.Infof("✅ Client %s correctly registered and locally connected - keeping as connected", clientID)
 	}
-	// else: Client correctly registered and locally connected - all good
 	return false
 }
 

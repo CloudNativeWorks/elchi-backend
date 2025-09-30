@@ -557,15 +557,18 @@ func (s *ClientService) UpdateClientStream(clientID string, stream pb.CommandSer
 
 		filter := bson.M{"client_id": clientID}
 		update := bson.M{"$set": bson.M{
-			"connected": true,
-			"last_seen": client.LastSeen,
+			"connected":      true,
+			"last_seen":      client.LastSeen,
+			"connect_time":   client.ConnectTime,
+			"connect_reason": client.ConnectReason,
 		}}
 
 		_, err := s.Context.Client.Collection("clients").UpdateOne(ctx, filter, update)
 		if err != nil {
 			s.logger.Errorf("Failed to update client connected status in DB: %v", err)
 		} else {
-			s.logger.Debugf("Client connected status updated in DB: %s", clientID)
+			s.logger.Infof("✅ Client connected status updated in DB: %s (connect_time: %v, reason: %s)", 
+				clientID, client.ConnectTime.Format("15:04:05"), client.ConnectReason)
 		}
 	}()
 

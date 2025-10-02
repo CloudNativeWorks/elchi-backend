@@ -26,6 +26,7 @@ type Dependency struct {
 		Link      string `json:"link"`
 		First     bool   `json:"first"`
 		Direction string `json:"direction"`
+		Version   string `json:"version"`
 	} `json:"data"`
 }
 
@@ -61,4 +62,5 @@ type Node struct {
 	First      bool         `json:"first"`
 	ID         string       `json:"id"`
 	Direction  string       `json:"direction"`
+	Version    string       `json:"version"`
 }

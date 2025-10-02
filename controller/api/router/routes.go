@@ -401,3 +401,15 @@ func initSnippetRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 
 	initRoutes(rg, routes)
 }
+
+func initSearchRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
+	routes := []struct {
+		method  string
+		path    string
+		handler gin.HandlerFunc
+	}{
+		{"GET", "", h.GlobalSearch}, // GET /api/v3/search?query=example.com&project=xxx
+	}
+
+	initRoutes(rg, routes)
+}

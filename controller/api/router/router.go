@@ -70,6 +70,7 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 	apiTemplates := v3.Group("/templates")
 	apiRouteMap := v3.Group("/routemap")
 	apiSnippets := v3.Group("/snippets")
+	apiSearch := v3.Group("/search")
 
 	initAuthRoutes(apiAuth, h)
 	initSettingRoutes(apiSettings, h)
@@ -89,6 +90,7 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 	initTemplateRoutes(apiTemplates, h)
 	initRouteMapRoutes(apiRouteMap, h)
 	initSnippetRoutes(apiSnippets, h)
+	initSearchRoutes(apiSearch, h)
 	initOpenStackRoutes(apiClient, h) // OpenStack routes under /api/op/clients
 
 	logRoutes(e)

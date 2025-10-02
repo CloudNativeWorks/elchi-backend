@@ -20,6 +20,7 @@ func (h *AppHandler) AddNode(node Node) {
 			Link      string `json:"link"`
 			First     bool   `json:"first"`
 			Direction string `json:"direction"`
+			Version   string `json:"version"`
 		}{
 			ID:        node.ID,
 			Label:     node.Name,
@@ -28,6 +29,7 @@ func (h *AppHandler) AddNode(node Node) {
 			Link:      node.Link,
 			First:     node.First,
 			Direction: node.Direction,
+			Version:   node.Version,
 		},
 	}
 

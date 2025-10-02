@@ -23,6 +23,7 @@ func GenericUpstreamCollector(ctx context.Context, appCtx *AppHandler, activeRes
 		Link:       activeResource.Gtype.URL(),
 		First:      activeResource.First,
 		Direction:  "upstream",
+		Version:    version,
 	}
 
 	jsonPaths := getDynamicJSONPaths(activeResource.Gtype)
@@ -119,6 +120,7 @@ func GenericDownstreamCollector(ctx context.Context, appCtx *AppHandler, activeR
 		Link:       activeResource.Gtype.URL(),
 		First:      activeResource.First,
 		Direction:  "downstream",
+		Version:    version,
 	}
 
 	dfm := downstreamfilters.DownstreamFilter{

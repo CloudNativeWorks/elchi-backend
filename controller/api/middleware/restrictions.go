@@ -122,4 +122,6 @@ var AllowedEndpoints = []string{
 	"/api/v3/snippets/stats",
 	"/api/v3/snippets/batch",
 	"/api/v3/snippets/:id",
+	// Search endpoint
+	"/api/v3/search",
 }

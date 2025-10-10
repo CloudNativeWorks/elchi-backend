@@ -13,9 +13,15 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 )
 
-// ClientOperationExceptions defines which type+subtype combinations are allowed for editors
+// ClientOperationExceptions defines which type+subtype combinations are allowed for editors/viewers
+// Empty array means all subtypes allowed for that command type
 var ClientOperationExceptions = map[string][]string{
-	"SERVICE": {"SUB_LOGS"}, // SERVICE type with SUB_LOGS subtype - editors can access
+	"CLIENT_LOGS":  {}, // All client log operations allowed (readonly)
+	"CLIENT_STATS": {}, // All client stats operations allowed (readonly)
+	"FRR_LOGS":     {}, // All FRR log operations allowed (readonly)
+	"SERVICE":      {"SUB_LOGS", "SUB_STATUS"},                                                    // Only specific SERVICE subtypes allowed (readonly operations)
+	"PROXY":        {},                                                                            // PROXY operations will be checked by path in command authorization
+	"NETWORK":      {"SUB_GET_NETWORK_STATE", "SUB_GET_ROUTES", "SUB_GET_POLICIES", "SUB_LIST"}, // NETWORK readonly operations allowed
 }
 
 // isClientOperationAllowedForEditor checks if a client operation is allowed for editors
@@ -42,10 +48,18 @@ func isClientOperationAllowedForEditor(c *gin.Context) bool {
 // checkOperationFromBody parses operation body and checks against exceptions
 func checkOperationFromBody(bodyBytes []byte) bool {
 	var operation struct {
-		Type    string `json:"type"`
-		SubType string `json:"sub_type"`
+		Type         string `json:"type"`
+		SubType      string `json:"sub_type"`
+		EnvoyVersion struct {
+			Operation string `json:"operation"`
+		} `json:"envoy_version"`
 		Command struct {
-			Path string `json:"path"`
+			Path     string `json:"path"`
+			Method   string `json:"method"`
+			Protocol string `json:"protocol"`
+			BGP      struct {
+				Operation string `json:"operation"`
+			} `json:"bgp"`
 		} `json:"command"`
 	}
 
@@ -53,10 +67,41 @@ func checkOperationFromBody(bodyBytes []byte) bool {
 		return false
 	}
 
-	// Special case for PROXY type - check path in command
+	// Special case for PROXY type - check path in command (method doesn't matter, path determines read/write)
 	if operation.Type == "PROXY" {
-		// For PROXY type, allow if path is "/logging"
-		return operation.Command.Path == "/logging"
+		// For PROXY type, only allow readonly paths
+		readonlyPaths := []string{"/clusters", "/envoy"}
+		for _, path := range readonlyPaths {
+			if operation.Command.Path == path {
+				return true
+			}
+		}
+		// Write paths are not allowed for Editor/Viewer
+		return false
+	}
+
+	// Special case for FRR type - check BGP operation for readonly commands
+	if operation.Type == "FRR" {
+		if operation.Command.Protocol == "FRR_PROTOCOL_BGP" {
+			// BGP GET operations are readonly
+			readonlyBGPOps := []string{"BGP_GET_SUMMARY", "BGP_GET_CONFIG", "BGP_GET_NEIGHBORS", "BGP_GET_ROUTES"}
+			for _, op := range readonlyBGPOps {
+				if operation.Command.BGP.Operation == op {
+					return true
+				}
+			}
+		}
+		// Other FRR operations are admin-only
+		return false
+	}
+
+	// Special case for ENVOY_VERSION type - check operation for readonly commands
+	if operation.Type == "ENVOY_VERSION" {
+		// GET_VERSIONS is readonly, SET_VERSION is admin-only
+		if operation.EnvoyVersion.Operation == "GET_VERSIONS" {
+			return true
+		}
+		return false
 	}
 
 	// Check if this type+subtype combination is allowed for editors
@@ -94,15 +139,40 @@ func InitSettingMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// Special case for client operations - check for editor exceptions
+		// Special case for client list - Editor/Viewer can GET (list/view clients)
+		if strings.HasPrefix(c.Request.URL.Path, "/api/op/clients") && c.Request.Method == "GET" {
+			// Editor and Viewer can view clients
+			if userDetails.Role == models.RoleEditor || userDetails.Role == models.RoleViewer {
+				c.Next()
+				return
+			}
+		}
+
+		// Special case for client operations - check for editor/viewer readonly commands
 		if strings.HasPrefix(c.Request.URL.Path, "/api/op/clients") && c.Request.Method == "POST" {
-			if userDetails.Role == models.RoleEditor {
-				// Check if this operation is allowed for editors
+			if userDetails.Role == models.RoleEditor || userDetails.Role == models.RoleViewer {
+				// Check if this operation is allowed for editors/viewers (readonly commands)
 				if isClientOperationAllowedForEditor(c) {
 					c.Next()
 					return
 				}
 			}
+		}
+
+		// Special case for service operations - Editor/Viewer can GET (list/view services)
+		if strings.HasPrefix(c.Request.URL.Path, "/api/op/services") && c.Request.Method == "GET" {
+			// Editor and Viewer can view services (with permission filtering in handler)
+			if userDetails.Role == models.RoleEditor || userDetails.Role == models.RoleViewer {
+				c.Next()
+				return
+			}
+		}
+
+		// Special case for jobs endpoints - Let all authenticated users pass (handler will do role checks)
+		if strings.HasPrefix(c.Request.URL.Path, "/api/v3/jobs") {
+			// Jobs handler performs its own Admin/Owner checks where needed
+			c.Next()
+			return
 		}
 
 		// For all other operations, only owners and admins

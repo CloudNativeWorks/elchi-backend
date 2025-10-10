@@ -47,12 +47,16 @@ func updateResource(ctx context.Context, extension *AppHandler, resource models.
 	}
 
 	if common.IsDefaultXDSResource(resource) {
-		if requestDetails.User.Role != models.RoleOwner {
+		if !requestDetails.User.IsOwner {
 			return nil, errors.New("this resource is a default resource and cannot be changed")
 		}
 	}
 
-	filterWithRestriction := common.AddUserFilter(requestDetails, filter)
+	filterWithRestriction, err := common.AddSecureUserFilter(ctx, extension.Context.Client, requestDetails, filter)
+	if err != nil {
+		extension.Logger.Errorf("Error adding secure user filter: %v", err)
+		return nil, fmt.Errorf("authorization error: %w", err)
+	}
 	// Version increment moved to control-plane GenerateSnapshot for centralized control
 	// Keep existing version without manual increment
 	newResource := resource.GetResource()
@@ -82,7 +86,7 @@ func updateResource(ctx context.Context, extension *AppHandler, resource models.
 	}
 
 	collection := extension.Context.Client.Collection(requestDetails.Collection)
-	_, err := collection.UpdateOne(ctx, filterWithRestriction, update)
+	_, err = collection.UpdateOne(ctx, filterWithRestriction, update)
 	if err != nil {
 		return nil, fmt.Errorf("update failed: %w", err)
 	}

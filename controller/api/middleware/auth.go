@@ -1,13 +1,16 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
 	"github.com/CloudNativeWorks/elchi-backend/controller/api/settings"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 
 	"github.com/gin-gonic/gin"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // RespondWithAuthError provides consistent authentication/authorization error responses
@@ -38,9 +41,10 @@ func RespondWithAuthError(c *gin.Context, errorType string, message string) {
 	c.Abort()
 }
 
-func Authentication() gin.HandlerFunc {
+func Authentication(appContext *db.AppContext) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		isOwner := false
+		ctx := c.Request.Context()
 
 		// Require standard Authorization: Bearer <token> header
 		authHeader := c.Request.Header.Get("Authorization")
@@ -86,7 +90,17 @@ func Authentication() gin.HandlerFunc {
 		c.Set("email", claims.Email)
 		c.Set("username", claims.Username)
 		c.Set("user_id", claims.UserID)
-		c.Set("groups", claims.Groups)
+
+		// P0-2 FIX: Fetch fresh groups from database instead of using stale JWT token groups
+		// JWT token groups are set at login and become stale when user is added to new groups
+		freshGroups := getFreshUserGroups(ctx, appContext, claims.UserID)
+		if freshGroups != nil {
+			c.Set("groups", freshGroups)
+		} else {
+			// Fallback to JWT groups if DB fetch fails
+			c.Set("groups", claims.Groups)
+		}
+
 		c.Set("projects", claims.Projects)
 		c.Set("role", claims.Role)
 		c.Set("user_name", claims.Username)
@@ -103,6 +117,56 @@ func Authentication() gin.HandlerFunc {
 		c.Set("isOwner", isOwner)
 		c.Next()
 	}
+}
+
+// getFreshUserGroups fetches current group membership from database
+// This ensures we always have up-to-date group information, not stale JWT data
+func getFreshUserGroups(ctx context.Context, appContext *db.AppContext, userID string) *[]string {
+	if appContext == nil || appContext.Client == nil {
+		return nil
+	}
+
+	groupCollection := appContext.Client.Collection("groups")
+	userCollection := appContext.Client.Collection("users")
+
+	// Get all groups where user is a member
+	cursor, err := groupCollection.Find(ctx, map[string]interface{}{"members": userID})
+	if err != nil {
+		return nil
+	}
+	defer cursor.Close(ctx)
+
+	var groupIDs []string
+	for cursor.Next(ctx) {
+		var group struct {
+			ID primitive.ObjectID `bson:"_id"`
+		}
+		if err := cursor.Decode(&group); err != nil {
+			continue
+		}
+		groupIDs = append(groupIDs, group.ID.Hex())
+	}
+
+	// Also get user's base_group
+	var user struct {
+		BaseGroup *string `bson:"base_group"`
+	}
+	err = userCollection.FindOne(ctx, map[string]interface{}{"user_id": userID}).Decode(&user)
+	if err == nil && user.BaseGroup != nil && *user.BaseGroup != "" {
+		// Add base_group if not already in list
+		found := false
+		for _, gid := range groupIDs {
+			if gid == *user.BaseGroup {
+				found = true
+				break
+			}
+		}
+		if !found {
+			groupIDs = append(groupIDs, *user.BaseGroup)
+		}
+	}
+
+	return &groupIDs
 }
 
 func Refresh() gin.HandlerFunc {

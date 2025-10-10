@@ -2,7 +2,7 @@ package common
 
 import (
 	"context"
-	"maps"
+	"slices"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -11,31 +11,6 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/pkg/authorization"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 )
-
-// AddUserFilter adds user-level filtering based on permissions
-// DEPRECATED: This function has security issues. Use AddSecureUserFilter instead.
-func AddUserFilter(details models.RequestDetails, mainFilter bson.M) bson.M {
-	if mainFilter == nil {
-		mainFilter = bson.M{}
-	}
-
-	userFilter := bson.M{}
-	// SECURITY FIX: Only owners bypass user-level permission checks
-	// Admins must also check permissions like other roles
-	if !details.User.IsOwner {
-		userFilter = bson.M{
-			"$or": []bson.M{
-				{"general.permissions.groups": bson.M{"$in": details.User.Groups}},
-				{"general.permissions.users": details.User.UserID},
-			},
-		}
-	}
-
-	mainFilter["general.project"] = details.Project
-	maps.Copy(mainFilter, userFilter)
-
-	return mainFilter
-}
 
 // AddSecureUserFilter adds project-based filtering using the authorization package
 // This is the new secure way to filter resources based on user access
@@ -50,15 +25,33 @@ func AddSecureUserFilter(ctx context.Context, db *mongo.Database, details models
 		return nil, err
 	}
 
-	// Add user-level permissions for non-owners/non-admins
+	// P1-1 FIX (CORRECTED): Add user-level permissions for Editor/Viewer ONLY
+	// Admin can access ALL resources in their base_project (no group check needed)
+	// Owner bypasses ALL checks across all projects
 	if !details.User.IsOwner && details.User.Role != models.RoleAdmin {
-		userFilter := bson.M{
+		// Build complete group list including base_group
+		allGroups := append([]string{}, details.User.Groups...)
+		if details.User.BaseGroup != "" && !slices.Contains(allGroups, details.User.BaseGroup) {
+			allGroups = append(allGroups, details.User.BaseGroup)
+		}
+
+		// Build user permission filter
+		userPermFilter := bson.M{
 			"$or": []bson.M{
-				{"general.permissions.groups": bson.M{"$in": details.User.Groups}},
+				{"general.permissions.groups": bson.M{"$in": allGroups}},
 				{"general.permissions.users": details.User.UserID},
 			},
 		}
-		maps.Copy(secureFilter, userFilter)
+
+		// Combine with existing filters using $and to preserve both conditions
+		// Final filter: (project OR is_default) AND (group_permission OR user_permission)
+		finalFilter := bson.M{
+			"$and": []bson.M{
+				secureFilter,   // Contains project filter from EnforceProjectFilter
+				userPermFilter, // Contains permission filter
+			},
+		}
+		return finalFilter, nil
 	}
 
 	return secureFilter, nil

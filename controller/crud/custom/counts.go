@@ -23,7 +23,11 @@ func (custom *AppHandler) GetResourceCounts(ctx context.Context, _ models.Resour
 	for _, collectionName := range collections {
 		collection := custom.Context.Client.Collection(collectionName)
 		filter := bson.M{"general.project": requestDetails.Project}
-		filter = common.AddUserFilter(requestDetails, filter)
+		filter, err := common.AddSecureUserFilter(ctx, custom.Context.Client, requestDetails, filter)
+		if err != nil {
+			custom.Logger.Errorf("Error adding secure user filter for %s: %v", collectionName, err)
+			continue
+		}
 
 		count, err := collection.CountDocuments(ctx, filter)
 		if err != nil {
@@ -43,7 +47,11 @@ func (custom *AppHandler) GetFilterCounts(ctx context.Context, _ models.Resource
 	}
 	collection := custom.Context.Client.Collection(requestDetails.Collection)
 	filter := bson.M{"general.project": requestDetails.Project}
-	filter = common.AddUserFilter(requestDetails, filter)
+	filter, err := common.AddSecureUserFilter(ctx, custom.Context.Client, requestDetails, filter)
+	if err != nil {
+		custom.Logger.Errorf("Error adding secure user filter: %v", err)
+		return nil, fmt.Errorf("authorization error: %w", err)
+	}
 
 	pipeline := mongo.Pipeline{
 		{

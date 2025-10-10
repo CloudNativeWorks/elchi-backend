@@ -349,6 +349,26 @@ func (handler *AppHandler) UpdateProject(ctx context.Context, projectCollection 
 		setMap["projectname"] = projectWA.ProjectName
 	}
 	if projectWA.Members != nil {
+		// CRITICAL: Only Owner users can be project members
+		// Non-owner users (Admin/Editor/Viewer) access projects via base_project field
+		// Validate that all members are Owner role users
+		userCollection := handler.Context.Client.Collection("users")
+		for _, memberID := range projectWA.Members {
+			objID, err := primitive.ObjectIDFromHex(memberID)
+			if err != nil {
+				return http.StatusBadRequest, fmt.Sprintf("invalid member ID: %s", memberID)
+			}
+
+			var user models.User
+			err = userCollection.FindOne(ctx, bson.M{"_id": objID}).Decode(&user)
+			if err != nil {
+				return http.StatusBadRequest, fmt.Sprintf("user not found: %s", memberID)
+			}
+
+			if user.Role != nil && *user.Role != models.RoleOwner {
+				return http.StatusBadRequest, fmt.Sprintf("only Owner users can be project members, user %s has role: %s", memberID, *user.Role)
+			}
+		}
 		setMap["members"] = projectWA.Members
 	}
 

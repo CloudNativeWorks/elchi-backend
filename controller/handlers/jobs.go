@@ -111,7 +111,7 @@ func (h *JobHandler) ListJobs(c *gin.Context) {
 	}
 
 	// CreatedBy filter (users can see their own jobs, admins see all)
-	if userDetails.Role != models.RoleAdmin && userDetails.Role != models.RoleOwner {
+	if !userDetails.IsOwner && userDetails.Role != models.RoleAdmin {
 		filter.CreatedBy = userDetails.UserID
 	}
 
@@ -224,7 +224,7 @@ func (h *JobHandler) GetJob(c *gin.Context) {
 	}
 
 	// Check access permissions
-	if userDetails.Role != models.RoleAdmin && userDetails.Role != models.RoleOwner {
+	if !userDetails.IsOwner && userDetails.Role != models.RoleAdmin {
 		// Non-admin users can only see their own jobs or jobs in their accessible projects
 		canAccess := false
 
@@ -296,7 +296,7 @@ func (h *JobHandler) RetryJob(c *gin.Context) {
 	}
 
 	// Check permissions (only admins, owners, or job creators can retry)
-	if userDetails.Role != models.RoleAdmin && userDetails.Role != models.RoleOwner {
+	if !userDetails.IsOwner && userDetails.Role != models.RoleAdmin {
 		if originalJob.Metadata.TriggerUser.ID != userDetails.UserID {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied to retry this job"})
 			return
@@ -338,11 +338,9 @@ func (h *JobHandler) GetStuckJobs(c *gin.Context) {
 	// Get user details using the same method as other handlers
 	userDetails, _ := GetUserDetails(c)
 
-	// Only admins and owners can view stuck jobs
-	if userDetails.Role != models.RoleAdmin && userDetails.Role != models.RoleOwner {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
-		return
-	}
+	// All authenticated users can view stuck jobs (monitoring purposes)
+	// Editor/Viewer can monitor job status for troubleshooting
+	_ = userDetails // Keep for future use if filtering needed
 
 	stuckJobs, err := h.asyncSystem.GetStuckJobs(ctx)
 	if err != nil {
@@ -368,11 +366,9 @@ func (h *JobHandler) GetWorkerStatus(c *gin.Context) {
 	// Get user details using the same method as other handlers
 	userDetails, _ := GetUserDetails(c)
 
-	// Only admins and owners can view worker status
-	if userDetails.Role != models.RoleAdmin && userDetails.Role != models.RoleOwner {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
-		return
-	}
+	// All authenticated users can view worker status (readonly monitoring)
+	// Editor/Viewer can monitor system health for troubleshooting
+	_ = userDetails // Keep for future use if filtering needed
 
 	status, err := h.asyncSystem.GetWorkerStatus(ctx)
 	if err != nil {
@@ -435,7 +431,7 @@ func (h *JobHandler) GetJobStats(c *gin.Context) {
 	}
 
 	// CreatedBy filter (users can see their own jobs, admins see all)
-	if userDetails.Role != models.RoleAdmin && userDetails.Role != models.RoleOwner {
+	if !userDetails.IsOwner && userDetails.Role != models.RoleAdmin {
 		filter.CreatedBy = userDetails.UserID
 	}
 

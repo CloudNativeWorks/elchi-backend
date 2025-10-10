@@ -11,6 +11,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/CloudNativeWorks/elchi-backend/controller/client/authorization"
 	"github.com/CloudNativeWorks/elchi-backend/controller/client/processor"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/helper"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
@@ -485,7 +486,7 @@ func (h *Client) executeForwardRequest(req *http.Request, targetURL string) ([]b
 func (h *Client) HandleSendCommand(ctx context.Context, op models.OperationClass, requestDetails models.RequestDetails) (any, error) {
 	// Generate unique request ID for debugging with random component to prevent collisions
 	requestID := fmt.Sprintf("%d_%d", time.Now().UnixNano(), rand.Int31())
-	
+
 	h.logger.Debugf("Processing command %s for %d clients", op.GetType(), len(op.GetClients()))
 
 	// Performance timing
@@ -502,6 +503,41 @@ func (h *Client) HandleSendCommand(ctx context.Context, op models.OperationClass
 	if requestDetails.IsForwarded {
 		return h.executeDirectCommand(ctx, op, requestDetails)
 	}
+
+	// P1-3 FIX: Check command authorization based on user role and command type
+	commandType := op.GetType()
+	subType := op.GetSubType()
+
+	// Get service name and project from operation
+	serviceName := op.GetCommandName()
+	project := op.GetCommandProject()
+	version := requestDetails.Version
+
+	// Get path for PROXY commands (needed for readonly/write distinction)
+	var commandPath string
+	if commandType == "PROXY" {
+		commandPath, _ = op.GetCommandPath()
+	}
+
+	// Check authorization
+	if err := authorization.CheckCommandAuthorization(
+		ctx,
+		h.Context,
+		requestDetails.User,
+		commandType,
+		subType,
+		commandPath,
+		serviceName,
+		project,
+		version,
+	); err != nil {
+		h.logger.Warnf("Command authorization failed for user %s (role: %s): %v",
+			requestDetails.User.UserID, requestDetails.User.Role, err)
+		return nil, err
+	}
+
+	h.logger.Debugf("Command authorization successful for user %s (role: %s) on command %s",
+		requestDetails.User.UserID, requestDetails.User.Role, op.GetType())
 
 	// Validate and prepare command processor
 	processor, err := h.validateAndPrepareCommand(op)
@@ -688,7 +724,7 @@ func (h *Client) sendCommandWithLocationCheck(ctx context.Context, requestDetail
 	h.logger.Debugf("Original Body Size: %d bytes", len(requestDetails.OriginalBody))
 	h.logger.Debugf("=====================")
 
-	return h.forwardCommandViaHTTP(ctx, requestDetails, clientLocation.ControllerId, clientID, op.GetTypeNum(), op.GetSubTypeNum(), nil) // Pass nil for payload since we're forwarding raw
+	return h.forwardCommandViaHTTP(ctx, requestDetails, clientLocation.ControllerId, clientID, op.GetTypeNum(), op.GetSubTypeNum(), nil, &client) // Pass client info for downstream_address preservation
 }
 
 // ForwardedResponse is a special error type that contains the raw forwarded response
@@ -703,7 +739,7 @@ func (e *ForwardedResponse) Error() string {
 }
 
 // forwardCommandViaHTTP forwards command to another controller via HTTP with authentication
-func (h *Client) forwardCommandViaHTTP(ctx context.Context, requestDetails models.RequestDetails, targetControllerID, clientID string, _ pb.CommandType, _ pb.SubCommandType, _ any) (*pb.CommandResponse, error) {
+func (h *Client) forwardCommandViaHTTP(ctx context.Context, requestDetails models.RequestDetails, targetControllerID, clientID string, _ pb.CommandType, _ pb.SubCommandType, _ any, clientInfo *models.ServiceClients) (*pb.CommandResponse, error) {
 	// Build target URL
 	targetURL := h.buildTargetURL(targetControllerID, requestDetails)
 
@@ -720,7 +756,7 @@ func (h *Client) forwardCommandViaHTTP(ctx context.Context, requestDetails model
 	var requestBody []byte
 	if len(requestDetails.OriginalBody) > 0 {
 		h.logger.Debugf("About to filter request body for client %s...", clientID)
-		filteredBody, err := h.filterRequestBodyForClient(requestDetails.OriginalBody, clientID)
+		filteredBody, err := h.filterRequestBodyForClient(requestDetails.OriginalBody, clientID, clientInfo)
 		if err != nil {
 			h.logger.Errorf("Failed to filter request body for client %s: %v", clientID, err)
 			return nil, fmt.Errorf("failed to filter request body for client %s: %v", clientID, err)
@@ -755,7 +791,8 @@ func (h *Client) forwardCommandViaHTTP(ctx context.Context, requestDetails model
 }
 
 // filterRequestBodyForClient filters the original request body to only include the specified client
-func (h *Client) filterRequestBodyForClient(originalBody []byte, targetClientID string) ([]byte, error) {
+// It preserves downstream_address from clientInfo if available
+func (h *Client) filterRequestBodyForClient(originalBody []byte, targetClientID string, clientInfo *models.ServiceClients) ([]byte, error) {
 	h.logger.Debugf("=== FILTER REQUEST BODY ===")
 	h.logger.Debugf("Target Client ID: %s", targetClientID)
 	h.logger.Debugf("Original Body Size: %d bytes", len(originalBody))
@@ -794,13 +831,22 @@ func (h *Client) filterRequestBodyForClient(originalBody []byte, targetClientID 
 	if shouldAddTargetClient {
 		h.logger.Debugf("Adding target client info for forwarding")
 
-		// Add the target client to the JSON
-		jsonData["clients"] = []map[string]any{
-			{
-				"client_id":          targetClientID,
-				"downstream_address": "", // Target controller will resolve this
-			},
+		// Create new client entry
+		newClient := map[string]any{
+			"client_id": targetClientID,
 		}
+
+		// Use downstream_address from clientInfo if available
+		if clientInfo != nil && clientInfo.DownstreamAddress != "" {
+			newClient["downstream_address"] = clientInfo.DownstreamAddress
+			h.logger.Debugf("Using downstream_address from client info: %s", clientInfo.DownstreamAddress)
+		} else {
+			newClient["downstream_address"] = ""
+			h.logger.Debugf("No downstream_address available in client info, using empty string")
+		}
+
+		// Add the target client to the JSON
+		jsonData["clients"] = []map[string]any{newClient}
 
 		// Marshal back to JSON
 		updatedBody, err := json.Marshal(jsonData)

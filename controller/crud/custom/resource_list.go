@@ -37,7 +37,11 @@ func (custom *AppHandler) GetCustomResourceList(ctx context.Context, _ models.Re
 	})
 
 	filters := buildFilters(requestDetails)
-	filters = common.AddUserFilter(requestDetails, filters)
+	filters, err := common.AddSecureUserFilter(ctx, custom.Context.Client, requestDetails, filters)
+	if err != nil {
+		custom.Logger.Errorf("Error adding secure user filter: %v", err)
+		return nil, fmt.Errorf("authorization error: %w", err)
+	}
 	cursor, err := collection.Find(ctx, filters, opts)
 	if err != nil {
 		return nil, fmt.Errorf("db error: %w", err)
@@ -155,7 +159,11 @@ func (custom *AppHandler) GetCustomResourceListWithSearch(ctx context.Context, _
 
 	// Build base filters
 	filters := buildFilters(requestDetails)
-	filters = common.AddUserFilter(requestDetails, filters)
+	filters, err := common.AddSecureUserFilter(ctx, custom.Context.Client, requestDetails, filters)
+	if err != nil {
+		custom.Logger.Errorf("Error adding secure user filter: %v", err)
+		return nil, fmt.Errorf("authorization error: %w", err)
+	}
 
 	// Add search filter if search query is provided
 	if requestDetails.Search != "" {

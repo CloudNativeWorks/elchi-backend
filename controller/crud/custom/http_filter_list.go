@@ -83,7 +83,12 @@ func (custom *AppHandler) GetCustomHTTPFilterList(ctx context.Context, _ models.
 		filters["general.canonical_name"] = requestDetails.CanonicalName
 	}
 
-	filters = common.AddUserFilter(requestDetails, filters)
+	// Use secure filter that handles Admin role correctly (Admin can access all resources in base_project)
+	filters, err := common.AddSecureUserFilter(ctx, custom.Context.Client, requestDetails, filters)
+	if err != nil {
+		custom.Logger.Errorf("Error adding secure user filter: %v", err)
+		return nil, errstr.ErrUnknownDBError
+	}
 
 	cursor, err := collection.Find(ctx, filters, opts)
 	if err != nil {

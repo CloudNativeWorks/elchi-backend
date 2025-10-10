@@ -37,8 +37,12 @@ func (extension *AppHandler) ListExtensionsWithPagination(c *gin.Context, reques
 		filter[k] = v
 	}
 
-	// Apply user restrictions
-	filterWithRestriction := common.AddUserFilter(requestDetails, filter)
+	// Apply user restrictions with secure filter
+	filterWithRestriction, err := common.AddSecureUserFilter(ctx, extension.Context.Client, requestDetails, filter)
+	if err != nil {
+		extension.Logger.Errorf("Error adding secure user filter: %v", err)
+		return nil, fmt.Errorf("authorization error: %w", err)
+	}
 
 	collection := extension.Context.Client.Collection(requestDetails.Collection)
 

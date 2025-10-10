@@ -99,7 +99,7 @@ func (xds *AppHandler) UpdateResource(ctx context.Context, resource models.Resou
 	}
 
 	if common.IsDefaultXDSResource(resource) {
-		if requestDetails.User.Role != models.RoleOwner {
+		if !requestDetails.User.IsOwner {
 			return nil, errors.New("this resource is a default resource and cannot be changed")
 		}
 	}
@@ -109,7 +109,11 @@ func (xds *AppHandler) UpdateResource(ctx context.Context, resource models.Resou
 		return nil, errors.New("invalid id format")
 	}
 
-	filterWithRestriction := common.AddUserFilter(requestDetails, filter)
+	filterWithRestriction, err := common.AddSecureUserFilter(ctx, xds.Context.Client, requestDetails, filter)
+	if err != nil {
+		xds.Logger.Errorf("Error adding secure user filter: %v", err)
+		return nil, fmt.Errorf("authorization error: %w", err)
+	}
 	result := xds.Context.Client.Collection(requestDetails.Collection).FindOne(ctx, filterWithRestriction)
 
 	if result.Err() != nil {

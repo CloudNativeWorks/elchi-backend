@@ -301,8 +301,9 @@ func (xds *AppHandler) processListenerSpecificResources(ctx context.Context, res
 	var serviceID string
 	if general.Managed {
 		xds.Logger.Debugf("Creating service for managed listener %s", general.Name)
-		
-		serviceID, err = xds.createService(ctx, general.Name, general.Project, general.Version, adminPort, general.Permissions)
+
+		// P0-3 FIX: Pass requestDetails to properly set service permissions from user's base_group/user_id
+		serviceID, err = xds.createService(ctx, general.Name, general.Project, general.Version, adminPort, requestDetails)
 		if err != nil {
 			if rollbackErr := rollback.rollbackWithBootstrap(bootstrapID); rollbackErr != nil {
 				xds.Logger.Debugf("Rollback failed during service creation: %v", rollbackErr)
@@ -373,9 +374,9 @@ func (xds *AppHandler) SetResource(ctx context.Context, resource models.Resource
 	return map[string]any{"message": "Success", "data": result}, nil
 }
 
-func (xds *AppHandler) createService(ctx context.Context, serviceName string, project string, version string, adminPort uint32, listenerPermissions models.Permissions) (string, error) {
+func (xds *AppHandler) createService(ctx context.Context, serviceName string, project string, version string, adminPort uint32, requestDetails models.RequestDetails) (string, error) {
 	xds.Logger.Debugf("🛠️ createService called - serviceName: %s, project: %s, version: %s, adminPort: %d", serviceName, project, version, adminPort)
-	
+
 	var service models.Service
 	collection := xds.Context.Client.Collection("services")
 	service.Name = serviceName
@@ -383,12 +384,28 @@ func (xds *AppHandler) createService(ctx context.Context, serviceName string, pr
 	service.Version = version
 	service.AdminPort = adminPort
 	service.Clients = []models.ServiceClients{}
-	
+
 	xds.Logger.Debugf("📄 Service document prepared: %+v", service)
 
-	// Service permissions inherit from the listener that created it
-	service.Permissions = listenerPermissions
-	xds.Logger.Debugf("🔐 Service permissions set: %+v", listenerPermissions)
+	// P0-3 FIX: Set service permissions from user's base_group or user_id
+	// If user has base_group → add to permissions.groups[]
+	// If no base_group → add user_id to permissions.users[]
+	if requestDetails.User.BaseGroup != "" {
+		service.Permissions = models.Permissions{
+			Groups: []string{requestDetails.User.BaseGroup},
+			Users:  []string{},
+		}
+		xds.Logger.Debugf("🔐 Service permissions set from base_group: %s", requestDetails.User.BaseGroup)
+	} else if requestDetails.User.UserID != "" {
+		service.Permissions = models.Permissions{
+			Groups: []string{},
+			Users:  []string{requestDetails.User.UserID},
+		}
+		xds.Logger.Debugf("🔐 Service permissions set from user_id: %s", requestDetails.User.UserID)
+	} else {
+		service.Permissions = models.Permissions{Groups: []string{}, Users: []string{}}
+		xds.Logger.Debugf("⚠️ Service permissions empty - no base_group or user_id")
+	}
 
 	xds.Logger.Debugf("💾 Attempting to insert service into MongoDB...")  
 	inserResult, err := collection.InsertOne(ctx, service)

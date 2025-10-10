@@ -39,7 +39,11 @@ func (xds *AppHandler) DownloadBootstrap(ctx context.Context, requestDetails mod
 	if err != nil {
 		return nil, errors.New("invalid id format")
 	}
-	filterWithRestriction := common.AddUserFilter(requestDetails, filter)
+	filterWithRestriction, err := common.AddSecureUserFilter(ctx, xds.Context.Client, requestDetails, filter)
+	if err != nil {
+		xds.Logger.Errorf("Error adding secure user filter: %v", err)
+		return nil, fmt.Errorf("authorization error: %w", err)
+	}
 	result := collection.FindOne(ctx, filterWithRestriction)
 
 	if result.Err() != nil {

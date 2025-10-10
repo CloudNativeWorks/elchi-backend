@@ -19,7 +19,15 @@ type ClearErrorsResponse struct {
 }
 
 // ClearErrorsByID clears or resolves specific enhanced errors by their IDs
+// AUTHORIZATION: Only Admin and Owner can clear/resolve errors
 func (custom *AppHandler) ClearErrorsByID(ctx context.Context, _ models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
+	// AUTHORIZATION CHECK: Only Admin and Owner can clear errors
+	if !requestDetails.User.IsOwner && requestDetails.User.Role != models.RoleAdmin {
+		custom.Logger.Warnf("🔐 CLEAR-ERRORS: Permission denied for user %s (role: %s)",
+			requestDetails.User.UserID, requestDetails.User.Role)
+		return ClearErrorsResponse{Success: false}, fmt.Errorf("insufficient privileges: only admin and owner can clear errors")
+	}
+
 	// Get error IDs from metadata (passed from query params)
 	errorIDsParam, exists := requestDetails.Metadata["error_ids"]
 	if !exists || errorIDsParam == "" {

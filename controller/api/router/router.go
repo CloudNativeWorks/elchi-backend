@@ -23,7 +23,7 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 	e.Use(middleware.PathCheck())
 	e.Use(middleware.GinLog(logger.Logger), gin.Recovery())
 
-	e.POST("/logout", middleware.Authentication(), h.Settings.Logout())
+	e.POST("/logout", middleware.Authentication(h.XDS.Context), h.Settings.Logout())
 	e.POST("/refresh", middleware.Refresh(), h.Settings.Refresh())
 
 	api := e.Group("/api")
@@ -34,8 +34,8 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 	v3.Use(middleware.BodyCaptureMiddleware())
 	op.Use(middleware.BodyCaptureMiddleware())
 
-	v3.Use(middleware.Authentication())
-	op.Use(middleware.Authentication())
+	v3.Use(middleware.Authentication(h.XDS.Context))
+	op.Use(middleware.Authentication(h.XDS.Context))
 
 	// Add audit middleware after authentication for authenticated groups
 	if h.AuditService != nil {

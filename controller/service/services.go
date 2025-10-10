@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
@@ -26,6 +27,25 @@ func (s *AppHandler) ListServices(ctx context.Context, _ models.OperationClass, 
 	// Build base match filter
 	matchFilter := bson.D{
 		{Key: "project", Value: requestDetails.Project},
+	}
+
+	// P0-4 FIX: Add permission checks for non-Owner/non-Admin users
+	// Services have permissions but they were never checked - security vulnerability!
+	if !requestDetails.User.IsOwner && requestDetails.User.Role != models.RoleAdmin {
+		// Build complete group list including base_group
+		allGroups := append([]string{}, requestDetails.User.Groups...)
+		if requestDetails.User.BaseGroup != "" && !slices.Contains(allGroups, requestDetails.User.BaseGroup) {
+			allGroups = append(allGroups, requestDetails.User.BaseGroup)
+		}
+
+		// Add permission filter: user must be in permissions.groups OR permissions.users
+		matchFilter = append(matchFilter, bson.E{
+			Key: "$or",
+			Value: bson.A{
+				bson.D{{Key: "permissions.groups", Value: bson.D{{Key: "$in", Value: allGroups}}}},
+				bson.D{{Key: "permissions.users", Value: requestDetails.User.UserID}},
+			},
+		})
 	}
 
 	// Add filter conditions based on query parameters
@@ -227,6 +247,29 @@ func (s *AppHandler) GetSingleService(ctx context.Context, _ models.OperationCla
 		return nil, fmt.Errorf("invalid service id: %v", err)
 	}
 	filter := bson.M{"_id": objectID, "project": requestDetails.Project}
+
+	// P0-4 FIX: Add permission check for non-Owner/non-Admin users
+	if !requestDetails.User.IsOwner && requestDetails.User.Role != models.RoleAdmin {
+		allGroups := append([]string{}, requestDetails.User.Groups...)
+		if requestDetails.User.BaseGroup != "" {
+			found := false
+			for _, g := range allGroups {
+				if g == requestDetails.User.BaseGroup {
+					found = true
+					break
+				}
+			}
+			if !found {
+				allGroups = append(allGroups, requestDetails.User.BaseGroup)
+			}
+		}
+
+		filter["$or"] = []bson.M{
+			{"permissions.groups": bson.M{"$in": allGroups}},
+			{"permissions.users": requestDetails.User.UserID},
+		}
+	}
+
 	cursor := s.Context.Client.Collection("services").FindOne(ctx, filter)
 	var service Service
 	if err := cursor.Decode(&service); err != nil {

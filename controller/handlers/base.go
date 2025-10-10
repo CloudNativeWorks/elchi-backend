@@ -393,8 +393,13 @@ func GetUserDetails(c *gin.Context) (models.UserDetails, error) {
 
 func checkRole(c *gin.Context, userDetail models.UserDetails) (err error) {
 	method := c.Request.Method
+	// Owner check (IsOwner is a boolean field, not a role enum)
+	if userDetail.IsOwner {
+		return nil
+	}
+
 	switch userDetail.Role {
-	case models.RoleAdmin, models.RoleOwner:
+	case models.RoleAdmin:
 		return nil
 	case models.RoleEditor:
 		if method == "GET" || method == "POST" || method == "PUT" || method == "DELETE" {
@@ -402,7 +407,8 @@ func checkRole(c *gin.Context, userDetail models.UserDetails) (err error) {
 		}
 		return errstr.ErrNotAuthorized
 	case models.RoleViewer:
-		if method == "GET" {
+		if method == "GET" || method == "POST" {
+			// Viewer can GET and POST (POST is used for readonly commands)
 			return nil
 		}
 		return errstr.ErrNotAuthorized

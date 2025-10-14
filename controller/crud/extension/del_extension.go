@@ -74,9 +74,16 @@ func (xds *AppHandler) DelExtension(ctx context.Context, _ models.ResourceClass,
 }
 
 func buildFilter(requestDetails models.RequestDetails) bson.M {
-	if requestDetails.User.IsOwner {
-		return bson.M{"general.name": requestDetails.Name, "general.project": requestDetails.Project, "general.version": requestDetails.Version}
+	// Owner and Admin: No group filtering - they can access all resources in their project
+	if requestDetails.User.IsOwner || requestDetails.User.Role == models.RoleAdmin {
+		return bson.M{
+			"general.name":    requestDetails.Name,
+			"general.project": requestDetails.Project,
+			"general.version": requestDetails.Version,
+		}
 	}
+
+	// Editor/Viewer: Group filtering required
 	return bson.M{
 		"general.name":    requestDetails.Name,
 		"general.project": requestDetails.Project,

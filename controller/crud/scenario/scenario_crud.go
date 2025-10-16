@@ -415,36 +415,121 @@ func (t *AppHandler) saveResourceToDatabaseWithID(document map[string]interface{
 	return result, nil
 }
 
-// rollbackCreatedResources removes all created resources in reverse order
-func (t *AppHandler) rollbackCreatedResources(createdResources []CreatedResource, _ models.RequestDetails) {
-	// Rollback in reverse order (LIFO)
+// fetchListenerDetailsForRollback fetches listener document details needed for XDS deletion
+func (t *AppHandler) fetchListenerDetailsForRollback(resourceID interface{}) (*models.DBResource, error) {
+	collection := t.Context.Client.Collection("listeners")
+
+	// Convert resource ID to ObjectID filter
+	deleteFilter, err := t.buildDeleteFilter(resourceID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid resource ID format: %w", err)
+	}
+
+	var listenerDoc models.DBResource
+	err = collection.FindOne(context.Background(), deleteFilter).Decode(&listenerDoc)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch listener document: %w", err)
+	}
+
+	return &listenerDoc, nil
+}
+
+// deleteListenerWithDependencies deletes a listener using XDS logic to ensure proper cleanup
+// This automatically removes associated bootstrap, service, and admin_port records
+func (t *AppHandler) deleteListenerWithDependencies(resourceID interface{}, resourceName string, reqDetails models.RequestDetails) error {
+	// Fetch listener details
+	listenerDoc, err := t.fetchListenerDetailsForRollback(resourceID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch listener for deletion: %w", err)
+	}
+
+	// Build RequestDetails for XDS.DelResource
+	delReqDetails := models.RequestDetails{
+		Collection: "listeners",
+		Name:       listenerDoc.General.Name,
+		Project:    listenerDoc.General.Project,
+		Version:    listenerDoc.General.Version,
+		GType:      listenerDoc.General.GType,
+		User:       reqDetails.User,
+	}
+
+	// Use XDS.DelResource to properly delete listener and all dependencies
+	_, err = t.XDS.DelResource(context.Background(), nil, delReqDetails)
+	if err != nil {
+		return fmt.Errorf("XDS delete failed: %w", err)
+	}
+
+	t.Logger.Logger.Infof("    ✅ Deleted listener %s and its dependencies (bootstrap, service, admin_port)\n", resourceName)
+	return nil
+}
+
+// deleteResourceDirectly deletes a non-listener resource using direct MongoDB deletion
+func (t *AppHandler) deleteResourceDirectly(resourceID interface{}, collectionName, resourceName string) error {
+	collection := t.Context.Client.Collection(collectionName)
+	if collection == nil {
+		return fmt.Errorf("collection %s not found", collectionName)
+	}
+
+	// Build delete filter
+	deleteFilter, err := t.buildDeleteFilter(resourceID)
+	if err != nil {
+		return fmt.Errorf("invalid resource ID format: %w", err)
+	}
+
+	// Execute deletion
+	result, err := collection.DeleteOne(context.Background(), deleteFilter)
+	if err != nil {
+		return fmt.Errorf("MongoDB delete failed: %w", err)
+	}
+
+	if result.DeletedCount == 0 {
+		return fmt.Errorf("no document found with ID: %v", resourceID)
+	}
+
+	t.Logger.Logger.Infof("    ✅ Deleted %s successfully\n", resourceName)
+	return nil
+}
+
+// buildDeleteFilter converts resource ID (string or ObjectID) to MongoDB filter
+func (t *AppHandler) buildDeleteFilter(resourceID interface{}) (bson.M, error) {
+	if idStr, ok := resourceID.(string); ok {
+		// Try to convert string to ObjectID
+		if objectID, err := primitive.ObjectIDFromHex(idStr); err == nil {
+			return bson.M{"_id": objectID}, nil
+		}
+		// If conversion fails, use string directly
+		return bson.M{"_id": idStr}, nil
+	}
+	// Use resourceID directly (already ObjectID or other type)
+	return bson.M{"_id": resourceID}, nil
+}
+
+// rollbackCreatedResources removes all created resources in reverse order (LIFO)
+// For listeners: Uses XDS.DelResource to ensure bootstrap, service, and admin_port are also deleted
+// For other resources: Uses direct MongoDB deletion
+func (t *AppHandler) rollbackCreatedResources(createdResources []CreatedResource, reqDetails models.RequestDetails) {
+	t.Logger.Logger.Infof("🔄 Starting rollback of %d resources\n", len(createdResources))
+
+	// Rollback in reverse order (LIFO - Last In First Out)
 	for i := len(createdResources) - 1; i >= 0; i-- {
 		resource := createdResources[i]
-		t.Logger.Logger.Infof("  - Deleting %s from %s (ID: %v)\n", resource.Name, resource.Collection, resource.ID)
+		t.Logger.Logger.Infof("  [%d/%d] Deleting %s from %s (ID: %v)\n",
+			len(createdResources)-i, len(createdResources),
+			resource.Name, resource.Collection, resource.ID)
 
-		// Use MongoDB collection to delete by ID
-		collection := t.Context.Client.Collection(resource.Collection)
-		if collection != nil {
-			// Convert string ID to ObjectID if needed
-			var deleteFilter bson.M
-			if idStr, ok := resource.ID.(string); ok {
-				if objectID, err := primitive.ObjectIDFromHex(idStr); err == nil {
-					deleteFilter = bson.M{"_id": objectID}
-				} else {
-					deleteFilter = bson.M{"_id": idStr}
-				}
-			} else {
-				deleteFilter = bson.M{"_id": resource.ID}
-			}
+		var err error
 
-			result, err := collection.DeleteOne(context.Background(), deleteFilter)
-			if err != nil {
-				t.Logger.Logger.Infof("    ⚠️  Failed to delete %s: %v\n", resource.Name, err)
-			} else if result.DeletedCount == 0 {
-				t.Logger.Logger.Infof("    ⚠️  No document deleted for %s (ID: %v)\n", resource.Name, resource.ID)
-			} else {
-				t.Logger.Logger.Infof("    ✅ Deleted %s successfully\n", resource.Name)
-			}
+		// Handle listeners differently - use XDS logic for proper cleanup
+		if resource.Collection == "listeners" {
+			err = t.deleteListenerWithDependencies(resource.ID, resource.Name, reqDetails)
+		} else {
+			// For non-listener resources, use direct MongoDB deletion
+			err = t.deleteResourceDirectly(resource.ID, resource.Collection, resource.Name)
+		}
+
+		if err != nil {
+			t.Logger.Logger.Infof("    ⚠️  Failed to delete %s: %v\n", resource.Name, err)
+			// Continue with rollback even if one deletion fails
 		}
 	}
 

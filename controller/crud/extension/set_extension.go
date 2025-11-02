@@ -56,6 +56,11 @@ func (extension *AppHandler) SetExtension(ctx context.Context, resource models.R
 		return nil, err
 	}
 
+	// Process WAF injection for HTTP WASM extensions
+	if err := ProcessWAFInjection(ctx, resource, extension.Context.Client, extension.Logger); err != nil {
+		return nil, err
+	}
+
 	collection := extension.Context.Client.Collection(general.Collection)
 	inserResult, err := collection.InsertOne(ctx, resource)
 	if err != nil {

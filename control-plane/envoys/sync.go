@@ -2,7 +2,6 @@ package envoys
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -266,13 +265,3 @@ func (e *EnvoyConnTracker) DisconnectNodeIDWithCount(ctx context.Context, dbClie
 }
 
 // Legacy InsertError function removed - using enhanced error system only
-
-func GetNodeIDParts(nodeID string) (string, string, string) {
-	parts := strings.Split(nodeID, "::")
-	if len(parts) == 2 {
-		return parts[0], parts[1], ""
-	} else if len(parts) == 3 {
-		return parts[0], parts[1], parts[2]
-	}
-	return "", "", ""
-}

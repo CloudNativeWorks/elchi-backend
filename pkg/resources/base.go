@@ -230,3 +230,40 @@ func GetDBResource(db *mongo.Database, collectionName string, filter bson.M) (*m
 	}
 	return &resource, nil
 }
+
+// GetAdminPort retrieves admin port from admin_ports collection
+// Falls back to default port (9901) if not found or error occurs
+func GetAdminPort(ctx context.Context, db *db.AppContext, listenerName, project, version string) uint32 {
+	const defaultAdminPort = 9901
+
+	collection := db.Client.Collection("admin_ports")
+
+	filter := bson.D{
+		{Key: "name", Value: listenerName},
+		{Key: "project", Value: project},
+		{Key: "version", Value: version},
+	}
+
+	var adminPortDoc struct {
+		Port uint32 `bson:"port"`
+	}
+
+	err := collection.FindOne(ctx, filter).Decode(&adminPortDoc)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			db.Logger.Debugf("Admin port not found for listener '%s' (project: %s, version: %s), using default %d",
+				listenerName, project, version, defaultAdminPort)
+		} else {
+			db.Logger.Warnf("Failed to query admin_ports collection: %v, using default %d", err, defaultAdminPort)
+		}
+		return defaultAdminPort
+	}
+
+	if adminPortDoc.Port == 0 {
+		db.Logger.Warnf("Admin port is 0 for listener '%s', using default %d", listenerName, defaultAdminPort)
+		return defaultAdminPort
+	}
+
+	db.Logger.Debugf("✅ Found admin port for listener '%s': %d", listenerName, adminPortDoc.Port)
+	return adminPortDoc.Port
+}

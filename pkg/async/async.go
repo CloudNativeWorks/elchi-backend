@@ -58,6 +58,7 @@ type AsyncJobSystem interface {
 type Config struct {
 	MongoDB      *mongo.Database
 	DBContext    *db.AppContext
+	WAFProcessor WAFProcessor
 	WorkerCount  int
 	BatchSize    int
 	PollInterval int // seconds
@@ -177,11 +178,18 @@ func (s *asyncJobSystem) AnalyzeDependencies(ctx context.Context, req *AnalysisR
 
 // StartWorkers starts the worker pool
 func (s *asyncJobSystem) StartWorkers(ctx context.Context, config *WorkerConfig) error {
+	// Use WAFProcessor from system config if not provided in worker config
+	wafProcessor := s.config.WAFProcessor
+	if config.WAFProcessor != nil {
+		wafProcessor = config.WAFProcessor
+	}
+
 	// Convert to worker package config
 	workerConfig := &worker.WorkerConfig{
 		PokeService:        config.PokeService.(*bridge.PokeServiceClient),
 		JobManager:         s.jobManager.(*job.Manager),
 		DBContext:          config.DBContext.(*db.AppContext),
+		WAFProcessor:       wafProcessor,
 		MaxConcurrentPokes: config.MaxConcurrentPokes,
 	}
 	return s.workerPool.Start(ctx, workerConfig)

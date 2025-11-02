@@ -354,6 +354,28 @@ func initAuditRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 	initRoutes(rg, routes)
 }
 
+func initWAFRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
+	routes := []struct {
+		method  string
+		path    string
+		handler gin.HandlerFunc
+	}{
+		// CRS Rules Endpoints
+		{"GET", "/crs", h.WAF.GetCRSRules},                          // GET /api/v3/waf/crs?crs_version=4.14.0&severity=CRITICAL
+		{"GET", "/crs/versions", h.WAF.GetCRSVersions},              // GET /api/v3/waf/crs/versions
+		{"GET", "/crs/:crs_version/:rule_id", h.WAF.GetCRSRuleByID}, // GET /api/v3/waf/crs/4.14.0/941100
+
+		// WAF Config CRUD Endpoints
+		{"POST", "/config", h.WAF.CreateWAFConfigWithAudit},             // POST /api/v3/waf/config
+		{"PUT", "/config/:config_id", h.WAF.UpdateWAFConfigWithAudit},   // PUT /api/v3/waf/config/:config_id
+		{"DELETE", "/config/:config_id", h.WAF.DeleteWAFConfigWithAudit}, // DELETE /api/v3/waf/config/:config_id
+		{"GET", "/config/:config_id", h.WAF.GetWAFConfig},               // GET /api/v3/waf/config/:config_id
+		{"GET", "/config", h.WAF.ListWAFConfigs},                        // GET /api/v3/waf/config?project=xxx&version=1.32
+	}
+
+	initRoutes(rg, routes)
+}
+
 func initRouteMapRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 	routes := []struct {
 		method  string
@@ -388,15 +410,15 @@ func initSnippetRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		path    string
 		handler gin.HandlerFunc
 	}{
-		{"POST", "", h.Snippet.CreateSnippet},                     // POST /api/v3/snippets
-		{"GET", "", h.Snippet.ListSnippets},                       // GET /api/v3/snippets
-		{"GET", "/search", h.Snippet.SearchSnippets},              // GET /api/v3/snippets/search
-		{"GET", "/stats", h.Snippet.GetSnippetStats},              // GET /api/v3/snippets/stats
-		{"POST", "/batch", h.Snippet.BatchCreateSnippets},         // POST /api/v3/snippets/batch
-		{"DELETE", "/batch", h.Snippet.BatchDeleteSnippets},       // DELETE /api/v3/snippets/batch
-		{"GET", "/:id", h.Snippet.GetSnippet},                     // GET /api/v3/snippets/:id
-		{"PUT", "/:id", h.Snippet.UpdateSnippet},                  // PUT /api/v3/snippets/:id
-		{"DELETE", "/:id", h.Snippet.DeleteSnippet},               // DELETE /api/v3/snippets/:id
+		{"POST", "", h.Snippet.CreateSnippet},               // POST /api/v3/snippets
+		{"GET", "", h.Snippet.ListSnippets},                 // GET /api/v3/snippets
+		{"GET", "/search", h.Snippet.SearchSnippets},        // GET /api/v3/snippets/search
+		{"GET", "/stats", h.Snippet.GetSnippetStats},        // GET /api/v3/snippets/stats
+		{"POST", "/batch", h.Snippet.BatchCreateSnippets},   // POST /api/v3/snippets/batch
+		{"DELETE", "/batch", h.Snippet.BatchDeleteSnippets}, // DELETE /api/v3/snippets/batch
+		{"GET", "/:id", h.Snippet.GetSnippet},               // GET /api/v3/snippets/:id
+		{"PUT", "/:id", h.Snippet.UpdateSnippet},            // PUT /api/v3/snippets/:id
+		{"DELETE", "/:id", h.Snippet.DeleteSnippet},         // DELETE /api/v3/snippets/:id
 	}
 
 	initRoutes(rg, routes)

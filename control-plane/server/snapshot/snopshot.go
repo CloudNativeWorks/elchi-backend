@@ -92,17 +92,6 @@ func GenerateSnapshot(r *xdsResource.AllResources) *cache.Snapshot {
 		resource.SecretType:          r.GetSecretT(),
 	}
 
-	// DEBUG: Log resource counts in snapshot
-	logger.Infof("🔍 SNAPSHOT DEBUG: Generating snapshot version '%s' with resources: C:%d R:%d VH:%d E:%d L:%d EXT:%d S:%d",
-		version,
-		len(resources[resource.ClusterType]),
-		len(resources[resource.RouteType]),
-		len(resources[resource.VirtualHostType]),
-		len(resources[resource.EndpointType]),
-		len(resources[resource.ListenerType]),
-		len(resources[resource.ExtensionConfigType]),
-		len(resources[resource.SecretType]))
-
 	snap, err := cache.NewSnapshot(version, resources)
 	if err != nil {
 		logger.Errorf("Error creating snapshot: %v", err)

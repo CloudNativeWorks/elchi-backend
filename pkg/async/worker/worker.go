@@ -13,37 +13,51 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/pkg/bridge"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/services"
 )
 
 // Worker represents a single job processor
 type Worker struct {
-	id           string
-	config       *PoolConfig
-	jobManager   *job.Manager
-	pokeService  *bridge.PokeServiceClient
-	dbContext    *db.AppContext
-	logger       *logger.Logger
-	isProcessing bool
-	processMutex sync.RWMutex
-	lastActivity time.Time
+	id            string
+	config        *WorkerConfig
+	poolConfig    *PoolConfig
+	jobManager    *job.Manager
+	pokeService   *bridge.PokeServiceClient
+	dbContext     *db.AppContext
+	wafProcessor  WAFProcessor
+	logger        *logger.Logger
+	isProcessing  bool
+	processMutex  sync.RWMutex
+	lastActivity  time.Time
 }
 
 // NewWorker creates a new worker
-func NewWorker(id string, config *PoolConfig, jobManager *job.Manager, pokeService *bridge.PokeServiceClient, dbContext *db.AppContext) *Worker {
+func NewWorker(id string, poolConfig *PoolConfig, jobManager *job.Manager, pokeService *bridge.PokeServiceClient, dbContext *db.AppContext, wafProcessor WAFProcessor) *Worker {
+	// Create WorkerConfig from poolConfig
+	workerConfig := &WorkerConfig{
+		PokeService:        pokeService,
+		JobManager:         jobManager,
+		DBContext:          dbContext,
+		WAFProcessor:       wafProcessor,
+		MaxConcurrentPokes: poolConfig.MaxConcurrentPokes,
+	}
+
 	return &Worker{
-		id:          id,
-		config:      config,
-		jobManager:  jobManager,
-		pokeService: pokeService,
-		dbContext:   dbContext,
-		logger:      logger.NewLogger(fmt.Sprintf("worker-%s", id)),
+		id:           id,
+		config:       workerConfig,
+		poolConfig:   poolConfig,
+		jobManager:   jobManager,
+		pokeService:  pokeService,
+		dbContext:    dbContext,
+		wafProcessor: wafProcessor,
+		logger:       logger.NewLogger(fmt.Sprintf("worker-%s", id)),
 	}
 }
 
 // Run starts the worker loop
 func (w *Worker) Run(ctx context.Context) {
-	ticker := time.NewTicker(w.config.PollInterval)
+	ticker := time.NewTicker(w.poolConfig.PollInterval)
 	defer ticker.Stop()
 
 	w.logger.Infof("Worker %s started", w.id)
@@ -101,6 +115,8 @@ func (w *Worker) processNextJob(ctx context.Context) {
 	switch claimedJob.Type {
 	case job.JobTypeSnapshotUpdate:
 		w.processSnapshotUpdateJob(ctx, claimedJob)
+	case job.JobTypeWAFPropagation:
+		w.processWAFPropagationJob(ctx, claimedJob)
 	default:
 		w.logger.Errorf("Unknown job type: %s", claimedJob.Type)
 		w.jobManager.FailJob(ctx, claimedJob.ID, fmt.Errorf("unknown job type"))
@@ -119,26 +135,28 @@ func (w *Worker) processSnapshotUpdateJob(ctx context.Context, j *job.Job) {
 	}
 
 	listeners := j.Metadata.AffectedListeners
-	total := len(listeners)
-	batchSize := w.config.BatchSize
+	listenerCount := len(listeners)
+	batchSize := w.poolConfig.BatchSize
 
 	allSnapshots := []job.SnapshotExecution{}
 	completed := 0
 	failed := 0
+	totalExecutions := 0 // Will be calculated dynamically as we discover multi-client deployments
 
 	// Process in batches
-	for i := 0; i < total; i += batchSize {
+	for i := 0; i < listenerCount; i += batchSize {
 		end := i + batchSize
-		if end > total {
-			end = total
+		if end > listenerCount {
+			end = listenerCount
 		}
 
 		batch := listeners[i:end]
 		batchResults := w.processBatch(ctx, batch, j)
 
-		// Update progress
+		// Update progress - count actual executions (may be > listeners due to multi-client)
 		for _, result := range batchResults {
 			allSnapshots = append(allSnapshots, result)
+			totalExecutions++ // Count each execution
 			if result.PokeStatus == job.PokeStatusSuccess {
 				completed++
 			} else {
@@ -146,12 +164,12 @@ func (w *Worker) processSnapshotUpdateJob(ctx context.Context, j *job.Job) {
 			}
 		}
 
-		// Update job progress
+		// Update job progress - use actual execution count, not listener count
 		progress := &job.JobProgress{
-			Total:      total,
+			Total:      totalExecutions,
 			Completed:  completed,
 			Failed:     failed,
-			Percentage: float64(completed+failed) / float64(total) * 100,
+			Percentage: float64(completed+failed) / float64(totalExecutions) * 100,
 		}
 
 		if err := w.jobManager.UpdateJobProgress(ctx, j.ID, progress); err != nil {
@@ -176,47 +194,64 @@ func (w *Worker) processSnapshotUpdateJob(ctx context.Context, j *job.Job) {
 // processBatch processes a batch of listeners
 func (w *Worker) processBatch(ctx context.Context, batch []string, j *job.Job) []job.SnapshotExecution {
 	var wg sync.WaitGroup
-	semaphore := make(chan struct{}, w.config.MaxConcurrentPokes)
-	results := make([]job.SnapshotExecution, len(batch))
+	semaphore := make(chan struct{}, w.poolConfig.MaxConcurrentPokes)
+	// Pre-allocate results slice - will expand as we discover multi-client deployments
+	results := make([]job.SnapshotExecution, 0, len(batch))
+	resultsMutex := sync.Mutex{}
 
-	for i, listenerName := range batch {
+	for _, listenerName := range batch {
 		wg.Add(1)
-		go func(index int, ln string) {
+		go func(ln string) {
 			defer wg.Done()
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
 
-			// Build node ID - same format as existing system
-			nodeID := fmt.Sprintf("%s::%s", ln, j.Project)
+			// Get ALL clients for this listener
+			clients := w.getAllClientsForListener(ln, j.Project, j.Version)
 
-			// Check if managed listener (has downstream address)
-			downstreamAddress := ""
-			if isManaged, addr := w.checkManagedListener(ln, j.Project, j.Version); isManaged {
-				downstreamAddress = addr
-				nodeID = fmt.Sprintf("%s::%s::%s", ln, j.Project, addr)
+			// If no clients (unmanaged listener), send single poke
+			if len(clients) == 0 {
+				nodeID := fmt.Sprintf("%s::%s", ln, j.Project)
+				execution := w.executeSinglePoke(ctx, nodeID, j.Project, j.Version, ln, "")
+				resultsMutex.Lock()
+				results = append(results, execution)
+				resultsMutex.Unlock()
+				return
 			}
 
-			execution := job.SnapshotExecution{
-				NodeID:       nodeID,
-				ListenerName: ln,
-				PokeStatus:   job.PokeStatusPending,
-				PokeSentAt:   time.Now(),
+			// IMPORTANT: Filter duplicate downstream addresses
+			// Scenario: Same listener deployed to multiple clients with SAME IP
+			// Example: Client A and B both have IP 10.55.34.123
+			// We should only send ONE poke to 10.55.34.123, not two
+			uniqueDownstreamAddresses := make(map[string]bool)
+			uniqueClients := []models.ServiceClients{}
+
+			for _, client := range clients {
+				if client.DownstreamAddress != "" && !uniqueDownstreamAddresses[client.DownstreamAddress] {
+					uniqueDownstreamAddresses[client.DownstreamAddress] = true
+					uniqueClients = append(uniqueClients, client)
+				}
 			}
 
-			// Execute poke through existing system
-			err := w.executePokeViaRegistry(ctx, nodeID, j.Project, j.Version, ln, downstreamAddress)
-			if err != nil {
-				execution.PokeStatus = job.PokeStatusFailed
-				errorMsg := err.Error()
-				execution.Error = &errorMsg
-				w.logger.Errorf("Poke failed for listener %s (node: %s): %v", ln, nodeID, err)
+			// For managed listeners, send poke to EACH UNIQUE downstream address
+			if len(clients) != len(uniqueClients) {
+				w.logger.Infof("🔍 MULTI-CLIENT: Listener '%s' has %d clients, but only %d unique IPs (filtered %d duplicates)",
+					ln, len(clients), len(uniqueClients), len(clients)-len(uniqueClients))
 			} else {
-				execution.PokeStatus = job.PokeStatusSuccess
-				w.logger.Debugf("Poke successful for listener %s (node: %s)", ln, nodeID)
+				w.logger.Infof("🔍 MULTI-CLIENT: Listener '%s' has %d clients, sending %d pokes", ln, len(clients), len(uniqueClients))
 			}
 
-			results[index] = execution
-		}(i, listenerName)
+			for i, client := range uniqueClients {
+				nodeID := fmt.Sprintf("%s::%s::%s", ln, j.Project, client.DownstreamAddress)
+				w.logger.Infof("🔍 MULTI-CLIENT: [%d/%d] Sending poke to %s", i+1, len(uniqueClients), nodeID)
+
+				execution := w.executeSinglePoke(ctx, nodeID, j.Project, j.Version, ln, client.DownstreamAddress)
+
+				resultsMutex.Lock()
+				results = append(results, execution)
+				resultsMutex.Unlock()
+			}
+		}(listenerName)
 	}
 
 	wg.Wait()
@@ -256,15 +291,35 @@ func (w *Worker) executePokeViaRegistry(ctx context.Context, nodeID, project, ve
 	return nil
 }
 
-// checkManagedListener checks if listener is managed (has downstream address)
-func (w *Worker) checkManagedListener(listenerName, project, version string) (bool, string) {
-	// Check if this listener is managed (has downstream address)
-	// This uses the same logic as existing system
+// getAllClientsForListener returns ALL clients for a managed listener
+// Returns empty slice if listener is unmanaged or has no clients
+func (w *Worker) getAllClientsForListener(listenerName, project, version string) []models.ServiceClients {
 	clients := services.FetchDownstreamAddressFromService(w.dbContext.Client, listenerName, project, version)
-	if len(clients) > 0 {
-		return true, clients[0].DownstreamAddress
+	return clients
+}
+
+// executeSinglePoke executes a single poke and returns the execution result
+func (w *Worker) executeSinglePoke(ctx context.Context, nodeID, project, version, listenerName, downstreamAddress string) job.SnapshotExecution {
+	execution := job.SnapshotExecution{
+		NodeID:       nodeID,
+		ListenerName: listenerName,
+		PokeStatus:   job.PokeStatusPending,
+		PokeSentAt:   time.Now(),
 	}
-	return false, ""
+
+	// Execute poke through existing system
+	err := w.executePokeViaRegistry(ctx, nodeID, project, version, listenerName, downstreamAddress)
+	if err != nil {
+		execution.PokeStatus = job.PokeStatusFailed
+		errorMsg := err.Error()
+		execution.Error = &errorMsg
+		w.logger.Errorf("Poke failed for listener %s (node: %s): %v", listenerName, nodeID, err)
+	} else {
+		execution.PokeStatus = job.PokeStatusSuccess
+		w.logger.Debugf("Poke successful for listener %s (node: %s)", listenerName, nodeID)
+	}
+
+	return execution
 }
 
 // sendHeartbeat sends periodic heartbeats for a job

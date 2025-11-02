@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"strconv"
 	"time"
 
@@ -44,6 +45,20 @@ func encodeDefaultResourceMetadata(metadata DefaultResourceMetadata) string {
 
 	encoded, _ := mp.EncodeMetadata(metadataMap)
 	return encoded
+}
+
+// isIPAddress checks if the given address is an IP address (not a hostname)
+func isIPAddress(address string) bool {
+	return net.ParseIP(address) != nil
+}
+
+// getClusterTypeForAddress returns appropriate cluster type based on address
+// STATIC for IP addresses, STRICT_DNS for hostnames
+func getClusterTypeForAddress(address string) string {
+	if isIPAddress(address) {
+		return "STATIC"
+	}
+	return "STRICT_DNS"
 }
 
 func createDefaults(ctx context.Context, context *AppContext, logger *logger.Logger) {
@@ -324,9 +339,12 @@ func CreateDefaultCluster(ctx context.Context, db *AppContext, projectID string,
 			})
 		}
 
+		// Determine cluster type based on address (STATIC for IP, STRICT_DNS for hostname)
+		clusterType := getClusterTypeForAddress(db.Config.ElchiAddress)
+
 		resourceConfig := bson.M{
 			"name":            "elchi-control-plane",
-			"type":            "STRICT_DNS",
+			"type":            clusterType,
 			"connect_timeout": "2s",
 			"typed_extension_protocol_options": bson.M{
 				"envoy.extensions.upstreams.http.v3.HttpProtocolOptions": bson.M{

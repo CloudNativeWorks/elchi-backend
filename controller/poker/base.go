@@ -44,10 +44,15 @@ func DetectChangedResource(ctx context.Context, gType models.GType, version, res
 		if !helper.Contains(processed.Listeners, resourceName) {
 			if managed {
 				clients := services.FetchDownstreamAddressFromService(context.Client, resourceName, project, version)
-				for _, client := range clients {
+				context.Logger.Infof("🔍 MULTI-CLIENT DEBUG: Listener '%s' has %d clients to update", resourceName, len(clients))
+
+				for i, client := range clients {
+					context.Logger.Infof("🔍 MULTI-CLIENT DEBUG: [%d/%d] Sending poke to client: %s",
+						i+1, len(clients), client.DownstreamAddress)
 					HandlePoke(ctx, context, resourceName, project, version, processed, poke, client.DownstreamAddress)
 				}
 			} else {
+				context.Logger.Infof("🔍 MULTI-CLIENT DEBUG: Listener '%s' has managed=false, sending single poke", resourceName)
 				HandlePoke(ctx, context, resourceName, project, version, processed, poke, "")
 			}
 		}

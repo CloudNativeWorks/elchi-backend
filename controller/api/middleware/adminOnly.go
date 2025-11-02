@@ -22,6 +22,8 @@ var ClientOperationExceptions = map[string][]string{
 	"SERVICE":      {"SUB_LOGS", "SUB_STATUS"},                                                    // Only specific SERVICE subtypes allowed (readonly operations)
 	"PROXY":        {},                                                                            // PROXY operations will be checked by path in command authorization
 	"NETWORK":      {"SUB_GET_NETWORK_STATE", "SUB_GET_ROUTES", "SUB_GET_POLICIES", "SUB_LIST"}, // NETWORK readonly operations allowed
+	"FILEBEAT":     {"GET_FILEBEAT_CONFIG", "GET_FILEBEAT_STATUS", "SUB_LOGS"},                   // FILEBEAT readonly operations allowed (config read, status, logs)
+	"RSYSLOG":      {"GET_RSYSLOG_CONFIG", "GET_RSYSLOG_STATUS", "SUB_LOGS"},                     // RSYSLOG readonly operations allowed (config read, status, logs)
 }
 
 // isClientOperationAllowedForEditor checks if a client operation is allowed for editors
@@ -53,6 +55,9 @@ func checkOperationFromBody(bodyBytes []byte) bool {
 		EnvoyVersion struct {
 			Operation string `json:"operation"`
 		} `json:"envoy_version"`
+		WafVersion struct {
+			Operation string `json:"operation"`
+		} `json:"waf_version"`
 		Command struct {
 			Path     string `json:"path"`
 			Method   string `json:"method"`
@@ -99,6 +104,15 @@ func checkOperationFromBody(bodyBytes []byte) bool {
 	if operation.Type == "ENVOY_VERSION" {
 		// GET_VERSIONS is readonly, SET_VERSION is admin-only
 		if operation.EnvoyVersion.Operation == "GET_VERSIONS" {
+			return true
+		}
+		return false
+	}
+
+	// Special case for WAF_VERSION type - check operation for readonly commands
+	if operation.Type == "WAF_VERSION" {
+		// GET_VERSIONS is readonly, SET_VERSION is admin-only
+		if operation.WafVersion.Operation == "GET_VERSIONS" {
 			return true
 		}
 		return false
@@ -171,6 +185,29 @@ func InitSettingMiddleware() gin.HandlerFunc {
 		// Special case for jobs endpoints - Let all authenticated users pass (handler will do role checks)
 		if strings.HasPrefix(c.Request.URL.Path, "/api/v3/jobs") {
 			// Jobs handler performs its own Admin/Owner checks where needed
+			c.Next()
+			return
+		}
+
+		// Special case for WAF CRS rules - All users can GET CRS rules (readonly)
+		if strings.HasPrefix(c.Request.URL.Path, "/api/v3/waf/crs") && c.Request.Method == "GET" {
+			// All authenticated users can read CRS rules
+			c.Next()
+			return
+		}
+
+		// Special case for WAF config GET operations - All users can view configs
+		if strings.HasPrefix(c.Request.URL.Path, "/api/v3/waf/config") && c.Request.Method == "GET" {
+			// All authenticated users can read WAF configs
+			// Editor and Viewer have readonly access
+			c.Next()
+			return
+		}
+
+		// Special case for WAF config CRUD operations - Handler performs Admin/Owner checks
+		if strings.HasPrefix(c.Request.URL.Path, "/api/v3/waf/config") {
+			// POST, PUT, DELETE operations
+			// Handler will check for Admin/Owner role
 			c.Next()
 			return
 		}

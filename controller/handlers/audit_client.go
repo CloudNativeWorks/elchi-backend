@@ -48,6 +48,16 @@ func (h *Handler) extractBGPOperationFromRequest(c *gin.Context) string {
 
 // extractEnvoyVersionOperationFromRequest extracts Envoy Version operation name from request body for audit filtering
 func (h *Handler) extractEnvoyVersionOperationFromRequest(c *gin.Context) string {
+	return h.extractVersionOperationFromRequest(c, "envoy_version")
+}
+
+// extractWafVersionOperationFromRequest extracts WAF Version operation name from request body for audit filtering
+func (h *Handler) extractWafVersionOperationFromRequest(c *gin.Context) string {
+	return h.extractVersionOperationFromRequest(c, "waf_version")
+}
+
+// extractVersionOperationFromRequest is a generic helper to extract version operation from request body
+func (h *Handler) extractVersionOperationFromRequest(c *gin.Context, fieldKey string) string {
 	// Get cached body from middleware
 	originalBody, exists := c.Get("_original_body")
 	if !exists {
@@ -59,19 +69,19 @@ func (h *Handler) extractEnvoyVersionOperationFromRequest(c *gin.Context) string
 		return ""
 	}
 
-	// Parse request body to get Envoy Version operation
+	// Parse request body to get version operation
 	var requestBody map[string]any
 	if err := json.Unmarshal(bodyBytes, &requestBody); err != nil {
 		return ""
 	}
 
-	// Navigate to Envoy Version operation: envoy_version.operation
-	if envoyVersion, ok := requestBody["envoy_version"].(map[string]any); ok {
-		if operation, ok := envoyVersion["operation"].(string); ok {
+	// Navigate to version operation: {fieldKey}.operation
+	if versionField, ok := requestBody[fieldKey].(map[string]any); ok {
+		if operation, ok := versionField["operation"].(string); ok {
 			return operation
 		}
 		// Also try numeric operation values
-		if operationNum, ok := envoyVersion["operation"].(float64); ok {
+		if operationNum, ok := versionField["operation"].(float64); ok {
 			switch int(operationNum) {
 			case 0:
 				return "GET_VERSIONS"

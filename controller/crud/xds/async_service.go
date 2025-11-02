@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/CloudNativeWorks/elchi-backend/controller/crud"
+	"github.com/CloudNativeWorks/elchi-backend/controller/waf"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/async"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/async/job"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
@@ -54,11 +55,19 @@ func (s *AsyncXDSService) ProcessAsyncUpdate(ctx context.Context, resource model
 
 // initializeAsyncSystem initializes the async job system
 func (s *AsyncXDSService) initializeAsyncSystem() (async.AsyncJobSystem, error) {
+	// Create WAF processor for async operations
+	wafProcessor := waf.NewAsyncWAFProcessor(
+		s.handler.Context,
+		s.handler.PokeService,
+		s.handler.Logger,
+	)
+
 	return async.NewAsyncJobSystem(&async.Config{
-		MongoDB:     s.handler.Context.Client,
-		DBContext:   s.handler.Context,
-		WorkerCount: 3,
-		BatchSize:   5,
+		MongoDB:      s.handler.Context.Client,
+		DBContext:    s.handler.Context,
+		WAFProcessor: wafProcessor,
+		WorkerCount:  3,
+		BatchSize:    5,
 	})
 }
 

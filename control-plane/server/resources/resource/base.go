@@ -14,6 +14,7 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/resources"
 )
 
 type AllResources struct {
@@ -40,6 +41,14 @@ func GenerateSnapshot(ctx context.Context, rawListenerResource *models.DBResourc
 	ar.mutex.Lock()
 	ar.SetNodeID(nodeID)
 	ar.SetResourceVersion(version)
+
+	// Set listener metadata for FileAccessLog path override
+	ar.ListenerName = listenerName
+	ar.IsManaged = rawListenerResource.General.Managed
+
+	// Get admin port from admin_ports collection (used for access log paths)
+	ar.AdminPort = resources.GetAdminPort(ctx, db, listenerName, project, version)
+
 	ar.mutex.Unlock()
 	ar.DecodeListener(ctx, rawListenerResource, db, logger, downstreamAddress)
 	return ar, nil

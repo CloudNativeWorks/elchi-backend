@@ -589,8 +589,6 @@ func (s *Service) parseStatsResult(results []map[string]any) *AuditStats {
 	}
 
 	result := results[0]
-	s.logger.Debugf("Parsing stats result: %+v", result)
-
 	stats := &AuditStats{
 		TopActions:   make(map[string]int64),
 		TopUsers:     make(map[string]int64),

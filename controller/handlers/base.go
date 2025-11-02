@@ -58,6 +58,7 @@ type Handler struct {
 	Template     *ResourceTemplateHandler
 	RouteMap     *routemap.RouteMapHandler
 	Snippet      *SnippetHandler
+	WAF          *WAFHandler
 }
 
 // getDatabaseConnection returns the first available database connection from handlers
@@ -100,10 +101,14 @@ func NewHandler(xds *xds.AppHandler, extension *extension.AppHandler, custom *cu
 		Template:     template,
 		RouteMap:     routeMap,
 	}
-	
+
 	// Initialize snippet handler
 	handler.Snippet = NewSnippetHandler(handler)
-	
+
+	// Initialize WAF handler with required dependencies
+	handler.WAF = NewWAFHandler(xds.Context, xds.PokeService, jobs.asyncSystem, xds.Logger)
+	handler.WAF.SetParentHandler(handler) // Set parent reference for audit functions
+
 	return handler
 }
 
@@ -884,3 +889,4 @@ func (h *Handler) updateScenarioAuditFromResponse(c *gin.Context, response any) 
 		audit.SetAuditResource(c, "scenarios", scenarioID, scenarioName, c.Query("project"))
 	}
 }
+

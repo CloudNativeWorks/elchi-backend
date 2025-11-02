@@ -42,14 +42,14 @@ func (p *EnvoyVersionResponser) ValidateAndTransform(op models.OperationClass, r
 		envoyVersionData["operation"] = operation.String()
 
 		switch operation {
-		case pb.EnvoyVersionOperation_GET_VERSIONS:
+		case pb.VersionOperation_GET_VERSIONS:
 			if len(envoyVersionResponse.GetDownloadedVersions()) > 0 {
 				envoyVersionData["downloaded_versions"] = envoyVersionResponse.GetDownloadedVersions()
 			} else {
 				envoyVersionData["downloaded_versions"] = []string{}
 			}
 
-		case pb.EnvoyVersionOperation_SET_VERSION:
+		case pb.VersionOperation_SET_VERSION:
 			if envoyVersionResponse.GetInstalledVersion() != "" {
 				envoyVersionData["installed_version"] = envoyVersionResponse.GetInstalledVersion()
 			}
@@ -65,17 +65,17 @@ func (p *EnvoyVersionResponser) ValidateAndTransform(op models.OperationClass, r
 	// Add status-specific information
 	status := envoyVersionResponse.GetStatus()
 	switch status {
-	case pb.EnvoyVersionStatus_SUCCESS:
+	case pb.VersionStatus_SUCCESS:
 		envoyVersionData["success_details"] = "Operation completed successfully"
-	case pb.EnvoyVersionStatus_VERSION_NOT_FOUND:
+	case pb.VersionStatus_VERSION_NOT_FOUND:
 		envoyVersionData["error_type"] = "version_not_available"
-	case pb.EnvoyVersionStatus_DOWNLOAD_FAILED:
+	case pb.VersionStatus_DOWNLOAD_FAILED:
 		envoyVersionData["error_type"] = "download_error"
-	case pb.EnvoyVersionStatus_NETWORK_ERROR:
+	case pb.VersionStatus_NETWORK_ERROR:
 		envoyVersionData["error_type"] = "network_connectivity"
-	case pb.EnvoyVersionStatus_PERMISSION_FAILED:
+	case pb.VersionStatus_PERMISSION_FAILED:
 		envoyVersionData["error_type"] = "filesystem_permission"
-	case pb.EnvoyVersionStatus_DIRECTORY_ERROR:
+	case pb.VersionStatus_DIRECTORY_ERROR:
 		envoyVersionData["error_type"] = "directory_access"
 	default:
 		envoyVersionData["unknown_status"] = status.String()
@@ -103,13 +103,13 @@ func (p *EnvoyVersionResponser) ValidateAndTransform(op models.OperationClass, r
 		if op != nil && op.GetEnvoyVersion() != nil {
 			operation := op.GetEnvoyVersion().GetOperation()
 			switch operation {
-			case pb.EnvoyVersionOperation_SET_VERSION:
+			case pb.VersionOperation_SET_VERSION:
 				envoyVersionData["operation_summary"] = map[string]any{
 					"action":  "version_installed",
 					"version": envoyVersionResponse.GetInstalledVersion(),
 					"path":    envoyVersionResponse.GetDownloadPath(),
 				}
-			case pb.EnvoyVersionOperation_GET_VERSIONS:
+			case pb.VersionOperation_GET_VERSIONS:
 				envoyVersionData["operation_summary"] = map[string]any{
 					"action": "versions_listed",
 					"count":  len(envoyVersionResponse.GetDownloadedVersions()),

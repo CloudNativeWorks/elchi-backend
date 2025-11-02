@@ -113,7 +113,7 @@ var restCmd = &cobra.Command{
 
 		clientHandler := client.NewClientHandler(appContext, xdsHandler, openstackHandler, clientService)
 		discoveryHandler := discovery.NewDiscoveryHandler(appContext, &bridgeHandler.Poke)
-		jobHandler := handlers.NewJobHandler(appContext)
+		jobHandler := handlers.NewJobHandler(appContext, &bridgeHandler.Poke, rootLogger)
 		registryHandler := handlers.NewRegistryHandler(registryClient, rootLogger)
 
 		// Pass registry client to client handler (even before connection is established)

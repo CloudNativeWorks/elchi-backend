@@ -102,7 +102,7 @@ func (c *Callbacks) OnDeltaStreamOpen(ctx context.Context, id int64, typ string)
 	}
 
 	// ROBUST: Validate nodeID format using existing GetNodeIDParts function
-	name, project, _ := GetNodeIDParts(nodeID)
+	name, project, _ := envoys.GetNodeIDParts(nodeID)
 	if name == "" || project == "" {
 		c.logger.Warnf("Invalid nodeID format detected: '%s' (name='%s', project='%s') - skipping registry operations", nodeID, name, project)
 		return errors.New("invalid nodeID format")
@@ -212,7 +212,7 @@ func (c *Callbacks) CheckSetSnapshot(nodeID, version string, isConfigUpdate bool
 		return errors.New("nodeID is empty")
 	}
 
-	name, project, downstreamAddress := GetNodeIDParts(nodeID)
+	name, project, downstreamAddress := envoys.GetNodeIDParts(nodeID)
 	if name == "" || project == "" {
 		c.logger.Errorf("Invalid nodeID format: %s", nodeID)
 		return errors.New("invalid nodeID format")

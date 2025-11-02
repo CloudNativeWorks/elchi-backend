@@ -2,6 +2,8 @@ package resource
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -141,7 +143,6 @@ func (ar *AllResources) processExtension(ctx context.Context, extension *models.
 		return
 	}
 
-
 	for i, extConfig := range extConfigs {
 		if extension.GType == models.VirtualHost {
 			// Extract actual VH name for unique key generation
@@ -235,7 +236,6 @@ func (ar *AllResources) CollectAllResourcesWithParent(ctx context.Context, gtype
 		return nil, nil, err
 	}
 
-
 	resourceData := resource.GetResource()
 
 	var protoMessages []proto.Message
@@ -249,14 +249,20 @@ func (ar *AllResources) CollectAllResourcesWithParent(ctx context.Context, gtype
 				logger.Errorf("Error marshaling array item: %v", err)
 				return nil, nil, err
 			}
-			
+
+			// Transform WASM configuration if needed (decode base64, add @type)
+			if gtype == models.HTTPWasm {
+				jsonStringStr, err = ar.transformWasmConfiguration(jsonStringStr, logger)
+				if err != nil {
+					logger.Warnf("Error transforming WASM configuration: %v", err)
+				}
+			}
 
 			typedProtoMsg := proto.Clone(gtype.ProtoMessage())
 			if err := ar.processTypedConfigsAndUpstream(ctx, typedProtoMsg, &jsonStringStr, gtype, parentName, context, logger); err != nil {
 				logger.Errorf("Error processing typed configs and upstream resources: %v", err)
 				return nil, nil, err
 			}
-			
 
 			protoMessages = append(protoMessages, typedProtoMsg)
 			finalConfigDiscoveries = resource.General.ConfigDiscovery
@@ -266,6 +272,14 @@ func (ar *AllResources) CollectAllResourcesWithParent(ctx context.Context, gtype
 		jsonStringStr, err := helper.MarshalJSON(resourceData, context.Logger)
 		if err != nil {
 			return nil, nil, err
+		}
+
+		// Transform WASM configuration if needed (decode base64, add @type)
+		if gtype == models.HTTPWasm {
+			jsonStringStr, err = ar.transformWasmConfiguration(jsonStringStr, logger)
+			if err != nil {
+				logger.Warnf("Error transforming WASM configuration: %v", err)
+			}
 		}
 
 		typedProtoMsg := proto.Clone(gtype.ProtoMessage())
@@ -378,8 +392,6 @@ func processUpstreamPaths(ctx context.Context, result gjson.Result, upstreamType
 func (ar *AllResources) AddToCollection(resource proto.Message, gtype models.GType, uniqName string, parentName *string, resourceName string, logger *logger.Logger) {
 	ar.mutex.Lock()
 	defer ar.mutex.Unlock()
-	
-	
 	if ar.checkAndMarkDuplicate(uniqName) {
 		fmt.Printf("Skipping duplicate collection of resource: %s", uniqName)
 		return
@@ -433,7 +445,7 @@ func (ar *AllResources) UpdateVhdsMetadataNodeID(vhds *route.Vhds) {
 				break
 			}
 		}
-		
+
 		// If nodeid metadata not found, add it at the beginning
 		if !nodeIDUpdated {
 			nodeIDMetadata := &core.HeaderValue{
@@ -455,7 +467,7 @@ func (ar *AllResources) UpdateVhdsMetadataNodeID(vhds *route.Vhds) {
 				break
 			}
 		}
-		
+
 		if !versionExists {
 			versionMetadata := &core.HeaderValue{
 				Key:   "envoy-version",
@@ -468,3 +480,53 @@ func (ar *AllResources) UpdateVhdsMetadataNodeID(vhds *route.Vhds) {
 		}
 	}
 }
+
+// transformWasmConfiguration decodes base64 value in configuration field and adds @type
+func (ar *AllResources) transformWasmConfiguration(jsonStr string, logger *logger.Logger) (string, error) {
+	var data map[string]any
+	if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
+		return jsonStr, fmt.Errorf("failed to unmarshal JSON: %w", err)
+	}
+
+	// Navigate to config.configuration
+	config, ok := data["config"].(map[string]any)
+	if !ok {
+		return jsonStr, nil // No config field, return as-is
+	}
+
+	configuration, ok := config["configuration"].(map[string]any)
+	if !ok {
+		return jsonStr, nil // No configuration field, return as-is
+	}
+
+	// Check if type_url and value exist
+	typeURL, hasTypeURL := configuration["type_url"].(string)
+	valueBase64, hasValue := configuration["value"].(string)
+
+	if !hasTypeURL || !hasValue {
+		return jsonStr, nil // Missing required fields, return as-is
+	}
+
+	// Decode base64 value
+	decodedValue, err := base64.StdEncoding.DecodeString(valueBase64)
+	if err != nil {
+		logger.Warnf("Failed to decode base64 configuration value: %v", err)
+		return jsonStr, nil // Return as-is on decode error
+	}
+
+	// Replace with proper Any structure
+	configuration["@type"] = typeURL
+	configuration["value"] = string(decodedValue)
+	delete(configuration, "type_url") // Remove type_url, use @type instead
+
+	logger.Debugf("🔍 Transformed WASM configuration: type=%s, decoded_value_length=%d", typeURL, len(decodedValue))
+
+	// Marshal back to JSON
+	modifiedJSON, err := json.Marshal(data)
+	if err != nil {
+		return jsonStr, fmt.Errorf("failed to marshal modified JSON: %w", err)
+	}
+
+	return string(modifiedJSON), nil
+}
+

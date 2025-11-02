@@ -63,4 +63,5 @@ const (
 	HTTPLocalRatelimit           GType = "envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit"
 	OAuth2                       GType = "envoy.extensions.filters.http.oauth2.v3.OAuth2"
 	OpenTelemetry                GType = "envoy.extensions.stat_sinks.open_telemetry.v3.SinkConfig"
+	HTTPWasm                     GType = "envoy.extensions.filters.http.wasm.v3.Wasm"
 )

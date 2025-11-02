@@ -1,8 +1,6 @@
 package router
 
 import (
-	"log"
-
 	"github.com/gin-gonic/gin"
 
 	"github.com/CloudNativeWorks/elchi-backend/controller/api/middleware"
@@ -71,6 +69,7 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 	apiRouteMap := v3.Group("/routemap")
 	apiSnippets := v3.Group("/snippets")
 	apiSearch := v3.Group("/search")
+	apiWAF := v3.Group("/waf")
 
 	initAuthRoutes(apiAuth, h)
 	initSettingRoutes(apiSettings, h)
@@ -91,15 +90,17 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 	initRouteMapRoutes(apiRouteMap, h)
 	initSnippetRoutes(apiSnippets, h)
 	initSearchRoutes(apiSearch, h)
+	initWAFRoutes(apiWAF, h)
 	initOpenStackRoutes(apiClient, h) // OpenStack routes under /api/op/clients
 
-	logRoutes(e)
+	// logRoutes(e)
 	return e
 }
 
-func logRoutes(r *gin.Engine) {
+/* func logRoutes(r *gin.Engine) {
 	log.Println("Registered Routes:")
 	for _, route := range r.Routes() {
 		log.Printf("Method: %s, Path: %s\n", route.Method, route.Path)
 	}
 }
+ */

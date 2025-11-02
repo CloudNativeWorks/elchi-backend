@@ -9,6 +9,7 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	pb "github.com/CloudNativeWorks/elchi-proto/client"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 // SyncClientsWithRegistry synchronizes client states between DB and registry
@@ -280,13 +281,194 @@ func (s *ClientService) handleMissingAndDisconnectedClient(ctx context.Context, 
 	}
 }
 
-// StartPeriodicSync starts periodic sync between DB and registry
-func (s *ClientService) StartPeriodicSync(interval time.Duration) {
-	if s.registryClient == nil {
-		s.logger.Warnf("Registry client not available, skipping periodic sync")
-		return
+// CleanupStaleClientsFromDB performs global DB cleanup for stale clients
+// This runs independently of registry and cleans up old disconnected clients
+func (s *ClientService) CleanupStaleClientsFromDB(ctx context.Context) error {
+	s.logger.Infof("🧹 CLEANUP-START: Starting global stale client cleanup from DB")
+
+	// Get all clients marked as connected in DB
+	connectedClients, err := s.getConnectedClientsFromDB(ctx)
+	if err != nil {
+		s.logger.Errorf("Failed to get connected clients from DB: %v", err)
+		return err
 	}
 
+	s.logger.Infof("🧹 CLEANUP-DEBUG: Found %d clients marked as connected in DB", len(connectedClients))
+
+	cleanupCount := 0
+	for _, dbClient := range connectedClients {
+		clientID := dbClient.ClientID
+		lastSeenAge := time.Since(dbClient.LastSeen)
+		isLocallyConnected := s.IsClientConnected(clientID)
+
+		// Skip locally connected clients
+		if isLocallyConnected {
+			s.logger.Debugf("🧹 CLEANUP-SKIP: Client %s is locally connected, skipping", clientID)
+			continue
+		}
+
+		// Mark as disconnected if last_seen older than 2 minutes (stale)
+		if lastSeenAge > 2*time.Minute {
+			s.logger.Warnf("🧹 CLEANUP-MARK: Client %s (%s) is stale (last seen: %v ago), marking as disconnected",
+				dbClient.Name, clientID, lastSeenAge)
+
+			if err := s.MarkClientDisconnectedInDBWithReason(ctx, clientID, "global_cleanup_stale"); err != nil {
+				s.logger.Errorf("Failed to mark client %s as disconnected: %v", clientID, err)
+			} else {
+				cleanupCount++
+			}
+		}
+	}
+
+	s.logger.Infof("🧹 CLEANUP-DONE: Global cleanup completed, marked %d stale clients as disconnected", cleanupCount)
+	return nil
+}
+
+// RecalculateServiceStatuses recalculates status field for all services based on envoy connected states
+// Status logic: Live (all connected), Partial (some connected), Offline (none connected)
+func (s *ClientService) RecalculateServiceStatuses(ctx context.Context) error {
+	// Get all services
+	cursor, err := s.Context.Client.Collection("envoys").Find(ctx, bson.M{})
+	if err != nil {
+		return fmt.Errorf("failed to fetch services: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	updatedCount := 0
+	for cursor.Next(ctx) {
+		var service bson.M
+		if err := cursor.Decode(&service); err != nil {
+			s.logger.Errorf("Failed to decode service: %v", err)
+			continue
+		}
+
+		// Extract envoys array
+		envoys, ok := service["envoys"].(bson.A)
+		if !ok {
+			continue
+		}
+
+		// Count connected envoys
+		connectedCount := 0
+		totalCount := len(envoys)
+
+		for _, envoyInterface := range envoys {
+			envoy, ok := envoyInterface.(bson.M)
+			if !ok {
+				continue
+			}
+			if connected, ok := envoy["connected"].(bool); ok && connected {
+				connectedCount++
+			}
+		}
+
+		// Determine status
+		var newStatus string
+		if totalCount == 0 {
+			newStatus = "Offline"
+		} else if connectedCount == totalCount {
+			newStatus = "Live"
+		} else if connectedCount > 0 {
+			newStatus = "Partial"
+		} else {
+			newStatus = "Offline"
+		}
+
+		// Update only if status changed
+		currentStatus, _ := service["status"].(string)
+		if currentStatus != newStatus {
+			filter := bson.M{"_id": service["_id"]}
+			update := bson.M{"$set": bson.M{"status": newStatus}}
+
+			if _, err := s.Context.Client.Collection("envoys").UpdateOne(ctx, filter, update); err != nil {
+				s.logger.Errorf("Failed to update status for service %v: %v", service["name"], err)
+			} else {
+				s.logger.Debugf("Updated service %v status: %s → %s", service["name"], currentStatus, newStatus)
+				updatedCount++
+			}
+		}
+	}
+
+	if updatedCount > 0 {
+		s.logger.Infof("Recalculated status for %d services", updatedCount)
+	}
+
+	return cursor.Err()
+}
+
+// CleanupStaleEnvoysFromDB performs global DB cleanup for stale envoys
+// This marks envoys with lastSync > 2 minutes as disconnected (connected: false)
+// Idempotent: Safe to run from multiple controller pods simultaneously
+func (s *ClientService) CleanupStaleEnvoysFromDB(ctx context.Context) error {
+	s.logger.Infof("🧹 ENVOY-CLEANUP-START: Starting global stale envoy cleanup from DB")
+
+	// Calculate stale threshold (2 minutes ago)
+	staleThreshold := time.Now().Add(-2 * time.Minute).Unix()
+
+	// Build filter to find services with stale connected envoys
+	// Find services where at least one envoy is: connected=true AND lastSync < threshold
+	filter := bson.M{
+		"envoys": bson.M{
+			"$elemMatch": bson.M{
+				"connected": true,
+				"lastSync":  bson.M{"$lt": staleThreshold},
+			},
+		},
+	}
+
+	// Update: Set connected=false for stale envoys using arrayFilters
+	// This updates ONLY the envoys that match the stale condition
+	update := bson.M{
+		"$set": bson.M{
+			"envoys.$[elem].connected": false,
+		},
+	}
+
+	// ArrayFilters: Apply update only to envoys with lastSync < threshold
+	arrayFilters := options.ArrayFilters{
+		Filters: []interface{}{
+			bson.M{
+				"elem.connected": true,
+				"elem.lastSync":  bson.M{"$lt": staleThreshold},
+			},
+		},
+	}
+
+	// Execute update with arrayFilters
+	updateOpts := options.Update().SetArrayFilters(arrayFilters)
+	result, err := s.Context.Client.Collection("envoys").UpdateMany(
+		ctx,
+		filter,
+		update,
+		updateOpts,
+	)
+
+	if err != nil {
+		s.logger.Errorf("🧹 ENVOY-CLEANUP-ERROR: Failed to cleanup stale envoys: %v", err)
+		return fmt.Errorf("failed to cleanup stale envoys: %w", err)
+	}
+
+	if result.ModifiedCount > 0 {
+		s.logger.Infof("🧹 ENVOY-CLEANUP-DONE: Marked envoys in %d services as disconnected (stale lastSync < %d)",
+			result.ModifiedCount, staleThreshold)
+	} else {
+		s.logger.Debugf("🧹 ENVOY-CLEANUP-DONE: No stale envoys found (all healthy)")
+	}
+
+	// IMPORTANT: ALWAYS recalculate status (even if no envoys were modified)
+	// This fixes status field that was not updated by previous cleanup runs
+	// Status may be stale from old code that didn't call RecalculateServiceStatuses
+	if err := s.RecalculateServiceStatuses(ctx); err != nil {
+		s.logger.Errorf("🧹 ENVOY-CLEANUP-ERROR: Failed to recalculate service statuses: %v", err)
+		return fmt.Errorf("failed to recalculate service statuses: %w", err)
+	}
+	s.logger.Debugf("🧹 ENVOY-CLEANUP-STATUS: Recalculated service statuses")
+
+	return nil
+}
+
+// StartPeriodicSync starts periodic sync between DB and registry
+func (s *ClientService) StartPeriodicSync(interval time.Duration) {
 	s.logger.Infof("Starting periodic client-registry sync (interval: %v)", interval)
 
 	go func() {
@@ -295,9 +477,26 @@ func (s *ClientService) StartPeriodicSync(interval time.Duration) {
 
 		for range ticker.C {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			if err := s.SyncClientsWithRegistry(ctx); err != nil {
-				s.logger.Errorf("Periodic sync failed: %v", err)
+
+			// Run registry sync if available
+			if s.registryClient != nil {
+				if err := s.SyncClientsWithRegistry(ctx); err != nil {
+					s.logger.Errorf("Periodic sync failed: %v", err)
+				}
+			} else {
+				s.logger.Debugf("Registry client not available, skipping registry sync")
 			}
+
+			// ALWAYS run global DB cleanup regardless of registry availability
+			if err := s.CleanupStaleClientsFromDB(ctx); err != nil {
+				s.logger.Errorf("Global client cleanup failed: %v", err)
+			}
+
+			// ALWAYS run global envoy cleanup (idempotent across multiple controller pods)
+			if err := s.CleanupStaleEnvoysFromDB(ctx); err != nil {
+				s.logger.Errorf("Global envoy cleanup failed: %v", err)
+			}
+
 			cancel()
 		}
 	}()

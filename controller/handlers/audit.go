@@ -27,6 +27,9 @@ const (
 	cmdNetwork         = "NETWORK"
 	cmdFRR             = "FRR"
 	cmdEnvoyVersion    = "ENVOY_VERSION"
+	cmdWafVersion      = "WAF_VERSION"
+	cmdFilebeat        = "FILEBEAT"
+	cmdRsyslog         = "RSYSLOG"
 	cmdClientLogs      = "CLIENT_LOGS"
 	cmdClientStats     = "CLIENT_STATS"
 	cmdFRRLogs         = "FRR_LOGS"
@@ -45,6 +48,16 @@ var readOnlySubTypes = map[string]map[string]bool{
 		"SUB_TABLE_LIST":        true,
 		"SUB_GET_NETWORK_STATE": true,
 	},
+	cmdFilebeat: {
+		"GET_FILEBEAT_CONFIG": true,
+		"GET_FILEBEAT_STATUS": true,
+		"SUB_LOGS":            true,
+	},
+	cmdRsyslog: {
+		"GET_RSYSLOG_CONFIG": true,
+		"GET_RSYSLOG_STATUS": true,
+		"SUB_LOGS":           true,
+	},
 }
 
 // Read-only BGP operations that should not be audited (based on frr.proto)
@@ -60,6 +73,18 @@ var readOnlyBGPOperations = map[string]bool{
 // Read-only Envoy Version operations that should not be audited (based on request.proto)
 var readOnlyEnvoyVersionOperations = map[string]bool{
 	"GET_VERSIONS": true, // List locally downloaded versions
+}
+
+// Read-only WAF Version operations that should not be audited (based on request.proto)
+var readOnlyWafVersionOperations = map[string]bool{
+	"GET_VERSIONS": true, // List locally downloaded versions
+}
+
+// Read-only Filebeat operations that should not be audited
+var readOnlyFilebeatSubTypes = map[string]bool{
+	"GET_FILEBEAT_CONFIG": true, // Read current config
+	"GET_FILEBEAT_STATUS": true, // Check service status
+	"SUB_LOGS":            true, // Read logs
 }
 
 // mapCommandTypeToAction maps command type/subtype combinations to audit actions
@@ -80,7 +105,7 @@ func mapCommandTypeToAction(cmdType, subType string) string {
 
 	// Map commands to actions
 	switch cmdType {
-	case cmdDeploy, cmdUndeploy, cmdUpdateBootstrap, cmdProxy, cmdFRR, cmdEnvoyVersion:
+	case cmdDeploy, cmdUndeploy, cmdUpdateBootstrap, cmdProxy, cmdFRR, cmdEnvoyVersion, cmdWafVersion:
 		return cmdType
 	case cmdService:
 		if strings.HasPrefix(subType, "SUB_") {
@@ -110,8 +135,9 @@ func (h *Handler) setResourceAuditContext(c *gin.Context, requestDetails models.
 	isExtension := strings.Contains(path, "/api/v3/eo/")
 	isSettings := strings.Contains(path, "/api/v3/setting/")
 	isScenario := strings.Contains(path, "/api/v3/scenario/")
+	isWAF := strings.Contains(path, "/api/v3/waf/config")
 
-	if !isXDS && !isExtension && !isSettings && !isScenario {
+	if !isXDS && !isExtension && !isSettings && !isScenario && !isWAF {
 		return
 	}
 
@@ -166,6 +192,14 @@ func (h *Handler) setResourceAuditContext(c *gin.Context, requestDetails models.
 			action = "EXPORT_SCENARIOS"
 		} else if strings.Contains(path, "/import") {
 			action = "IMPORT_SCENARIOS"
+		}
+
+	case isWAF:
+		collection = "waf"
+		resourceID = c.Param("config_id")
+		// For DELETE and PUT operations, try to get WAF config name from database
+		if (c.Request.Method == "DELETE" || c.Request.Method == "PUT") && resourceID != "" {
+			resourceName = h.getWAFConfigNameFromID(c, resourceID)
 		}
 	}
 
@@ -225,6 +259,15 @@ func (h *Handler) setClientCommandAuditContext(c *gin.Context) {
 		if envoyOp := h.extractEnvoyVersionOperationFromRequest(c); envoyOp != "" {
 			if readOnlyEnvoyVersionOperations[envoyOp] {
 				return // Skip auditing for read-only ENVOY_VERSION operations
+			}
+		}
+	}
+
+	// Additional check for WAF_VERSION read-only operations
+	if op.GetType() == cmdWafVersion {
+		if wafOp := h.extractWafVersionOperationFromRequest(c); wafOp != "" {
+			if readOnlyWafVersionOperations[wafOp] {
+				return // Skip auditing for read-only WAF_VERSION operations
 			}
 		}
 	}
@@ -291,6 +334,27 @@ func (h *Handler) setAuditChanges(c *gin.Context) {
 			h.setScenarioExecuteAuditChanges(c)
 		} else {
 			h.setScenarioAuditChanges(c, path)
+		}
+		return
+	}
+
+	// Handle WAF config resources
+	if strings.Contains(path, "/api/v3/waf/config") {
+		configID := c.Param("config_id")
+		if configID != "" && c.Request.Method == "PUT" {
+			if originalBody, exists := c.Get("_original_body"); exists {
+				if bodyBytes, ok := originalBody.([]byte); ok {
+					db := h.getDatabaseConnection()
+					if db != nil {
+						diff := h.setWAFAuditChanges(c.Request.Context(), db, bodyBytes, configID)
+						if diff != "" {
+							audit.SetAuditChanges(c, map[string]interface{}{
+								"diff": diff,
+							})
+						}
+					}
+				}
+			}
 		}
 		return
 	}
@@ -519,6 +583,15 @@ func (h *Handler) extractResourceNameFromBody(c *gin.Context) string {
 			if name, ok := resourceMap["name"].(string); ok && name != "" {
 				return name
 			}
+		}
+
+	} else if strings.Contains(path, "/api/v3/waf/config") {
+		// WAF config resources have structure: { "name": "...", ... }
+		var resource struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(bodyBytes, &resource); err == nil && resource.Name != "" {
+			return resource.Name
 		}
 	}
 

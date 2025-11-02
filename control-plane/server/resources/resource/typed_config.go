@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/tidwall/sjson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/anypb"
 
@@ -48,6 +49,11 @@ func (ar *AllResources) processTypedConfigPath(ctx context.Context, pathd models
 		}
 
 		resource := conf.GetResource()
+
+		// FileAccessLog path override for managed listeners
+		if tempTypedConfig.Gtype == models.FileAccessLog && ar.IsManaged {
+			ar.overrideFileAccessLogPath(resource, context)
+		}
 
 		typedConfigJSON, err := json.Marshal(resource)
 		if err != nil {
@@ -164,4 +170,28 @@ func decodeTypedConfig(typedConfigJSON []byte, gtype models.GType) (*anypb.Any, 
 	}
 
 	return anypb.New(msg)
+}
+
+// overrideFileAccessLogPath overrides the path field in FileAccessLog resources for managed listeners
+// Format: /var/log/elchi/<listener_name>-<admin_port>_access.log
+func (ar *AllResources) overrideFileAccessLogPath(resource any, context *db.AppContext) {
+	context.Logger.Debugf("📝 Found FileAccessLog in typed_config, IsManaged=%v, ListenerName=%s, AdminPort=%d, ResourceType=%T",
+		ar.IsManaged, ar.ListenerName, ar.AdminPort, resource)
+
+	var oldPath any
+	var pathUpdated bool
+	newPath := fmt.Sprintf("/var/log/elchi/%s-%d_access.log", ar.ListenerName, ar.AdminPort)
+
+	if primitiveMap, ok := resource.(primitive.M); ok {
+		oldPath = primitiveMap["path"]
+		primitiveMap["path"] = newPath
+		pathUpdated = true
+	}
+
+	if pathUpdated {
+		context.Logger.Infof("🔄 [PATH_OVERRIDE] FileAccessLog for managed listener '%s': %s → %s",
+			ar.ListenerName, oldPath, newPath)
+	} else {
+		context.Logger.Warnf("Failed to override FileAccessLog path: unknown resource type %T", resource)
+	}
 }

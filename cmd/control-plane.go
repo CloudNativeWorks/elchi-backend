@@ -82,6 +82,13 @@ var grpcCmd = &cobra.Command{
 		srv := server.NewServer(context.Background(), ctxCache.Cache.Cache, callbacks)
 
 		grpcServer := grpcserver.NewServer(srv, port, ctxCache, envoyConnTracker)
+
+		// Start heartbeat service to keep lastSync fresh for active envoys
+		// This runs in background and updates lastSync every 30 seconds
+		heartbeatCtx, heartbeatCancel := context.WithCancel(context.Background())
+		defer heartbeatCancel()
+		go envoyConnTracker.StartHeartbeat(heartbeatCtx, appContext.Client, logger.NewLogger("control-plane/heartbeat"))
+
 		grpcServer.Run(appContext)
 	},
 }

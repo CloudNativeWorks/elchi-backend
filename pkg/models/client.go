@@ -42,6 +42,15 @@ type OperationClass interface {
 	// Envoy version related methods
 	GetEnvoyVersion() *pb.RequestEnvoyVersion
 
+	// WAF version related methods
+	GetWafVersion() *pb.RequestWafVersion
+
+	// Filebeat related methods
+	GetFilebeat() *pb.RequestFilebeat
+
+	// Rsyslog related methods
+	GetRsyslog() *pb.RequestRsyslog
+
 	GetClients() []ServiceClients
 
 	AppendClient(ServiceClients)
@@ -84,20 +93,134 @@ func (r *RequestEnvoyVersionJSON) ToPB() *pb.RequestEnvoyVersion {
 		return nil
 	}
 
-	var operation pb.EnvoyVersionOperation
+	var operation pb.VersionOperation
 	switch r.Operation {
 	case "GET_VERSIONS":
-		operation = pb.EnvoyVersionOperation_GET_VERSIONS
+		operation = pb.VersionOperation_GET_VERSIONS
 	case "SET_VERSION":
-		operation = pb.EnvoyVersionOperation_SET_VERSION
+		operation = pb.VersionOperation_SET_VERSION
 	default:
-		operation = pb.EnvoyVersionOperation_GET_VERSIONS // default fallback
+		operation = pb.VersionOperation_GET_VERSIONS // default fallback
 	}
 
 	return &pb.RequestEnvoyVersion{
 		Operation:     operation,
 		Version:       r.Version,
 		ForceDownload: r.ForceDownload,
+	}
+}
+
+// JSON wrapper for RequestWafVersion to handle string->enum conversion
+type RequestWafVersionJSON struct {
+	Operation     string `json:"operation"`      // String from JSON: "GET_VERSIONS", "SET_VERSION"
+	Version       string `json:"version"`        // Required for SET_VERSION
+	ForceDownload bool   `json:"force_download"` // Optional for SET_VERSION
+}
+
+// Convert to protobuf struct
+func (r *RequestWafVersionJSON) ToPB() *pb.RequestWafVersion {
+	if r == nil {
+		return nil
+	}
+
+	var operation pb.VersionOperation
+	switch r.Operation {
+	case "GET_VERSIONS":
+		operation = pb.VersionOperation_GET_VERSIONS
+	case "SET_VERSION":
+		operation = pb.VersionOperation_SET_VERSION
+	default:
+		operation = pb.VersionOperation_GET_VERSIONS // default fallback
+	}
+
+	return &pb.RequestWafVersion{
+		Operation:     operation,
+		Version:       r.Version,
+		ForceDownload: r.ForceDownload,
+	}
+}
+
+// JSON wrapper for ElasticsearchOutput to handle oneof auth (api_key or basic_auth)
+type ElasticsearchOutputJSON struct {
+	Hosts         []string      `json:"hosts,omitempty"`
+	Loadbalance   bool          `json:"loadbalance,omitempty"`
+	ApiKey        string        `json:"api_key,omitempty"`
+	BasicAuth     *pb.BasicAuth `json:"basic_auth,omitempty"`
+	SkipSslVerify bool          `json:"skip_ssl_verify,omitempty"`
+}
+
+// Convert to protobuf struct
+func (e *ElasticsearchOutputJSON) ToPB() *pb.ElasticsearchOutput {
+	if e == nil {
+		return nil
+	}
+
+	output := &pb.ElasticsearchOutput{
+		Hosts:         e.Hosts,
+		Loadbalance:   e.Loadbalance,
+		SkipSslVerify: e.SkipSslVerify,
+	}
+
+	// Handle oneof auth field
+	if e.ApiKey != "" {
+		output.Auth = &pb.ElasticsearchOutput_ApiKey{
+			ApiKey: e.ApiKey,
+		}
+	} else if e.BasicAuth != nil {
+		output.Auth = &pb.ElasticsearchOutput_BasicAuth{
+			BasicAuth: e.BasicAuth,
+		}
+	}
+
+	return output
+}
+
+// JSON wrapper for FilebeatOutput to handle oneof (elasticsearch or logstash)
+type FilebeatOutputJSON struct {
+	Elasticsearch *ElasticsearchOutputJSON `json:"elasticsearch,omitempty"`
+	Logstash      *pb.LogstashOutput       `json:"logstash,omitempty"`
+}
+
+// Convert to protobuf struct
+func (f *FilebeatOutputJSON) ToPB() *pb.FilebeatOutput {
+	if f == nil {
+		return nil
+	}
+
+	output := &pb.FilebeatOutput{}
+
+	if f.Elasticsearch != nil {
+		output.Output = &pb.FilebeatOutput_Elasticsearch{
+			Elasticsearch: f.Elasticsearch.ToPB(),
+		}
+	} else if f.Logstash != nil {
+		output.Output = &pb.FilebeatOutput_Logstash{
+			Logstash: f.Logstash,
+		}
+	}
+
+	return output
+}
+
+// JSON wrapper for RequestFilebeat to handle nested JSON->Proto conversion
+type RequestFilebeatJSON struct {
+	Inputs              []*pb.FilebeatInput     `json:"inputs,omitempty"`
+	TimestampProcessor  *pb.TimestampProcessor  `json:"timestamp_processor,omitempty"`
+	DropFieldsProcessor *pb.DropFieldsProcessor `json:"drop_fields_processor,omitempty"`
+	FilebeatOutput      *FilebeatOutputJSON     `json:"filebeat_output,omitempty"`
+}
+
+// Convert to protobuf struct
+func (r *RequestFilebeatJSON) ToPB() *pb.RequestFilebeat {
+	if r == nil {
+		return nil
+	}
+
+	return &pb.RequestFilebeat{
+		Inputs:              r.Inputs,
+		TimestampProcessor:  r.TimestampProcessor,
+		DropFieldsProcessor: r.DropFieldsProcessor,
+		FilebeatOutput:      r.FilebeatOutput.ToPB(),
 	}
 }
 
@@ -132,8 +255,15 @@ type Operations struct {
 	PolicyOperations []*PolicyOperation `json:"policy_operations,omitempty"`
 	TableOperations  []*TableOperation  `json:"table_operations,omitempty"`
 
-	// Envoy version operation field
+	// Version operation fields
 	EnvoyVersionOp *RequestEnvoyVersionJSON `json:"envoy_version,omitempty"`
+	WafVersionOp   *RequestWafVersionJSON   `json:"waf_version,omitempty"`
+
+	// Filebeat operation fields
+	FilebeatOp *RequestFilebeatJSON `json:"filebeat,omitempty"`
+
+	// Rsyslog operation fields
+	RsyslogOp *pb.RequestRsyslog `json:"rsyslog,omitempty"`
 }
 
 type ServiceClients struct {
@@ -476,4 +606,16 @@ func (o *Operations) GetTableOperations() []*TableOperation {
 
 func (o *Operations) GetEnvoyVersion() *pb.RequestEnvoyVersion {
 	return o.EnvoyVersionOp.ToPB()
+}
+
+func (o *Operations) GetWafVersion() *pb.RequestWafVersion {
+	return o.WafVersionOp.ToPB()
+}
+
+func (o *Operations) GetFilebeat() *pb.RequestFilebeat {
+	return o.FilebeatOp.ToPB()
+}
+
+func (o *Operations) GetRsyslog() *pb.RequestRsyslog {
+	return o.RsyslogOp
 }

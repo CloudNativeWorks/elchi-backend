@@ -25,6 +25,11 @@ type Resources struct {
 	Extensions      []types.Resource
 	VirtualHost     []types.Resource
 	UniqueResources map[string]struct{}
+
+	// FileAccessLog path override fields
+	AdminPort    uint32 // Admin interface port from admin_ports collection
+	ListenerName string // Listener name for access log path generation
+	IsManaged    bool   // Is listener managed (enables auto-override)
 }
 
 type AllResources interface {

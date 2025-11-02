@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/mongo"
 
+	"github.com/CloudNativeWorks/elchi-backend/controller/waf"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/async"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/async/job"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/authorization"
@@ -27,13 +28,17 @@ type JobHandler struct {
 }
 
 // NewJobHandler creates a new job handler
-func NewJobHandler(dbContext *db.AppContext) *JobHandler {
+func NewJobHandler(dbContext *db.AppContext, pokeService *bridge.PokeServiceClient, handlerLogger *logger.Logger) *JobHandler {
+	// Create WAF processor for async operations
+	wafProcessor := waf.NewAsyncWAFProcessor(dbContext, pokeService, handlerLogger)
+
 	// Initialize async system for job management
 	asyncSystem, err := async.NewAsyncJobSystem(&async.Config{
-		MongoDB:     dbContext.Client,
-		DBContext:   dbContext,
-		WorkerCount: 5,
-		BatchSize:   10,
+		MongoDB:      dbContext.Client,
+		DBContext:    dbContext,
+		WAFProcessor: wafProcessor,
+		WorkerCount:  5,
+		BatchSize:    10,
 	})
 	if err != nil {
 		logger.Fatalf("Failed to initialize async system: %v", err)
@@ -47,13 +52,13 @@ func NewJobHandler(dbContext *db.AppContext) *JobHandler {
 }
 
 // StartAsyncSystem starts the async job system workers
-func (h *JobHandler) StartAsyncSystem(pokeService interface{}) error {
+func (h *JobHandler) StartAsyncSystem(pokeService any) error {
 	// Set poke service for registry integration
 	if err := h.asyncSystem.SetPokeService(pokeService.(*bridge.PokeServiceClient)); err != nil {
 		return fmt.Errorf("failed to set poke service: %w", err)
 	}
 
-	// Start workers
+	// Start workers - WAFProcessor already set in async system config
 	workerConfig := &async.WorkerConfig{
 		PokeService:        pokeService,
 		JobManager:         h.asyncSystem.GetJobManager(),

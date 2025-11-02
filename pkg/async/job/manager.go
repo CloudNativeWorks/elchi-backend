@@ -357,6 +357,21 @@ func (m *Manager) UpdateJobProgress(ctx context.Context, jobID primitive.ObjectI
 	return err
 }
 
+// UpdateJobMetadata updates the metadata of a job
+func (m *Manager) UpdateJobMetadata(ctx context.Context, jobID primitive.ObjectID, metadata *JobMetadata) error {
+	collection := m.db.Collection("background_jobs")
+
+	update := bson.M{
+		"$set": bson.M{
+			"metadata":              metadata,
+			"worker_info.heartbeat": time.Now(),
+		},
+	}
+
+	_, err := collection.UpdateOne(ctx, bson.M{"_id": jobID}, update)
+	return err
+}
+
 // UpdateJobHeartbeat updates the worker heartbeat for a job
 func (m *Manager) UpdateJobHeartbeat(ctx context.Context, jobID primitive.ObjectID) error {
 	collection := m.db.Collection("background_jobs")

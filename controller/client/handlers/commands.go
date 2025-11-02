@@ -942,16 +942,29 @@ func (h *Client) processClientWithSafeguards(ctx context.Context, requestDetails
 	mutexCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
+	locked := false
 	done := make(chan struct{})
 	go func() {
 		mutex.Lock()
+		locked = true
 		close(done)
 	}()
 
 	select {
 	case <-done:
+		// Successfully acquired lock
 		defer mutex.Unlock()
 	case <-mutexCtx.Done():
+		// Timeout occurred
+		// CRITICAL: If goroutine eventually acquires lock after timeout, we must unlock it
+		// Otherwise mutex stays locked forever and client is stuck
+		go func() {
+			<-done // Wait for goroutine to finish (it will eventually acquire lock)
+			if locked {
+				mutex.Unlock() // Unlock the orphaned lock
+				h.logger.Warnf("🔓 Released orphaned mutex for client %s after timeout", client.ClientID)
+			}
+		}()
 		return nil, fmt.Errorf("mutex timeout for %s", client.ClientID)
 	}
 

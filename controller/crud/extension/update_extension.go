@@ -57,6 +57,11 @@ func updateResource(ctx context.Context, extension *AppHandler, resource models.
 		extension.Logger.Errorf("Error adding secure user filter: %v", err)
 		return nil, fmt.Errorf("authorization error: %w", err)
 	}
+	// Process WAF injection for HTTP WASM extensions
+	if err := ProcessWAFInjection(ctx, resource, extension.Context.Client, extension.Logger); err != nil {
+		return nil, err
+	}
+
 	// Version increment moved to control-plane GenerateSnapshot for centralized control
 	// Keep existing version without manual increment
 	newResource := resource.GetResource()
@@ -75,6 +80,7 @@ func updateResource(ctx context.Context, extension *AppHandler, resource models.
 
 	resource.SetTypedConfig(resources.DecodeSetTypedConfigs(resource, extension.Logger))
 
+	general := resource.GetGeneral()
 	update := bson.M{
 		"$set": bson.M{
 			"resource.resource":        newResource,
@@ -82,6 +88,7 @@ func updateResource(ctx context.Context, extension *AppHandler, resource models.
 			"general.config_discovery": resource.GetConfigDiscovery(),
 			"general.updated_at":       primitive.NewDateTimeFromTime(time.Now()),
 			"general.typed_config":     resource.GetTypedConfig(),
+			"general.waf":              general.WAF, // Update WAF field (supports both set and unset)
 		},
 	}
 

@@ -124,4 +124,10 @@ var AllowedEndpoints = []string{
 	"/api/v3/snippets/:id",
 	// Search endpoint
 	"/api/v3/search",
+	// WAF endpoints
+	"/api/v3/waf/crs",
+	"/api/v3/waf/crs/versions",
+	"/api/v3/waf/crs/:crs_version/:rule_id",
+	"/api/v3/waf/config",
+	"/api/v3/waf/config/:config_id",
 }

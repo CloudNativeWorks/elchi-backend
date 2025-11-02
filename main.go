@@ -9,6 +9,5 @@ import (
 
 func main() {
 	log.Printf("Envoy Version: %s", version.GetVersion())
-	// go suubar.Start()
 	cmd.Execute()
 }

@@ -604,3 +604,90 @@ func isSensitiveField(fieldName string) bool {
 	}
 	return false
 }
+
+// ================== WAF AUDIT HANDLERS ==================
+
+// getWAFConfigNameFromID fetches WAF config name from database by ID
+func (h *Handler) getWAFConfigNameFromID(c *gin.Context, configID string) string {
+	db := h.getDatabaseConnection()
+	if db == nil {
+		return ""
+	}
+
+	objID, err := primitive.ObjectIDFromHex(configID)
+	if err != nil {
+		return ""
+	}
+
+	var config struct {
+		Name string `bson:"name"`
+	}
+
+	ctx := c.Request.Context()
+	err = db.Collection("waf").FindOne(ctx, bson.M{"_id": objID}).Decode(&config)
+	if err != nil {
+		return ""
+	}
+
+	return config.Name
+}
+
+// setWAFAuditChanges handles change comparison for WAF config updates
+func (h *Handler) setWAFAuditChanges(ctx context.Context, db *mongo.Database, bodyBytes []byte, configID string) string {
+	var newConfig bson.M
+	if err := json.Unmarshal(bodyBytes, &newConfig); err != nil {
+		return ""
+	}
+
+	// Fetch existing WAF config
+	objID, err := primitive.ObjectIDFromHex(configID)
+	if err != nil {
+		return ""
+	}
+
+	var existingConfig bson.M
+	err = db.Collection("waf").FindOne(ctx, bson.M{"_id": objID}).Decode(&existingConfig)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return "new_waf_config: true"
+		}
+		return ""
+	}
+
+	// Clean data - remove metadata fields that shouldn't be compared
+	cleanExisting := cleanWAFData(existingConfig)
+	cleanNew := cleanWAFData(newConfig)
+
+	// Normalize both sides to handle primitive types
+	normalizedExisting, err := normalizePrimitiveTypes(cleanExisting)
+	if err != nil {
+		return ""
+	}
+	normalizedNew, err := normalizePrimitiveTypes(cleanNew)
+	if err != nil {
+		return ""
+	}
+
+	// Use r3labs/diff for better JSON comparison
+	changelog, err := diff.Diff(normalizedExisting, normalizedNew)
+	if err != nil {
+		// Fallback to go-cmp if diff fails
+		if !cmp.Equal(normalizedExisting, normalizedNew) {
+			return cmp.Diff(normalizedExisting, normalizedNew)
+		}
+	}
+
+	if len(changelog) > 0 {
+		return h.formatChangelogAsJSON(changelog)
+	}
+	return ""
+}
+
+// cleanWAFData removes metadata fields from WAF config for comparison
+func cleanWAFData(wafConfig bson.M) map[string]any {
+	return map[string]any{
+		"name":    wafConfig["name"],
+		"project": wafConfig["project"],
+		"data":    wafConfig["data"],
+	}
+}

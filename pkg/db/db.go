@@ -59,6 +59,7 @@ var Indices = map[string]mongo.IndexModel{
 	"audit_logs":         {Keys: bson.M{"id": 1}, Options: options.Index().SetUnique(true).SetName("id_1").SetSparse(true)},
 	"resource_templates": {Keys: bson.D{{Key: "gtype", Value: 1}, {Key: "version", Value: 1}, {Key: "project", Value: 1}}, Options: options.Index().SetUnique(true).SetName("gtype_version_project_1").SetCollation(&options.Collation{Locale: "en", Strength: 2})},
 	"snippets":           {Keys: bson.D{{Key: "name", Value: 1}, {Key: "project", Value: 1}, {Key: "gtype", Value: 1}}, Options: options.Index().SetUnique(true).SetName("name_project_gtype_1").SetCollation(&options.Collation{Locale: "en", Strength: 2})},
+	"admin_ports":        {Keys: bson.D{{Key: "name", Value: 1}, {Key: "project", Value: 1}, {Key: "version", Value: 1}}, Options: options.Index().SetUnique(true).SetName("name_project_version_1").SetCollation(&options.Collation{Locale: "en", Strength: 2})},
 }
 
 // TextSearchIndices defines text search indexes for secure search functionality

@@ -44,6 +44,7 @@ type WorkerConfig struct {
 	PokeService        *bridge.PokeServiceClient
 	JobManager         *job.Manager
 	DBContext          *db.AppContext
+	WAFProcessor       WAFProcessor
 	MaxConcurrentPokes int
 }
 
@@ -102,7 +103,7 @@ func (p *Pool) Start(ctx context.Context, config *WorkerConfig) error {
 	// Create and start workers
 	for i := 0; i < p.config.WorkerCount; i++ {
 		workerID := fmt.Sprintf("worker-%d-%d", time.Now().Unix(), i)
-		worker := NewWorker(workerID, p.config, p.jobManager, p.pokeService, p.dbContext)
+		worker := NewWorker(workerID, p.config, p.jobManager, p.pokeService, p.dbContext, config.WAFProcessor)
 		p.workers = append(p.workers, worker)
 
 		p.wg.Add(1)

@@ -11,6 +11,7 @@ type JobType string
 
 const (
 	JobTypeSnapshotUpdate JobType = "SNAPSHOT_UPDATE"
+	JobTypeWAFPropagation JobType = "WAF_PROPAGATION"
 )
 
 // JobStatus represents the current status of a job
@@ -76,11 +77,19 @@ type JobProgress struct {
 
 // JobMetadata contains metadata about the job
 type JobMetadata struct {
-	SourceResource    *SourceResource `bson:"source_resource" json:"source_resource"`
+	SourceResource    *SourceResource `bson:"source_resource,omitempty" json:"source_resource,omitempty"`
 	TriggerUser       *TriggerUser    `bson:"trigger_user" json:"trigger_user"`
 	AffectedListeners []string        `bson:"affected_listeners" json:"affected_listeners"`
 	TotalAffected     int             `bson:"total_affected" json:"total_affected"`
 	AnalysisDuration  int64           `bson:"analysis_duration_ms" json:"analysis_duration_ms"`
+	WAFConfig         *WAFConfigMeta  `bson:"waf_config,omitempty" json:"waf_config,omitempty"`           // For WAF_PROPAGATION jobs
+	AffectedWASM      []string        `bson:"affected_wasm,omitempty" json:"affected_wasm,omitempty"`     // For WAF_PROPAGATION jobs
+}
+
+// WAFConfigMeta contains metadata about the WAF config that triggered propagation
+type WAFConfigMeta struct {
+	Name    string `bson:"name" json:"name"`
+	Project string `bson:"project" json:"project"`
 }
 
 // SourceResource represents the resource that triggered the job

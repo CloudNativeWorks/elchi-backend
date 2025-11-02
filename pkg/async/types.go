@@ -28,6 +28,7 @@ type (
 	JobFilter         = job.JobFilter
 	ActionType        = job.ActionType
 	PokeStatus        = job.PokeStatus
+	WAFProcessor      = worker.WAFProcessor
 )
 
 // JobManagerInterface defines the interface for job management
@@ -66,6 +67,7 @@ type WorkerConfig struct {
 	PokeService        interface{} // Will be *bridge.PokeServiceClient
 	JobManager         JobManagerInterface
 	DBContext          interface{} // Will be *db.AppContext
+	WAFProcessor       WAFProcessor
 	MaxConcurrentPokes int
 }
 

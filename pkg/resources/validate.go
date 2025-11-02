@@ -69,8 +69,16 @@ func validateSingleResource(gtype models.GType, resource any) error {
 		return fmt.Errorf("failed to unmarshal resource: %w", err)
 	}
 
+	// Check if the message type implements ValidateAll()
 	validatable, ok := msg.(interface{ ValidateAll() error })
 	if !ok {
+		// Some protobuf types (like google.protobuf.Any) don't implement ValidateAll()
+		// For these types, we skip validation as they are generic containers
+		msgType := reflect.TypeOf(msg).String()
+		if strings.Contains(msgType, "anypb.Any") || strings.Contains(msgType, "google.protobuf.Any") {
+			// Skip validation for Any types - they are valid by design
+			return nil
+		}
 		return fmt.Errorf("GType %T does not implement ValidateAll()", msg)
 	}
 

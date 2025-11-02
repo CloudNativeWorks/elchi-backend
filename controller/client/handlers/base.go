@@ -39,18 +39,18 @@ type Client struct {
 // ClearActiveRequestsForClient removes all active requests related to a specific client
 // Called when client disconnects to prevent stale request blocking
 func (c *Client) ClearActiveRequestsForClient(clientID string) {
-	c.logger.Errorf("🚨 EMERGENCY DEBUG: Clearing active requests for disconnected client: %s", clientID)
-	
+	c.logger.Debugf("Clearing active requests for disconnected client: %s", clientID)
+
 	// Iterate through all active requests and close channels for this client
 	c.activeRequests.Range(func(key, value interface{}) bool {
 		requestHash := key.(string)
 		completionChan := value.(chan struct{})
-		
+
 		// Hash contains client ID, so we can check if this request belongs to the disconnected client
 		if strings.Contains(requestHash, clientID) {
-			c.logger.Errorf("🚨 EMERGENCY DEBUG: Removing active request hash for client %s: %s", clientID, requestHash)
+			c.logger.Debugf("Removing active request hash for client %s: %s", clientID, requestHash)
 			c.activeRequests.Delete(requestHash)
-			
+
 			// Close the channel to unblock any waiting requests
 			select {
 			case <-completionChan:
@@ -92,6 +92,9 @@ func NewClientHandler(dbContext *db.AppContext, xdsHandler *xds.AppHandler, clie
 	h.cmdFactory.RegisterProcessor("FRR", &processor.FRRProcessor{Logger: processorLogger})
 	h.cmdFactory.RegisterProcessor("FRR_LOGS", &processor.GeneralLogProcessor{Logger: processorLogger})
 	h.cmdFactory.RegisterProcessor("ENVOY_VERSION", &processor.EnvoyVersionProcessor{Logger: processorLogger})
+	h.cmdFactory.RegisterProcessor("WAF_VERSION", &processor.WafVersionProcessor{Logger: processorLogger})
+	h.cmdFactory.RegisterProcessor("FILEBEAT", &processor.FilebeatProcessor{Logger: processorLogger})
+	h.cmdFactory.RegisterProcessor("RSYSLOG", &processor.RsyslogProcessor{Logger: processorLogger})
 
 	// Responser Register
 	h.responser.RegisterResponser("DEPLOY", &responser.DeployResponser{XDSHandler: xdsHandler, Logger: responserLogger, Service: clientService, OpenStackHandler: openStackHandler})
@@ -105,12 +108,14 @@ func NewClientHandler(dbContext *db.AppContext, xdsHandler *xds.AppHandler, clie
 	h.responser.RegisterResponser("FRR", &responser.FRRResponser{})
 	h.responser.RegisterResponser("FRR_LOGS", &responser.GeneralLogResponser{})
 	h.responser.RegisterResponser("ENVOY_VERSION", &responser.EnvoyVersionResponser{})
+	h.responser.RegisterResponser("WAF_VERSION", &responser.WafVersionResponser{})
+	h.responser.RegisterResponser("FILEBEAT", &responser.FilebeatResponser{})
+	h.responser.RegisterResponser("RSYSLOG", &responser.RsyslogResponser{})
 
 	// Start mutex cleanup routine
 	h.startMutexCleanup()
-	
+
 	// Set callback for client disconnect events to clear active requests
-	h.logger.Errorf("🚨 EMERGENCY DEBUG: Setting disconnect callback for client service")
 	clientService.SetClientDisconnectedCallback(h.ClearActiveRequestsForClient)
 
 	return h

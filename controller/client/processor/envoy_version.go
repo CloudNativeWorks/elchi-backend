@@ -24,9 +24,9 @@ func (p *EnvoyVersionProcessor) ValidateAndTransform(op models.OperationClass, r
 
 	// Build request based on operation type
 	switch operation {
-	case client.EnvoyVersionOperation_GET_VERSIONS:
+	case client.VersionOperation_GET_VERSIONS:
 		return p.buildGetVersionsRequest(op, requestDetails)
-	case client.EnvoyVersionOperation_SET_VERSION:
+	case client.VersionOperation_SET_VERSION:
 		return p.buildSetVersionRequest(op, requestDetails)
 	default:
 		return nil, fmt.Errorf("unsupported envoy_version operation: %v (supported: GET_VERSIONS, SET_VERSION)", operation)
@@ -37,7 +37,7 @@ func (p *EnvoyVersionProcessor) buildGetVersionsRequest(_ models.OperationClass,
 	// GET_VERSIONS doesn't need additional parameters
 	service := &client.Command_EnvoyVersion{
 		EnvoyVersion: &client.RequestEnvoyVersion{
-			Operation: client.EnvoyVersionOperation_GET_VERSIONS,
+			Operation: client.VersionOperation_GET_VERSIONS,
 		},
 	}
 
@@ -61,7 +61,7 @@ func (p *EnvoyVersionProcessor) buildSetVersionRequest(op models.OperationClass,
 
 	service := &client.Command_EnvoyVersion{
 		EnvoyVersion: &client.RequestEnvoyVersion{
-			Operation:     client.EnvoyVersionOperation_SET_VERSION,
+			Operation:     client.VersionOperation_SET_VERSION,
 			Version:       version,
 			ForceDownload: envoyVersionOp.GetForceDownload(),
 		},

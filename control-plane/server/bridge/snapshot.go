@@ -102,15 +102,27 @@ func (s *SnapshotServiceServer) ClearNodeSnapshot(_ context.Context, req *bridge
 
 func convertToStructPB(resourceData map[string]types.Resource) (*structpb.Struct, error) {
 	dataMap := make(map[string]any)
+
+	// Use custom marshaler options to properly handle Any types
+	marshaler := protojson.MarshalOptions{
+		UseProtoNames: true,
+	}
+
 	for key, res := range resourceData {
 		resProto, ok := res.(proto.Message)
 		if !ok {
 			return nil, fmt.Errorf("resource %s is not proto.Message", key)
 		}
 
-		jsonBytes, err := protojson.Marshal(resProto)
+		jsonBytes, err := marshaler.Marshal(resProto)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal resource %s: %w", key, err)
+		}
+
+		// Debug: Log for resources containing "coraza"
+		protoStr := fmt.Sprintf("%v", resProto)
+		if len(protoStr) > 100 && (contains(protoStr, "coraza") || contains(protoStr, "directives_map")) {
+			logrus.Debugf("🔍 [SNAPSHOT] Resource '%s' JSON (800 chars): %s", key, truncate(string(jsonBytes), 800))
 		}
 
 		var jsonData any
@@ -121,4 +133,20 @@ func convertToStructPB(resourceData map[string]types.Resource) (*structpb.Struct
 	}
 
 	return structpb.NewStruct(dataMap)
+}
+
+func truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "..."
+}
+
+func contains(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }

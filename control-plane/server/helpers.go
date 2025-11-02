@@ -2,23 +2,10 @@ package server
 
 import (
 	"context"
-	"strings"
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"google.golang.org/grpc/metadata"
 )
-
-func GetNodeIDParts(nodeID string) (name, project, downstreamAddress string) {
-	parts := strings.Split(nodeID, "::")
-	switch len(parts) {
-	case 2:
-		return parts[0], parts[1], ""
-	case 3:
-		return parts[0], parts[1], parts[2]
-	default:
-		return "", "", ""
-	}
-}
 
 func GetMetadata(ctx context.Context, logger *logger.Logger) (address, nodeID, version, downstreamAddress, clientName string) {
 	if md, ok := metadata.FromIncomingContext(ctx); ok {

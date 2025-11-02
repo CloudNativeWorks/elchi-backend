@@ -30,6 +30,7 @@ import (
 	h_rbac "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/http/rbac/v3"
 	router "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/http/router/v3"
 	stateful_session "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/http/stateful_session/v3"
+	h_wasm "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/http/wasm/v3"
 	l_http_inspector "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/listener/http_inspector/v3"
 	l_local_ratelimit "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/listener/local_ratelimit/v3"
 	l_original_dst "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/listener/original_dst/v3"
@@ -83,8 +84,8 @@ var URLs = map[string]string{
 	"virtual_hosts":         "/resource/virtual_host/",
 	"tcp_proxy":             "/filters/network/tcp_proxy/",
 	"hcm":                   "/filters/network/hcm/",
-	"n_rbac":                "/filters/network/rbac/",
-	"h_rbac":                "/filters/http/rbac/",
+	"n_rbac":                "/filters/network/network_rbac/",
+	"h_rbac":                "/filters/http/http_rbac/",
 	"secrets":               "/resource/secret/",
 	"access_log":            "/extensions/access_log/",
 	"http_router":           "/filters/http/http_router/",
@@ -116,6 +117,7 @@ var URLs = map[string]string{
 	"oauth2":                "/filters/http/oauth2/",
 	"tls":                   "/resource/tls/",
 	"stat_sinks":            "/extensions/stat_sinks/",
+	"h_wasm":                "/filters/http/http_wasm/",
 }
 
 var gTypeMappings = map[GType]GTypeMapping{
@@ -872,6 +874,19 @@ var gTypeMappings = map[GType]GTypeMapping{
 		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(OpenTelemetry.String()),
 		TypedConfigPaths:              nil,
 		UpstreamPaths:                 GenericGRPCServiceUpstreams,
+	},
+	HTTPWasm: {
+		PrettyName:                    "Http Wasm",
+		Collection:                    "filters",
+		Type:                          "http_filter",
+		CanonicalName:                 "envoy.filters.http.wasm",
+		Category:                      "envoy.filters.http",
+		URL:                           URLs["h_wasm"],
+		Message:                       &h_wasm.Wasm{},
+		DownstreamFiltersFunc:         downstreamfilters.ConfigDiscoveryHTTPFilterDownstreamFilters,
+		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(HTTPWasm.String()),
+		TypedConfigPaths:              nil,
+		UpstreamPaths:                 nil,
 	},
 }
 

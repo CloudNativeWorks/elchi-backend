@@ -60,6 +60,7 @@ type General struct {
 	ConfigDiscovery []*ConfigDiscovery `json:"config_discovery,omitempty" bson:"config_discovery,omitempty"`
 	TypedConfig     []*TypedConfig     `json:"typed_config,omitempty" bson:"typed_config,omitempty"`
 	ElchiDiscovery  []*ElchiDiscovery  `json:"elchi_discovery,omitempty" bson:"elchi_discovery,omitempty"`
+	WAF             string             `json:"waf,omitempty" bson:"waf,omitempty"` // WAF config name (HTTP WASM only)
 	CreatedAt       primitive.DateTime `json:"created_at,omitempty" bson:"created_at,omitempty"`
 	UpdatedAt       primitive.DateTime `json:"updated_at,omitempty" bson:"updated_at,omitempty"`
 }

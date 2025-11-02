@@ -307,7 +307,18 @@ func (s *ClientService) CleanupStaleClientsFromDB(ctx context.Context) error {
 			continue
 		}
 
-		// Mark as disconnected if last_seen older than 2 minutes (stale)
+		// Check if client is connected to another controller via registry
+		if s.registryClient != nil {
+			location, err := s.registryClient.GetClientLocation(clientID)
+			if err == nil && location.Found {
+				s.logger.Debugf("🧹 CLEANUP-SKIP: Client %s is connected to controller %s (registry), skipping",
+					clientID, location.ControllerId)
+				continue
+			}
+		}
+
+		// Mark as disconnected if last_seen older than 7 minutes (stale)
+		// Client ping interval is 5 minutes, so 7 minutes allows for network delays
 		if lastSeenAge > 2*time.Minute {
 			s.logger.Warnf("🧹 CLEANUP-MARK: Client %s (%s) is stale (last seen: %v ago), marking as disconnected",
 				dbClient.Name, clientID, lastSeenAge)

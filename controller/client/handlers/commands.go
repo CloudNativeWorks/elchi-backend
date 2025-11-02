@@ -441,10 +441,12 @@ func (h *Client) executeForwardRequest(req *http.Request, targetURL string) ([]b
 	// Check if we have enough time left in the context
 	if deadline, ok := req.Context().Deadline(); ok {
 		timeLeft := time.Until(deadline)
-		h.logger.Infof("Context deadline check: %v remaining", timeLeft)
+		h.logger.Debugf("Context deadline check: %v remaining", timeLeft)
 
-		// If less than HTTPTimeout + 5s buffer, create new context with sufficient time
-		if timeLeft < HTTPTimeout+5*time.Second {
+		// If less than HTTPTimeout + 2s buffer, create new context with sufficient time
+		// HTTPTimeout is 25s, so this checks for < 27s remaining
+		// This avoids unnecessary context recreation when parent has ~30s (sufficient time)
+		if timeLeft < HTTPTimeout+2*time.Second {
 			h.logger.Warnf("Insufficient time in parent context (%v), creating new context for forward request", timeLeft)
 
 			// Create new context with sufficient timeout for forward request

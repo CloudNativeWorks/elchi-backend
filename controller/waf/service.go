@@ -3,11 +3,10 @@ package waf
 import (
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
+	pkgwaf "github.com/CloudNativeWorks/elchi-backend/pkg/waf"
 )
 
 const (
@@ -26,13 +25,17 @@ func NewWAFService() *WAFService {
 	}
 }
 
-// LoadCRSRules loads CRS rules from JSON file
+// LoadCRSRules loads CRS rules from embedded data or falls back to file
 func (s *WAFService) LoadCRSRules(version string) ([]models.CRSRule, *CRSMetadata, error) {
-	rulesFile := filepath.Join(s.DataDir, fmt.Sprintf("crs_rules_%s.json", version))
+	var data []byte
+	var err error
 
-	data, err := os.ReadFile(rulesFile)
-	if err != nil {
-		return nil, nil, err
+	// Try embedded data first
+	switch version {
+	case "4.14.0":
+		data = pkgwaf.EmbeddedRules4140
+	default:
+		return nil, nil, fmt.Errorf("version %s not embedded: %w", version, err)
 	}
 
 	var rules []models.CRSRule
@@ -55,11 +58,15 @@ func (s *WAFService) LoadCRSRules(version string) ([]models.CRSRule, *CRSMetadat
 
 // LoadCRSMetadata loads metadata for a specific CRS version
 func (s *WAFService) LoadCRSMetadata(version string) (*CRSMetadata, error) {
-	metadataFile := filepath.Join(s.DataDir, fmt.Sprintf("crs_rules_%s_metadata.json", version))
+	var data []byte
+	var err error
 
-	data, err := os.ReadFile(metadataFile)
-	if err != nil {
-		return nil, err
+	// Try embedded data first
+	switch version {
+	case "4.14.0":
+		data = pkgwaf.EmbeddedMetadata4140
+	default:
+		return nil, fmt.Errorf("version %s not embedded: %w", version, err)
 	}
 
 	var metadata CRSMetadata
@@ -70,27 +77,16 @@ func (s *WAFService) LoadCRSMetadata(version string) (*CRSMetadata, error) {
 	return &metadata, nil
 }
 
-// GetAvailableVersions returns list of available CRS versions
+// GetAvailableVersions returns list of available embedded CRS versions
 func (s *WAFService) GetAvailableVersions() ([]CRSMetadata, error) {
-	files, err := filepath.Glob(filepath.Join(s.DataDir, "crs_rules_*_metadata.json"))
-	if err != nil {
-		return nil, err
-	}
-
 	var versions []CRSMetadata
 
-	for _, file := range files {
-		data, err := os.ReadFile(file)
-		if err != nil {
-			continue
+	// Only return embedded versions
+	embeddedVersions := []string{"4.14.0"}
+	for _, version := range embeddedVersions {
+		if metadata, err := s.LoadCRSMetadata(version); err == nil {
+			versions = append(versions, *metadata)
 		}
-
-		var metadata CRSMetadata
-		if err := json.Unmarshal(data, &metadata); err != nil {
-			continue
-		}
-
-		versions = append(versions, metadata)
 	}
 
 	return versions, nil

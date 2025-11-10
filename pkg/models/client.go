@@ -339,6 +339,7 @@ type Extend struct {
 type ClientFields struct {
 	DownstreamAddress string
 	ClientName        string
+	ClientID          string
 }
 
 func (o *Operations) GetType() string {

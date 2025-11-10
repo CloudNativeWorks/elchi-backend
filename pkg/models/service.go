@@ -50,6 +50,7 @@ type EnvoyInfo struct {
 	DownstreamAddr string `bson:"downstream_address" json:"downstream_address"`
 	Version        string `bson:"version"          json:"version"`
 	ClientName     string `bson:"client_name"      json:"client_name"`
+	ClientID       string `bson:"client_id,omitempty" json:"client_id,omitempty"`
 	Connected      bool   `bson:"connected"        json:"connected"`
 	NodeID         string `bson:"nodeid"           json:"nodeid"`
 	SourceAddr     string `bson:"source_address"   json:"source_address"`

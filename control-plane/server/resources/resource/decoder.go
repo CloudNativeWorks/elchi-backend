@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	cluster "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/config/cluster/v3"
 	core "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/config/core/v3"
@@ -482,51 +483,149 @@ func (ar *AllResources) UpdateVhdsMetadataNodeID(vhds *route.Vhds) {
 }
 
 // transformWasmConfiguration decodes base64 value in configuration field and adds @type
+// transformWasmConfiguration transforms WASM configuration from MongoDB format to protobuf format.
+// It orchestrates the decoding, validation, and encoding process.
 func (ar *AllResources) transformWasmConfiguration(jsonStr string, logger *logger.Logger) (string, error) {
-	var data map[string]any
-	if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
-		return jsonStr, fmt.Errorf("failed to unmarshal JSON: %w", err)
+	// Parse input JSON
+	data, _, configuration, err := ar.extractWasmConfigFields(jsonStr)
+	if err != nil {
+		return jsonStr, err
+	}
+	if configuration == nil {
+		return jsonStr, nil // Not a WASM config, return as-is
 	}
 
-	// Navigate to config.configuration
+	// Extract and decode base64 config value
+	typeURL, decodedValue, err := ar.decodeWasmConfigValue(configuration, logger)
+	if err != nil {
+		return jsonStr, err
+	}
+
+	// Validate the decoded config is valid JSON
+	if err := ar.validateWasmConfigJSON(decodedValue, logger); err != nil {
+		return jsonStr, err
+	}
+
+	// Transform to protobuf format using placeholder technique
+	result, err := ar.applyProtobufTransformation(data, configuration, typeURL, decodedValue, logger)
+	if err != nil {
+		return jsonStr, err 
+	}
+
+	return result, nil
+}
+
+// extractWasmConfigFields extracts the configuration fields from WASM extension JSON.
+// Returns nil configuration if this is not a WASM extension.
+func (ar *AllResources) extractWasmConfigFields(jsonStr string) (map[string]any, map[string]any, map[string]any, error) {
+	var data map[string]any
+	if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to unmarshal JSON: %w", err)
+	}
+
 	config, ok := data["config"].(map[string]any)
 	if !ok {
-		return jsonStr, nil // No config field, return as-is
+		return data, nil, nil, nil // No config field
 	}
 
 	configuration, ok := config["configuration"].(map[string]any)
 	if !ok {
-		return jsonStr, nil // No configuration field, return as-is
+		return data, config, nil, nil // No configuration field
 	}
 
-	// Check if type_url and value exist
+	return data, config, configuration, nil
+}
+
+// decodeWasmConfigValue decodes the base64-encoded WASM configuration value.
+func (ar *AllResources) decodeWasmConfigValue(configuration map[string]any, logger *logger.Logger) (string, []byte, error) {
 	typeURL, hasTypeURL := configuration["type_url"].(string)
 	valueBase64, hasValue := configuration["value"].(string)
 
 	if !hasTypeURL || !hasValue {
-		return jsonStr, nil // Missing required fields, return as-is
+		return "", nil, fmt.Errorf("missing type_url or value fields")
 	}
 
-	// Decode base64 value
 	decodedValue, err := base64.StdEncoding.DecodeString(valueBase64)
 	if err != nil {
 		logger.Warnf("Failed to decode base64 configuration value: %v", err)
-		return jsonStr, nil // Return as-is on decode error
+		return "", nil, fmt.Errorf("invalid base64 encoding in WASM config: %w", err)
 	}
 
-	// Replace with proper Any structure
+	// Log decoded config (truncated for safety)
+	logLen := len(decodedValue)
+	if logLen > 500 {
+		logLen = 500
+	}
+	logger.Infof("📥 WAF Config RAW (first %d chars): %s", logLen, string(decodedValue[:logLen]))
+
+	return typeURL, decodedValue, nil
+}
+
+// validateWasmConfigJSON validates that the decoded config is valid JSON.
+func (ar *AllResources) validateWasmConfigJSON(decodedValue []byte, logger *logger.Logger) error {
+	var testParse any
+	if err := json.Unmarshal(decodedValue, &testParse); err != nil {
+		logger.Errorf("❌ Decoded WAF config is NOT valid JSON: %v", err)
+		return fmt.Errorf("decoded WAF config is not valid JSON: %w", err)
+	}
+	logger.Infof("✅ Decoded WAF config is valid JSON")
+	return nil
+}
+
+// applyProtobufTransformation applies the protobuf StringValue transformation using placeholder technique.
+// This avoids double-escaping by using a placeholder and manual replacement.
+func (ar *AllResources) applyProtobufTransformation(data, configuration map[string]any, typeURL string, decodedValue []byte, logger *logger.Logger) (string, error) {
+	// Generate unique placeholder
+	placeholder := fmt.Sprintf("__WASM_CFG_%d_PLACEHOLDER__", len(decodedValue))
+
+	// Update configuration with @type and placeholder
 	configuration["@type"] = typeURL
-	configuration["value"] = string(decodedValue)
-	delete(configuration, "type_url") // Remove type_url, use @type instead
+	configuration["value"] = placeholder
+	delete(configuration, "type_url")
 
 	logger.Debugf("🔍 Transformed WASM configuration: type=%s, decoded_value_length=%d", typeURL, len(decodedValue))
 
-	// Marshal back to JSON
+	// Marshal with placeholder
 	modifiedJSON, err := json.Marshal(data)
 	if err != nil {
-		return jsonStr, fmt.Errorf("failed to marshal modified JSON: %w", err)
+		return "", fmt.Errorf("failed to marshal modified JSON: %w", err)
 	}
 
-	return string(modifiedJSON), nil
+	// Replace placeholder with properly escaped config
+	result, err := ar.replacePlaceholderWithConfig(string(modifiedJSON), placeholder, decodedValue, logger)
+	if err != nil {
+		return "", err
+	}
+
+	return result, nil
 }
 
+// replacePlaceholderWithConfig replaces the placeholder with the actual WASM config.
+// It properly escapes the config as a JSON string to avoid double-escaping issues.
+func (ar *AllResources) replacePlaceholderWithConfig(modifiedJSON, placeholder string, decodedValue []byte, logger *logger.Logger) (string, error) {
+	quotedPlaceholder := `"` + placeholder + `"`
+
+	// Marshal as JSON string (this escapes all special characters)
+	marshaledString, err := json.Marshal(string(decodedValue))
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal WAF config string: %w", err)
+	}
+
+	// Verify placeholder exists (safety check)
+	if !strings.Contains(modifiedJSON, quotedPlaceholder) {
+		logger.Errorf("❌ Placeholder not found in marshaled JSON - internal error")
+		return "", fmt.Errorf("internal error: placeholder not found in JSON")
+	}
+
+	// Replace placeholder with marshaled config
+	result := strings.ReplaceAll(modifiedJSON, quotedPlaceholder, string(marshaledString))
+
+	// Log result (truncated for safety)
+	resultLogLen := len(result)
+	if resultLogLen > 600 {
+		resultLogLen = 600
+	}
+	logger.Infof("📤 Final JSON (first %d chars): %s", resultLogLen, result[:resultLogLen])
+
+	return result, nil
+}

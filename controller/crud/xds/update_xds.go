@@ -46,14 +46,14 @@ func compareElchiDiscovery(old, new []*models.ElchiDiscovery) bool {
 // areDiscoveryEndpointsMissing checks if any discovery endpoints are missing from the resource
 func areDiscoveryEndpointsMissing(resource models.ResourceClass) bool {
 	general := resource.GetGeneral()
-	
+
 	// Get current endpoints from resource
 	resourceData, ok := resource.GetResource().(map[string]any)
 	if !ok {
 		// If resource format is invalid, consider missing
 		return true
 	}
-	
+
 	endpoints, ok := resourceData["endpoints"].([]any)
 	if !ok {
 		// If no endpoints array, definitely missing
@@ -202,7 +202,7 @@ func (xds *AppHandler) UpdateResource(ctx context.Context, resource models.Resou
 
 // handleDownloadRequest handles bootstrap download requests
 func (xds *AppHandler) handleDownloadRequest(ctx context.Context, requestDetails models.RequestDetails) (gin.H, error) {
-	if bootstrap, err := xds.DownloadBootstrap(ctx, requestDetails, models.ClientFields{}); err != nil {
+	if bootstrap, err := xds.DownloadBootstrap(ctx, requestDetails, models.ClientFields{DownstreamAddress: requestDetails.DownstreamAddress}); err != nil {
 		return gin.H{"message": "Error", "data": bootstrap}, err
 	} else {
 		return gin.H{"message": "Success", "data": bootstrap}, nil

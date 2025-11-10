@@ -44,6 +44,7 @@ func (p *BootstrapProcessor) ValidateAndTransform(op models.OperationClass, requ
 	cf := models.ClientFields{
 		DownstreamAddress: cl.DownstreamAddress,
 		ClientName:        clientInfo.Name,
+		ClientID:          cl.ClientID,
 	}
 
 	bootstrapAny, err := p.XDSHandler.DownloadBootstrap(context.TODO(), requestDetails, cf)

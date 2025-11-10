@@ -7,13 +7,14 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-func GetMetadata(ctx context.Context, logger *logger.Logger) (address, nodeID, version, downstreamAddress, clientName string) {
+func GetMetadata(ctx context.Context, logger *logger.Logger) (address, nodeID, version, downstreamAddress, clientName, clientID string) {
 	if md, ok := metadata.FromIncomingContext(ctx); ok {
 		nodeID = getMetadataValue(md, "nodeid", "NodeID", logger)
 		version = getMetadataValue(md, "envoy-version", "Version", logger)
 		downstreamAddress = getMetadataValue(md, "downstream_address", "DownstreamAddress", logger)
 		address = getMetadataValue(md, "x-envoy-external-address", "Address", logger)
 		clientName = getMetadataValue(md, "client_name", "ClientName", logger)
+		clientID = getMetadataValue(md, "client_id", "ClientID", logger)
 	}
 	return
 }

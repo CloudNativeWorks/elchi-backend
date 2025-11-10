@@ -10,7 +10,7 @@ import (
 	"github.com/CloudNativeWorks/versioned-go-control-plane/pkg/cache/v3"
 )
 
-func (e *EnvoyConnTracker) TrackClientUp(dbClient *mongo.Database, nodeID, address, version, downstreamAddress, clientName string, streamID int64, logger *logger.Logger) {
+func (e *EnvoyConnTracker) TrackClientUp(dbClient *mongo.Database, nodeID, address, version, downstreamAddress, clientName, clientID string, streamID int64, logger *logger.Logger) {
 	count := e.IncAndGet(nodeID)
 	e.dbOpChan <- dbOperation{
 		nodeID:      nodeID,
@@ -21,6 +21,7 @@ func (e *EnvoyConnTracker) TrackClientUp(dbClient *mongo.Database, nodeID, addre
 		version:     version,
 		downAddress: downstreamAddress,
 		clientName:  clientName,
+		clientID:    clientID,
 		logger:      logger,
 	}
 }

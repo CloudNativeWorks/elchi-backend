@@ -18,6 +18,7 @@ type dbOperation struct {
 	version     string
 	downAddress string
 	clientName  string
+	clientID    string
 	logger      *logger.Logger
 	isUndeploy  bool
 }
@@ -43,7 +44,7 @@ func (e *EnvoyConnTracker) processDBOperations() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		switch op.op {
 		case "inc":
-			e.AddOrUpdateEnvoy(ctx, op.dbClient, op.address, op.nodeID, op.version, op.downAddress, op.clientName, op.count, op.logger)
+			e.AddOrUpdateEnvoy(ctx, op.dbClient, op.address, op.nodeID, op.version, op.downAddress, op.clientName, op.clientID, op.count, op.logger)
 		case "dec":
 			e.DisconnectNodeIDWithCount(ctx, op.dbClient, op.nodeID, op.count, op.isUndeploy, op.logger)
 		}

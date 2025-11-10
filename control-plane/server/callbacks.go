@@ -93,7 +93,7 @@ func (c *Callbacks) OnDeltaStreamOpen(ctx context.Context, id int64, typ string)
 
 	c.logger.Infof("🔍 DEBUG: OnDeltaStreamOpen called (stream ID: %d, type: %s)", id, typ)
 
-	address, nodeID, version, downstreamAddress, clientName := GetMetadata(ctx, c.logger)
+	address, nodeID, version, downstreamAddress, clientName, clientID := GetMetadata(ctx, c.logger)
 
 	// CRITICAL: Validate nodeID FIRST before any registry operations
 	if nodeID == "" {
@@ -127,7 +127,7 @@ func (c *Callbacks) OnDeltaStreamOpen(ctx context.Context, id int64, typ string)
 		return err
 	}
 
-	c.envoyConnTracker.TrackClientUp(c.appContext.Client, nodeID, address, version, downstreamAddress, clientName, id, c.logger)
+	c.envoyConnTracker.TrackClientUp(c.appContext.Client, nodeID, address, version, downstreamAddress, clientName, clientID, id, c.logger)
 	c.logger.Infof("Delta stream %d opened for NodeID %s", id, nodeID)
 	return nil
 }

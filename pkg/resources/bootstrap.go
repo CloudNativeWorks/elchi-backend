@@ -126,6 +126,14 @@ func AttachDownstreamAddressToBootstrap(bootstrapAny any, cf models.ClientFields
 		})
 	}
 
+	// if client_id metadata already exists, don't add it again
+	if meta, _ := findMetadataItem(initialMetadata, "client_id"); meta == nil && cf.ClientID != "" {
+		initialMetadata = append(initialMetadata, primitive.M{
+			"key":   "client_id",
+			"value": cf.ClientID,
+		})
+	}
+
 	grpcService["initial_metadata"] = initialMetadata
 
 	return nil

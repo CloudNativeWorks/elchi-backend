@@ -95,6 +95,7 @@ func (p *DeployProcessor) ValidateAndTransform(op models.OperationClass, request
 	cf := models.ClientFields{
 		DownstreamAddress: cl.DownstreamAddress,
 		ClientName:        clientInfo.Name,
+		ClientID:          cl.ClientID,
 	}
 
 	bootstrapAny, err := p.XDSHandler.DownloadBootstrap(context.TODO(), requestDetails, cf)

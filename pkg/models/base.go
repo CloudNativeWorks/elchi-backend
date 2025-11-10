@@ -21,10 +21,11 @@ type RequestDetails struct {
 	Search         string // Search query for filtering resources
 	Validate       string // Enable resource validation (validate=true)
 	// Forward support fields
-	Token        string
-	RefreshToken string
-	IsForwarded  bool
-	OriginalBody []byte
+	Token             string
+	RefreshToken      string
+	IsForwarded       bool
+	OriginalBody      []byte
+	DownstreamAddress string
 }
 
 type UserDetails struct {

@@ -68,7 +68,7 @@ func (xds *AppHandler) DownloadBootstrap(ctx context.Context, requestDetails mod
 	if general.Managed && cf.DownstreamAddress == "" {
 		return nil, fmt.Errorf("managed listener '%s' requires downstream address but none provided", general.Name)
 	}
-	
+
 	if cf.DownstreamAddress != "" {
 		err := resources.AttachDownstreamAddressToBootstrap(bootstrap.GetResource(), cf)
 		if err != nil {
@@ -77,7 +77,7 @@ func (xds *AppHandler) DownloadBootstrap(ctx context.Context, requestDetails mod
 	}
 
 	bootstrap.SetResource(bootstrap.GetResource())
-	listenerID := general.Name + "::" + general.Project
+	listenerID := general.Name + "_" + general.Project
 	err = AddPrefixandTagsToOtelStatsSink(bootstrap, listenerID, cf)
 	if err != nil {
 		return nil, err
@@ -119,24 +119,70 @@ func AddPrefixandTagsToOtelStatsSink(dbResource models.ResourceClass, prefix str
 		return fmt.Errorf("stats_sinks not found or not a primitive.A")
 	}
 
+	// Get or create stats_config
+	statsConfig, ok := bootstrapMap["stats_config"].(primitive.M)
+	if !ok {
+		statsConfig = primitive.M{}
+		bootstrapMap["stats_config"] = statsConfig
+	}
+
+	// Get or create stats_tags array
+	statsTags, ok := statsConfig["stats_tags"].(primitive.A)
+	if !ok {
+		statsTags = primitive.A{}
+	}
+
+	// Define standard WAF metric tags (regex-based extraction)
+	wafTags := []primitive.M{
+		{
+			"tag_name": "phase",
+			"regex":    "(_phase=([a-z_]+))",
+		},
+		{
+			"tag_name": "rule_id",
+			"regex":    "(_ruleid=([0-9]+))",
+		},
+		{
+			"tag_name": "identifier",
+			"regex":    "(_identifier=([0-9a-z.:]+))",
+		},
+		{
+			"tag_name": "owner",
+			"regex":    "(_owner=([0-9a-z.:]+))",
+		},
+		{
+			"tag_name": "authority",
+			"regex":    "(_authority=([0-9a-z.:]+))",
+		},
+	}
+
+	// Add WAF tags if they don't already exist
+	existingTagNames := make(map[string]bool)
+	for _, tagRaw := range statsTags {
+		if tag, ok := tagRaw.(primitive.M); ok {
+			if tagName, ok := tag["tag_name"].(string); ok {
+				existingTagNames[tagName] = true
+			}
+		}
+	}
+
+	for _, wafTag := range wafTags {
+		tagName := wafTag["tag_name"].(string)
+		if !existingTagNames[tagName] {
+			statsTags = append(statsTags, wafTag)
+			existingTagNames[tagName] = true
+		}
+	}
+
+	// Add client_name tag if provided
 	if cf.ClientName != "" {
-		statsConfig, ok := bootstrapMap["stats_config"].(primitive.M)
-		if !ok {
-			otelSink := map[string][]map[string]string{
-				"stats_tags": {
-					{
-						"tag_name":    "client_name",
-						"fixed_value": cf.ClientName,
-					},
-				},
-			}
-			bootstrapMap["stats_config"] = otelSink
+		if !existingTagNames["client_name"] {
+			statsTags = append(statsTags, primitive.M{
+				"tag_name":    "client_name",
+				"fixed_value": cf.ClientName,
+			})
 		} else {
-			statsTags, ok := statsConfig["stats_tags"].(primitive.A)
-			if !ok {
-				statsTags = primitive.A{}
-			}
-			found := false
+			// Update existing client_name tag
 			for i, tagRaw := range statsTags {
 				tag, ok := tagRaw.(primitive.M)
 				if !ok {
@@ -145,20 +191,15 @@ func AddPrefixandTagsToOtelStatsSink(dbResource models.ResourceClass, prefix str
 				if tag["tag_name"] == "client_name" {
 					tag["fixed_value"] = cf.ClientName
 					statsTags[i] = tag
-					found = true
 					break
 				}
 			}
-			if !found {
-				statsTags = append(statsTags, primitive.M{
-					"tag_name":    "client_name",
-					"fixed_value": cf.ClientName,
-				})
-			}
-			statsConfig["stats_tags"] = statsTags
-			bootstrapMap["stats_config"] = statsConfig
 		}
 	}
+
+	// Update stats_config with all tags
+	statsConfig["stats_tags"] = statsTags
+	bootstrapMap["stats_config"] = statsConfig
 
 	for _, sink := range statsSinks {
 		sinkMap, ok := sink.(models.TC)

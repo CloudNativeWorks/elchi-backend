@@ -287,22 +287,23 @@ func (h *Handler) getRequestDetails(c *gin.Context) (models.RequestDetails, mode
 	projectID := authorization.ExtractProjectFromRequest(c)
 
 	requestDetails := models.RequestDetails{
-		CanonicalName:  getParamOrQuery(c, "canonical_name"),
-		Collection:     getParamOrQuery(c, "collection"),
-		Version:        getParamOrQuery(c, "version"),
-		Category:       c.Query("category"),
-		ResourceID:     c.Query("resource_id"),
-		Name:           c.Param("name"),
-		SaveOrPublish:  c.Query("save_or_publish"),
-		Project:        projectID,
-		Metadata:       extractMetadata(c),
-		Type:           models.KnownTYPES(getOptionalParam(c, "type")),
-		GType:          models.GType(c.Query("gtype")),
-		User:           userDetails,
-		WithServiceIPs: c.Query("with_service_ips"),
-		ForMetrics:     c.Query("for_metrics"),
-		Search:         c.Query("search"),
-		Validate:       c.Query("validate"),
+		CanonicalName:     getParamOrQuery(c, "canonical_name"),
+		Collection:        getParamOrQuery(c, "collection"),
+		Version:           getParamOrQuery(c, "version"),
+		Category:          c.Query("category"),
+		ResourceID:        c.Query("resource_id"),
+		Name:              c.Param("name"),
+		SaveOrPublish:     c.Query("save_or_publish"),
+		Project:           projectID,
+		Metadata:          extractMetadata(c),
+		Type:              models.KnownTYPES(getOptionalParam(c, "type")),
+		GType:             models.GType(c.Query("gtype")),
+		User:              userDetails,
+		WithServiceIPs:    c.Query("with_service_ips"),
+		ForMetrics:        c.Query("for_metrics"),
+		Search:            c.Query("search"),
+		Validate:          c.Query("validate"),
+		DownstreamAddress: c.Query("downstream_ip"),
 	}
 
 	return requestDetails, userDetails
@@ -889,4 +890,3 @@ func (h *Handler) updateScenarioAuditFromResponse(c *gin.Context, response any) 
 		audit.SetAuditResource(c, "scenarios", scenarioID, scenarioName, c.Query("project"))
 	}
 }
-

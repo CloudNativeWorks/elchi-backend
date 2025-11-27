@@ -223,17 +223,26 @@ func (h *Client) processClientsInParallel(ctx context.Context, clients []models.
 	for collectedResults < len(clients) {
 		select {
 		case result := <-resultChan:
+			// Debug log for all received results
+			h.logger.Debugf("📥 Received result from channel: ClientID='%s', Index=%d, HasError=%v",
+				result.ClientID, result.Index, result.Error != nil)
+
 			// Check for duplicate response from same client
 			if collectedClientIDs[result.ClientID] {
-				h.logger.Warnf("🔍 DUPLICATE RESPONSE detected from client %s - ignoring", result.ClientID)
+				h.logger.Warnf("🔍 DUPLICATE RESPONSE detected from client %s (index %d) - ignoring and incrementing counter to prevent timeout",
+					result.ClientID, result.Index)
+				// CRITICAL FIX: Increment collectedResults even for duplicates to prevent timeout
+				// Otherwise the loop waits forever for len(clients) results
+				collectedResults++
 				continue // Ignore duplicate response
 			}
-			
+
 			// Mark client as collected and store result
 			collectedClientIDs[result.ClientID] = true
 			results[result.Index] = result // Store by index to maintain order
 			collectedResults++
-			h.logger.Debugf("Collected result %d/%d from client %s", collectedResults, len(clients), result.ClientID)
+			h.logger.Debugf("✅ Collected result %d/%d from client %s at index %d",
+				collectedResults, len(clients), result.ClientID, result.Index)
 		case <-time.After(60 * time.Second):
 			h.logger.Errorf("Timeout waiting for results: collected %d/%d results", collectedResults, len(clients))
 			// Create error results for missing clients

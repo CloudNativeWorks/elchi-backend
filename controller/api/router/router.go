@@ -48,6 +48,7 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 	apiExtension.Use(middleware.ValidateResourceParams()) // Add resource parameter validation
 	apiResource := v3.Group("/xds")
 	apiResource.Use(middleware.ValidateResourceParams()) // Add resource parameter validation
+	apiResourceOps := v3.Group("/resource")
 	apiDependency := v3.Group("/dependency")
 	apiScenario := v3.Group("/scenario")
 	apiBridge := v3.Group("/bridge")
@@ -70,6 +71,7 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 	apiSnippets := v3.Group("/snippets")
 	apiSearch := v3.Group("/search")
 	apiWAF := v3.Group("/waf")
+	apiMaintenance := apiSettings.Group("/maintenance") // Maintenance routes under settings
 
 	initAuthRoutes(apiAuth, h)
 	initSettingRoutes(apiSettings, h)
@@ -77,6 +79,7 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 	initExtensionRoutes(apiExtension, h)
 	initScenarioRoutes(apiScenario, h)
 	initResourceRoutes(apiResource, h)
+	initResourceOpsRoutes(apiResourceOps, h)
 	initDependencyRoutes(apiDependency, h)
 	initBridgeRoutes(apiBridge, h)
 	initClientRoutes(apiClient, h)
@@ -91,7 +94,8 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 	initSnippetRoutes(apiSnippets, h)
 	initSearchRoutes(apiSearch, h)
 	initWAFRoutes(apiWAF, h)
-	initOpenStackRoutes(apiClient, h) // OpenStack routes under /api/op/clients
+	initMaintenanceRoutes(apiMaintenance, h) // Maintenance/cleanup routes
+	initOpenStackRoutes(apiClient, h)        // OpenStack routes under /api/op/clients
 
 	// logRoutes(e)
 	return e

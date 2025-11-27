@@ -13,6 +13,7 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/controller/waf"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/async"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/async/job"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/async/worker"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/authorization"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/bridge"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
@@ -28,17 +29,18 @@ type JobHandler struct {
 }
 
 // NewJobHandler creates a new job handler
-func NewJobHandler(dbContext *db.AppContext, pokeService *bridge.PokeServiceClient, handlerLogger *logger.Logger) *JobHandler {
+func NewJobHandler(dbContext *db.AppContext, pokeService *bridge.PokeServiceClient, handlerLogger *logger.Logger, clientHandler worker.ClientCommandHandler) *JobHandler {
 	// Create WAF processor for async operations
 	wafProcessor := waf.NewAsyncWAFProcessor(dbContext, pokeService, handlerLogger)
 
 	// Initialize async system for job management
 	asyncSystem, err := async.NewAsyncJobSystem(&async.Config{
-		MongoDB:      dbContext.Client,
-		DBContext:    dbContext,
-		WAFProcessor: wafProcessor,
-		WorkerCount:  5,
-		BatchSize:    10,
+		MongoDB:        dbContext.Client,
+		DBContext:      dbContext,
+		WAFProcessor:   wafProcessor,
+		CommandHandler: clientHandler,
+		WorkerCount:    5,
+		BatchSize:      10,
 	})
 	if err != nil {
 		logger.Fatalf("Failed to initialize async system: %v", err)
@@ -49,6 +51,11 @@ func NewJobHandler(dbContext *db.AppContext, pokeService *bridge.PokeServiceClie
 		dbContext:   dbContext,
 		logger:      logger.NewLogger("job-handler"),
 	}
+}
+
+// GetAsyncSystem returns the async job system instance
+func (h *JobHandler) GetAsyncSystem() async.AsyncJobSystem {
+	return h.asyncSystem
 }
 
 // StartAsyncSystem starts the async job system workers

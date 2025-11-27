@@ -315,20 +315,21 @@ func (r *RequestBgpJSON) ToPB() *pb.RequestBgp {
 }
 
 type Command struct {
-	Project    string               `json:"project,omitempty"`
-	Name       string               `json:"name,omitempty"`
-	Count      uint32               `json:"count,omitempty"`
-	Method     string               `json:"method,omitempty"`
-	Path       AllowedProxyPaths    `json:"path,omitempty"`
-	Queries    map[string]string    `json:"queries,omitempty"`
-	Raw        string               `json:"raw,omitempty"`
-	Search     string               `json:"search,omitempty"`
-	Levels     []string             `json:"levels,omitempty"`
-	Components []string             `json:"components,omitempty"`
-	Interfaces []*pb.InterfaceState `json:"interfaces,omitempty"`
-	Protocol   *FRRProtocolTypeJSON `json:"protocol,omitempty"`
-	Bgp        *RequestBgpJSON      `json:"bgp,omitempty"`
-	LogType    uint32               `json:"log_type,omitempty"`
+	Project     string               `json:"project,omitempty"`
+	Name        string               `json:"name,omitempty"`
+	FromVersion string               `json:"from_version,omitempty"` // Source version for UPGRADE_LISTENER
+	Count       uint32               `json:"count,omitempty"`
+	Method      string               `json:"method,omitempty"`
+	Path        AllowedProxyPaths    `json:"path,omitempty"`
+	Queries     map[string]string    `json:"queries,omitempty"`
+	Raw         string               `json:"raw,omitempty"`
+	Search      string               `json:"search,omitempty"`
+	Levels      []string             `json:"levels,omitempty"`
+	Components  []string             `json:"components,omitempty"`
+	Interfaces  []*pb.InterfaceState `json:"interfaces,omitempty"`
+	Protocol    *FRRProtocolTypeJSON `json:"protocol,omitempty"`
+	Bgp         *RequestBgpJSON      `json:"bgp,omitempty"`
+	LogType     uint32               `json:"log_type,omitempty"`
 }
 
 type Extend struct {

@@ -69,7 +69,9 @@ func (s *SnapshotServiceServer) GetNodeSnapshot(_ context.Context, req *bridge.N
 	for _, resourceType := range resourceTypes {
 		resourceData := resources[resourceType]
 
-		protoStruct, err := convertToStructPB(resourceData)
+		// Mask sensitive data for Secret resources
+		shouldMaskSecrets := resourceType == "Secret"
+		protoStruct, err := convertToStructPB(resourceData, shouldMaskSecrets)
 		if err != nil {
 			logrus.Errorf("Error converting resource data for type %s: %v", resourceType, err)
 			return nil, err
@@ -100,7 +102,7 @@ func (s *SnapshotServiceServer) ClearNodeSnapshot(_ context.Context, req *bridge
 	}, nil
 }
 
-func convertToStructPB(resourceData map[string]types.Resource) (*structpb.Struct, error) {
+func convertToStructPB(resourceData map[string]types.Resource, maskSecrets bool) (*structpb.Struct, error) {
 	dataMap := make(map[string]any)
 
 	// Use custom marshaler options to properly handle Any types
@@ -129,10 +131,84 @@ func convertToStructPB(resourceData map[string]types.Resource) (*structpb.Struct
 		if err := json.Unmarshal(jsonBytes, &jsonData); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal JSON for resource %s: %w", key, err)
 		}
+
+		// Mask sensitive secret data
+		if maskSecrets {
+			jsonData = maskSecretData(jsonData)
+		}
+
 		dataMap[key] = jsonData
 	}
 
 	return structpb.NewStruct(dataMap)
+}
+
+// maskSecretData recursively masks sensitive secret fields
+func maskSecretData(data any) any {
+	switch v := data.(type) {
+	case map[string]any:
+		masked := make(map[string]any)
+		for key, value := range v {
+			// Mask sensitive fields
+			if isSensitiveField(key) {
+				masked[key] = "***REDACTED***"
+			} else {
+				// Recursively process nested objects
+				masked[key] = maskSecretData(value)
+			}
+		}
+		return masked
+	case []any:
+		// Process arrays
+		masked := make([]any, len(v))
+		for i, item := range v {
+			masked[i] = maskSecretData(item)
+		}
+		return masked
+	default:
+		return v
+	}
+}
+
+// isSensitiveField checks if a field name contains sensitive data
+func isSensitiveField(fieldName string) bool {
+	// Exact match fields (case-insensitive)
+	exactMatchFields := []string{
+		"private_key",
+		"password",
+		"token",
+		"api_key",
+		"credential",
+		"inline_bytes",
+		"inline_string",
+	}
+
+	fieldLower := ""
+	for _, c := range fieldName {
+		if c >= 'A' && c <= 'Z' {
+			fieldLower += string(c + 32)
+		} else {
+			fieldLower += string(c)
+		}
+	}
+
+	// Check exact matches
+	for _, sensitive := range exactMatchFields {
+		if fieldLower == sensitive {
+			return true
+		}
+	}
+
+	// Special case: "secret" only if it's the exact field name or ends with "_secret"
+	// This avoids masking "sds_secret_configs" which is just configuration
+	if fieldLower == "secret" || contains(fieldLower, "_secret") {
+		// But exclude configuration fields that just reference secrets
+		if !contains(fieldLower, "secret_config") && !contains(fieldLower, "secret_provider") {
+			return true
+		}
+	}
+
+	return false
 }
 
 func truncate(s string, max int) string {

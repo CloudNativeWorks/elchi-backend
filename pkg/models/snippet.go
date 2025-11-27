@@ -16,15 +16,15 @@ type ResourceSnippet struct {
 	ComponentType string `json:"component_type" bson:"component_type"` // "HealthCheck", "OutlierDetection", etc.
 	GType         string `json:"gtype" bson:"gtype"`                   // Full GType enum value: "envoy.config.cluster.v3.Cluster"
 	FieldPath     string `json:"field_path" bson:"field_path"`         // "health_checks", "outlier_detection"
-	IsArray       bool   `json:"is_array" bson:"is_array"`             // Path array mi?
+	IsArray       bool   `json:"is_array" bson:"is_array"`
 
 	// Version & Project
 	Version string `json:"version" bson:"version"` // "v1.34.2"
 	Project string `json:"project" bson:"project"`
 
 	// Snippet data
-	SnippetData any    `json:"snippet_data" bson:"snippet_data"` // Component'in JSON state'i (object veya array)
-	DataHash    string `json:"data_hash" bson:"data_hash"`       // Duplicate detection için
+	SnippetData any    `json:"snippet_data" bson:"snippet_data"`
+	DataHash    string `json:"data_hash" bson:"data_hash"`
 
 	// Timestamps
 	CreatedAt time.Time `json:"created_at" bson:"created_at"`
@@ -34,20 +34,20 @@ type ResourceSnippet struct {
 
 // SnippetCreateRequest represents the request to create a new snippet
 type SnippetCreateRequest struct {
-	Name          string         `json:"name" binding:"required"`
-	ComponentType string         `json:"component_type" binding:"required"`
-	GType         string         `json:"gtype" binding:"required"`
-	FieldPath     string         `json:"field_path" binding:"required"`
-	IsArray       bool           `json:"is_array"`
-	Version       string         `json:"version" binding:"required"`
-	Project       string         `json:"project" binding:"required"`
-	SnippetData   any `json:"snippet_data" binding:"required"`
+	Name          string `json:"name" binding:"required"`
+	ComponentType string `json:"component_type" binding:"required"`
+	GType         string `json:"gtype" binding:"required"`
+	FieldPath     string `json:"field_path" binding:"required"`
+	IsArray       bool   `json:"is_array"`
+	Version       string `json:"version" binding:"required"`
+	Project       string `json:"project" binding:"required"`
+	SnippetData   any    `json:"snippet_data" binding:"required"`
 }
 
 // SnippetUpdateRequest represents the request to update an existing snippet
 type SnippetUpdateRequest struct {
-	Name        *string         `json:"name,omitempty"`
-	SnippetData *any `json:"snippet_data,omitempty"`
+	Name        *string `json:"name,omitempty"`
+	SnippetData *any    `json:"snippet_data,omitempty"`
 }
 
 // SnippetListRequest represents query parameters for listing snippets
@@ -104,12 +104,12 @@ type SnippetError struct {
 
 // SnippetStats represents statistics about snippets
 type SnippetStats struct {
-	TotalSnippets      int64                    `json:"total_snippets"`
-	SnippetsByProject  map[string]int64         `json:"snippets_by_project"`
-	SnippetsByGType    map[string]int64         `json:"snippets_by_gtype"`
-	SnippetsByVersion  map[string]int64         `json:"snippets_by_version"`
-	MostUsedComponents map[string]int64         `json:"most_used_components"`
-	RecentActivity     []SnippetActivityItem    `json:"recent_activity"`
+	TotalSnippets      int64                 `json:"total_snippets"`
+	SnippetsByProject  map[string]int64      `json:"snippets_by_project"`
+	SnippetsByGType    map[string]int64      `json:"snippets_by_gtype"`
+	SnippetsByVersion  map[string]int64      `json:"snippets_by_version"`
+	MostUsedComponents map[string]int64      `json:"most_used_components"`
+	RecentActivity     []SnippetActivityItem `json:"recent_activity"`
 }
 
 // SnippetActivityItem represents a recent activity item

@@ -32,7 +32,7 @@ func (h *AppHandler) setCacheEntry(key string, entry CacheEntry) {
 	defer h.CacheMutex.Unlock()
 
 	entry.Timestamp = time.Now()
-	entry.TTL = 5 * time.Minute
+	entry.TTL = 5 * time.Second
 	h.Cache[key] = entry
 }
 

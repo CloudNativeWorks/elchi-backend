@@ -87,8 +87,10 @@ func (xds *AppHandler) DelResource(ctx context.Context, _ models.ResourceClass, 
 	if isManaged {
 		// Check if service has active client deployments
 		if err := xds.checkServiceHasActiveClients(ctx, requestDetails); err != nil {
+			xds.Logger.Errorf("❌ BLOCKING DELETE: %v", err)
 			return nil, err
 		}
+		xds.Logger.Infof("✅ Managed listener delete allowed: no active clients found")
 	}
 
 	if err := deleteDocument(ctx, collection, filter); err != nil {
@@ -97,18 +99,28 @@ func (xds *AppHandler) DelResource(ctx context.Context, _ models.ResourceClass, 
 
 	if resourceType == "listeners" {
 		// Always delete bootstrap
+		xds.Logger.Debugf("Attempting to delete bootstrap for listener: %s", requestDetails.Name)
 		if err := xds.delBootstrap(ctx, filter); err != nil {
+			xds.Logger.Errorf("Failed to delete bootstrap: %v", err)
 			return nil, err
 		}
+		xds.Logger.Infof("✅ Successfully deleted bootstrap for listener: %s", requestDetails.Name)
 
 		// Only delete service and admin_port if listener was managed
 		if isManaged {
+			xds.Logger.Debugf("Attempting to delete service for managed listener: %s", requestDetails.Name)
 			if err := xds.delService(ctx, requestDetails); err != nil {
+				xds.Logger.Errorf("Failed to delete service: %v", err)
 				return nil, err
 			}
+			xds.Logger.Infof("✅ Successfully deleted service for listener: %s", requestDetails.Name)
+
+			xds.Logger.Debugf("Attempting to delete admin_port for managed listener: %s", requestDetails.Name)
 			if err := xds.delAdminPort(ctx, requestDetails); err != nil {
+				xds.Logger.Errorf("Failed to delete admin_port: %v", err)
 				return nil, err
 			}
+			xds.Logger.Infof("✅ Successfully deleted admin_port for listener: %s", requestDetails.Name)
 		}
 	}
 

@@ -3,6 +3,7 @@ package responser
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/CloudNativeWorks/elchi-backend/controller/client/services"
 	"github.com/CloudNativeWorks/elchi-backend/controller/cloud/openstack"
@@ -58,10 +59,15 @@ func (p *DeployResponser) ValidateAndTransform(op models.OperationClass, respons
 		clientID, downstreamAddress, interfaceID, ipMode, version, serviceName)
 
 	// Step 1: Add client to service (critical step)
+	// If service will be redeploy hits this
 	if err := p.addClientToService(clientID, downstreamAddress, serviceName, projectName, version, interfaceID, ipMode); err != nil {
 		p.Logger.Errorf("Failed to add client to service: %v", err)
-		response.Success = false
-		response.Error = fmt.Sprintf("Client deployed successfully but service registration failed: %v", err)
+		if strings.Contains(err.Error(), "already exists in service") {
+			response.Success = true
+		} else {
+			response.Success = false
+			response.Error = fmt.Sprintf("Client redeployed successfully but service registration failed: %v", err)
+		}
 		return response
 	}
 

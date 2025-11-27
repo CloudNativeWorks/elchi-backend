@@ -48,39 +48,17 @@ func (h *Handler) AnalyzeResourceConfigWithAI(c *gin.Context) {
 		return
 	}
 
-	// Default values
-	if req.Depth == 0 {
-		req.Depth = 3
-	}
-
+	// Default value for IncludeDependencies
 	if !req.IncludeDependencies {
 		req.IncludeDependencies = true
 	}
 
-	aiAPIKey := c.GetHeader("x-openrouter-token")
-	if aiAPIKey == "" {
-		settingsAPIKey, err := h.getOpenRouterTokenFromSettings(req.Project)
-		if err == nil && settingsAPIKey != "" {
-			aiAPIKey = settingsAPIKey
-		} else {
-			aiAPIKey = os.Getenv("OPENROUTER_API_KEY")
-		}
-	}
-
-	if aiAPIKey == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "AI API key required. Set via x-openrouter-token header, project settings, or OPENROUTER_API_KEY environment variable",
-		})
+	// Setup AI analyzer using helper function
+	configAnalyzer, ctx, cancel, err := h.setupAIAnalyzer(c, req.Project, req.Depth, req.IncludeDependencies)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
-	defaultModel, _ := h.getAIModelFromSettings(req.Project)
-
-	openRouterClient := ai.NewOpenRouterClient(aiAPIKey)
-
-	configAnalyzer := ai.NewConfigAnalyzer(h.Settings.Context, openRouterClient, defaultModel, h.Settings.Logger)
-
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 90*time.Second)
 	defer cancel()
 
 	// Get user ID from context (from JWT middleware)
@@ -257,46 +235,17 @@ func (h *Handler) AnalyzeLogsWithConfig(c *gin.Context) {
 		return
 	}
 
-	// Default values
-	if req.Depth == 0 {
-		req.Depth = 3
-	}
-	// Include dependencies by default
+	// Default value for IncludeDependencies
 	if !req.IncludeDependencies {
 		req.IncludeDependencies = true
 	}
 
-	// AI API key check - first from header, then from settings
-	aiAPIKey := c.GetHeader("x-openrouter-token")
-	if aiAPIKey == "" {
-		// Get OpenRouter token from settings
-		settingsAPIKey, err := h.getOpenRouterTokenFromSettings(req.Project)
-		if err == nil && settingsAPIKey != "" {
-			aiAPIKey = settingsAPIKey
-		} else {
-			// Last resort: environment variable
-			aiAPIKey = os.Getenv("OPENROUTER_API_KEY")
-		}
-	}
-
-	if aiAPIKey == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "AI API key required. Set via x-openrouter-token header, project settings, or OPENROUTER_API_KEY environment variable",
-		})
+	// Setup AI analyzer using helper function
+	configAnalyzer, ctx, cancel, err := h.setupAIAnalyzer(c, req.Project, req.Depth, req.IncludeDependencies)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
-	// Get default model
-	defaultModel, _ := h.getAIModelFromSettings(req.Project)
-
-	// Create AI client
-	openRouterClient := ai.NewOpenRouterClient(aiAPIKey)
-
-	// Create config analyzer
-	configAnalyzer := ai.NewConfigAnalyzer(h.Settings.Context, openRouterClient, defaultModel, h.Settings.Logger)
-
-	// Start log analysis
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 120*time.Second) // Longer timeout for log analysis
 	defer cancel()
 
 	// Get user ID from context (from JWT middleware)
@@ -331,4 +280,40 @@ func (h *Handler) AnalyzeLogsWithConfig(c *gin.Context) {
 			"cost_usd":      analysisResult.TokenUsage.CostUSD,
 		},
 	})
+}
+
+// setupAIAnalyzer is a helper function to set up AI analyzer with common logic
+// Returns analyzer, context, cancel function, and error
+func (h *Handler) setupAIAnalyzer(c *gin.Context, project string, depth int, _ bool) (*ai.ConfigAnalyzer, context.Context, context.CancelFunc, error) {
+	// Set default values
+	if depth == 0 {
+		depth = 3
+	}
+
+	// AI API key check - first from header, then from settings, finally from env
+	aiAPIKey := c.GetHeader("x-openrouter-token")
+	if aiAPIKey == "" {
+		settingsAPIKey, err := h.getOpenRouterTokenFromSettings(project)
+		if err == nil && settingsAPIKey != "" {
+			aiAPIKey = settingsAPIKey
+		} else {
+			aiAPIKey = os.Getenv("OPENROUTER_API_KEY")
+		}
+	}
+
+	if aiAPIKey == "" {
+		return nil, nil, nil, fmt.Errorf("AI API key required. Set via x-openrouter-token header, project settings, or OPENROUTER_API_KEY environment variable")
+	}
+
+	// Get default model
+	defaultModel, _ := h.getAIModelFromSettings(project)
+
+	// Create AI client and analyzer
+	openRouterClient := ai.NewOpenRouterClient(aiAPIKey)
+	configAnalyzer := ai.NewConfigAnalyzer(h.Settings.Context, openRouterClient, defaultModel, h.Settings.Logger)
+
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 90*time.Second)
+
+	return configAnalyzer, ctx, cancel, nil
 }

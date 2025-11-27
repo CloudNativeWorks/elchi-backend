@@ -56,14 +56,15 @@ type AsyncJobSystem interface {
 
 // Config holds the configuration for the async job system
 type Config struct {
-	MongoDB      *mongo.Database
-	DBContext    *db.AppContext
-	WAFProcessor WAFProcessor
-	WorkerCount  int
-	BatchSize    int
-	PollInterval int // seconds
-	JobTTL       int // seconds
-	Logger       *logger.Logger
+	MongoDB        *mongo.Database
+	DBContext      *db.AppContext
+	WAFProcessor   WAFProcessor
+	CommandHandler worker.ClientCommandHandler
+	WorkerCount    int
+	BatchSize      int
+	PollInterval   int // seconds
+	JobTTL         int // seconds
+	Logger         *logger.Logger
 }
 
 // asyncJobSystem is the concrete implementation
@@ -115,6 +116,7 @@ func NewAsyncJobSystem(config *Config) (AsyncJobSystem, error) {
 		PollInterval:       time.Duration(config.PollInterval) * time.Second,
 		Logger:             config.Logger,
 		MaxConcurrentPokes: 5,
+		CommandHandler:     config.CommandHandler,
 	})
 	system.analyzer = analysis.NewAnalyzer(config.DBContext, config.Logger)
 
@@ -257,39 +259,7 @@ func (s *asyncJobSystem) GetJobStats(ctx context.Context) (*JobStats, error) {
 	}
 
 	// Count by status, resource, and user
-	for _, job := range allJobs {
-		statusCounts[job.Status]++
-		if job.Metadata != nil && job.Metadata.SourceResource != nil {
-			resourceCounts[job.Metadata.SourceResource.Name]++
-		}
-		if job.Metadata != nil && job.Metadata.TriggerUser != nil {
-			userCounts[job.Metadata.TriggerUser.Username]++
-		}
-	}
-
-	// Get worker status
-	workerStatus, err := s.GetWorkerStatus(ctx)
-	if err != nil {
-		// Don't fail completely, just set defaults
-		workerStatus = &WorkerStatus{
-			ActiveWorkers:  0,
-			ProcessingJobs: 0,
-			QueueSize:      0,
-			LastActivity:   time.Now(),
-		}
-	}
-
-	return &JobStats{
-		TotalJobs:      int64(len(allJobs)),
-		JobsByStatus:   statusCounts,
-		JobsByResource: resourceCounts,
-		JobsByUser:     userCounts,
-		RecentJobs:     recentJobs,
-		QueueSize:      workerStatus.QueueSize,
-		ActiveWorkers:  workerStatus.ActiveWorkers,
-		ProcessingJobs: workerStatus.ProcessingJobs,
-		LastUpdated:    time.Now(),
-	}, nil
+	return s.buildJobStats(ctx, allJobs, statusCounts, resourceCounts, userCounts, recentJobs)
 }
 
 // GetJobStatsFiltered returns job statistics with applied filters
@@ -318,7 +288,13 @@ func (s *asyncJobSystem) GetJobStatsFiltered(ctx context.Context, filter *JobFil
 	resourceCounts := make(map[string]int64)
 	userCounts := make(map[string]int64)
 
-	for _, job := range filteredJobs {
+	return s.buildJobStats(ctx, filteredJobs, statusCounts, resourceCounts, userCounts, nil)
+}
+
+// buildJobStats is a helper function to build job statistics from job list
+func (s *asyncJobSystem) buildJobStats(ctx context.Context, jobs []*Job, statusCounts map[JobStatus]int64, resourceCounts, userCounts map[string]int64, recentJobs []*Job) (*JobStats, error) {
+	// Count jobs by status, resource, and user
+	for _, job := range jobs {
 		statusCounts[job.Status]++
 		if job.Metadata != nil && job.Metadata.SourceResource != nil {
 			resourceCounts[job.Metadata.SourceResource.Name]++
@@ -328,7 +304,7 @@ func (s *asyncJobSystem) GetJobStatsFiltered(ctx context.Context, filter *JobFil
 		}
 	}
 
-	// Get worker status (not affected by filters)
+	// Get worker status
 	workerStatus, err := s.GetWorkerStatus(ctx)
 	if err != nil {
 		// Don't fail completely, just set defaults
@@ -341,11 +317,11 @@ func (s *asyncJobSystem) GetJobStatsFiltered(ctx context.Context, filter *JobFil
 	}
 
 	return &JobStats{
-		TotalJobs:      int64(len(filteredJobs)),
+		TotalJobs:      int64(len(jobs)),
 		JobsByStatus:   statusCounts,
 		JobsByResource: resourceCounts,
 		JobsByUser:     userCounts,
-		RecentJobs:     nil, // Removed recent jobs
+		RecentJobs:     recentJobs,
 		QueueSize:      workerStatus.QueueSize,
 		ActiveWorkers:  workerStatus.ActiveWorkers,
 		ProcessingJobs: workerStatus.ProcessingJobs,

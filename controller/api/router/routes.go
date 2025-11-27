@@ -241,6 +241,23 @@ func initResourceRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 	initRoutes(rg, routes)
 }
 
+func initResourceOpsRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
+	// Check if upgrade handler is available
+	if h.Upgrade == nil {
+		return
+	}
+
+	routes := []struct {
+		method  string
+		path    string
+		handler gin.HandlerFunc
+	}{
+		{"POST", "/upgrade", h.Upgrade.UpgradeResource},
+	}
+
+	initRoutes(rg, routes)
+}
+
 func initRoutes(rg *gin.RouterGroup, routes []struct {
 	method  string
 	path    string
@@ -431,6 +448,29 @@ func initSearchRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		handler gin.HandlerFunc
 	}{
 		{"GET", "", h.GlobalSearch}, // GET /api/v3/search?query=example.com&project=xxx
+	}
+
+	initRoutes(rg, routes)
+}
+
+func initMaintenanceRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
+	// Apply InitSettingMiddleware for admin/owner-only access
+	// (Similar to initSettingRoutes, child groups inherit parent middleware but we apply it explicitly)
+	rg.Use(middleware.InitSettingMiddleware())
+
+	routes := []struct {
+		method  string
+		path    string
+		handler gin.HandlerFunc
+	}{
+		// Cleanup endpoints
+		{"DELETE", "/cleanup/versions/:version", h.Maintenance.Cleanup.DeleteVersionResources},
+
+		// Backup/Restore endpoints
+		{"POST", "/backup/export", h.Maintenance.Backup.ExportBackup},
+		{"POST", "/backup/import", h.Maintenance.Backup.ImportBackup},
+		{"POST", "/backup/validate", h.Maintenance.Backup.ValidateBackup},
+		{"POST", "/backup/metadata", h.Maintenance.Backup.GetBackupMetadata},
 	}
 
 	initRoutes(rg, routes)

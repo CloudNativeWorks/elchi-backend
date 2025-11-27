@@ -113,14 +113,16 @@ var restCmd = &cobra.Command{
 
 		clientHandler := client.NewClientHandler(appContext, xdsHandler, openstackHandler, clientService)
 		discoveryHandler := discovery.NewDiscoveryHandler(appContext, &bridgeHandler.Poke)
-		jobHandler := handlers.NewJobHandler(appContext, &bridgeHandler.Poke, rootLogger)
+		jobHandler := handlers.NewJobHandler(appContext, &bridgeHandler.Poke, rootLogger, clientHandler.Handler)
 		registryHandler := handlers.NewRegistryHandler(registryClient, rootLogger)
+
+		// Initialize upgrade handler (will be set after jobHandler starts async system)
+		var upgradeHandler *handlers.UpgradeHandler
 
 		// Pass registry client to client handler (even before connection is established)
 		clientHandler.SetRegistryClient(registryClient)
 
 		// Start periodic client-registry synchronization
-		// Increased from 2 minutes to 5 minutes for better stability and reduced false positives
 		clientHandler.Service.StartPeriodicSync(5 * time.Minute)
 
 		// Sync all existing clients with registry after client handler is set up
@@ -161,12 +163,20 @@ var restCmd = &cobra.Command{
 		// Initialize settings handler
 		userHandler := settings.NewUserHandler(appContext)
 
-		// Initialize template handler (initially without handler reference)
-		templateHandler := handlers.NewResourceTemplateHandler(appContext, nil)
+		// Initialize async job system workers FIRST (needed by upgrade handler)
+		rootLogger.Infof("Starting async job system workers...")
+		if err := jobHandler.StartAsyncSystem(&bridgeHandler.Poke); err != nil {
+			rootLogger.Fatalf("Failed to start async job system: %v", err)
+		}
 
-		// Initialize route map handler
+		// Initialize all sub-handlers that will be passed to NewHandler
+		asyncSystem := jobHandler.GetAsyncSystem()
+		upgradeHandler = handlers.NewUpgradeHandler(appContext, asyncSystem, auditService, clientHandler.Handler)
+		maintenanceHandler := handlers.NewMaintenanceHandler(appContext, rootLogger, auditService)
+		templateHandler := handlers.NewResourceTemplateHandler(appContext, nil)
 		routeMapHandler := routemap.NewRouteMapHandler(appContext)
 
+		// Create main handler with all dependencies
 		h := handlers.NewHandler(
 			xdsHandler,
 			extensionHandler,
@@ -184,16 +194,12 @@ var restCmd = &cobra.Command{
 			auditService,
 			templateHandler,
 			routeMapHandler,
+			maintenanceHandler,
+			upgradeHandler,
 		)
 
 		// Set handler reference for audit functionality
 		templateHandler.Handler = h
-
-		// Initialize async job system workers
-		rootLogger.Infof("Starting async job system workers...")
-		if err := jobHandler.StartAsyncSystem(&bridgeHandler.Poke); err != nil {
-			rootLogger.Fatalf("Failed to start async job system: %v", err)
-		}
 
 		r := router.InitRouter(h)
 

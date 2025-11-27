@@ -123,6 +123,13 @@ func AuditMiddleware(auditService *audit.Service) gin.HandlerFunc {
 		}
 
 		// Store audit entry (only if action was set by handler)
+		// Check if audit was already stored by handler (to prevent duplicates)
+		if _, alreadyStored := c.Get("audit_already_stored"); alreadyStored {
+			// Audit already written by handler, skip middleware store
+			audit.CleanupContextMutex(c)
+			return
+		}
+
 		if entry.Action != "" {
 			if err := auditService.Store(entry); err != nil {
 				// Log error but don't fail the request

@@ -17,23 +17,30 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/pkg/services"
 )
 
+// ClientCommandHandler interface for sending commands to clients
+// This avoids import cycle with controller/client/handlers package
+type ClientCommandHandler interface {
+	HandleSendCommand(ctx context.Context, op models.OperationClass, requestDetails models.RequestDetails) (any, error)
+}
+
 // Worker represents a single job processor
 type Worker struct {
-	id            string
-	config        *WorkerConfig
-	poolConfig    *PoolConfig
-	jobManager    *job.Manager
-	pokeService   *bridge.PokeServiceClient
-	dbContext     *db.AppContext
-	wafProcessor  WAFProcessor
-	logger        *logger.Logger
-	isProcessing  bool
-	processMutex  sync.RWMutex
-	lastActivity  time.Time
+	id             string
+	config         *WorkerConfig
+	poolConfig     *PoolConfig
+	jobManager     *job.Manager
+	pokeService    *bridge.PokeServiceClient
+	dbContext      *db.AppContext
+	wafProcessor   WAFProcessor
+	commandHandler ClientCommandHandler
+	logger         *logger.Logger
+	isProcessing   bool
+	processMutex   sync.RWMutex
+	lastActivity   time.Time
 }
 
 // NewWorker creates a new worker
-func NewWorker(id string, poolConfig *PoolConfig, jobManager *job.Manager, pokeService *bridge.PokeServiceClient, dbContext *db.AppContext, wafProcessor WAFProcessor) *Worker {
+func NewWorker(id string, poolConfig *PoolConfig, jobManager *job.Manager, pokeService *bridge.PokeServiceClient, dbContext *db.AppContext, wafProcessor WAFProcessor, commandHandler ClientCommandHandler) *Worker {
 	// Create WorkerConfig from poolConfig
 	workerConfig := &WorkerConfig{
 		PokeService:        pokeService,
@@ -44,14 +51,15 @@ func NewWorker(id string, poolConfig *PoolConfig, jobManager *job.Manager, pokeS
 	}
 
 	return &Worker{
-		id:           id,
-		config:       workerConfig,
-		poolConfig:   poolConfig,
-		jobManager:   jobManager,
-		pokeService:  pokeService,
-		dbContext:    dbContext,
-		wafProcessor: wafProcessor,
-		logger:       logger.NewLogger(fmt.Sprintf("worker-%s", id)),
+		id:             id,
+		config:         workerConfig,
+		poolConfig:     poolConfig,
+		jobManager:     jobManager,
+		pokeService:    pokeService,
+		dbContext:      dbContext,
+		wafProcessor:   wafProcessor,
+		commandHandler: commandHandler,
+		logger:         logger.NewLogger(fmt.Sprintf("worker-%s", id)),
 	}
 }
 
@@ -117,6 +125,8 @@ func (w *Worker) processNextJob(ctx context.Context) {
 		w.processSnapshotUpdateJob(ctx, claimedJob)
 	case job.JobTypeWAFPropagation:
 		w.processWAFPropagationJob(ctx, claimedJob)
+	case job.JobTypeResourceUpgrade:
+		w.processResourceUpgradeJob(ctx, claimedJob)
 	default:
 		w.logger.Errorf("Unknown job type: %s", claimedJob.Type)
 		w.jobManager.FailJob(ctx, claimedJob.ID, fmt.Errorf("unknown job type"))

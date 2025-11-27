@@ -87,7 +87,7 @@ func (handler *AppHandler) DemoAccount(c *gin.Context) {
 	ctx := c.Request.Context()
 	user := "demo" + helper.GenerateUniqueID(4)
 	userWG.Username = &user
-	passwd := helper.GenerateUniqueID(8)
+	passwd := helper.GenerateUniqueID(12) // Minimum 12 characters required for password validation
 	userWG.Password = &passwd
 	userWG.Email = &email
 	active := true

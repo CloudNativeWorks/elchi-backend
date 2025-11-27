@@ -80,13 +80,6 @@ var readOnlyWafVersionOperations = map[string]bool{
 	"GET_VERSIONS": true, // List locally downloaded versions
 }
 
-// Read-only Filebeat operations that should not be audited
-var readOnlyFilebeatSubTypes = map[string]bool{
-	"GET_FILEBEAT_CONFIG": true, // Read current config
-	"GET_FILEBEAT_STATUS": true, // Check service status
-	"SUB_LOGS":            true, // Read logs
-}
-
 // mapCommandTypeToAction maps command type/subtype combinations to audit actions
 // Returns empty string if command should not be audited
 // KEEP IN: audit.go (shared utility)

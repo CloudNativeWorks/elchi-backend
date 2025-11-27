@@ -95,6 +95,7 @@ func NewClientHandler(dbContext *db.AppContext, xdsHandler *xds.AppHandler, clie
 	h.cmdFactory.RegisterProcessor("WAF_VERSION", &processor.WafVersionProcessor{Logger: processorLogger})
 	h.cmdFactory.RegisterProcessor("FILEBEAT", &processor.FilebeatProcessor{Logger: processorLogger})
 	h.cmdFactory.RegisterProcessor("RSYSLOG", &processor.RsyslogProcessor{Logger: processorLogger})
+	h.cmdFactory.RegisterProcessor("UPGRADE_LISTENER", &processor.UpgradeProcessor{XDSHandler: xdsHandler, Logger: processorLogger, Service: clientService})
 
 	// Responser Register
 	h.responser.RegisterResponser("DEPLOY", &responser.DeployResponser{XDSHandler: xdsHandler, Logger: responserLogger, Service: clientService, OpenStackHandler: openStackHandler})
@@ -111,6 +112,7 @@ func NewClientHandler(dbContext *db.AppContext, xdsHandler *xds.AppHandler, clie
 	h.responser.RegisterResponser("WAF_VERSION", &responser.WafVersionResponser{})
 	h.responser.RegisterResponser("FILEBEAT", &responser.FilebeatResponser{})
 	h.responser.RegisterResponser("RSYSLOG", &responser.RsyslogResponser{})
+	h.responser.RegisterResponser("UPGRADE_LISTENER", &responser.UpgradeResponser{})
 
 	// Start mutex cleanup routine
 	h.startMutexCleanup()

@@ -81,6 +81,7 @@ func updateResource(ctx context.Context, extension *AppHandler, resource models.
 	resource.SetTypedConfig(resources.DecodeSetTypedConfigs(resource, extension.Logger))
 
 	general := resource.GetGeneral()
+
 	update := bson.M{
 		"$set": bson.M{
 			"resource.resource":        newResource,

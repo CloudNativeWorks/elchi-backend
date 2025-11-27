@@ -97,6 +97,11 @@ var ClusterTypedConfigPaths = []TypedConfigPath{
 		Kind:             "http_protocol",
 		IsPerTypedConfig: true,
 	},
+	{
+		ArrayPaths:   []ArrayPath{},
+		PathTemplate: "cluster_type.typed_config",
+		Kind:         "cluster_extension",
+	},
 }
 
 var RouteTypedConfigPaths = []TypedConfigPath{
@@ -425,5 +430,22 @@ var RBACPerRouteTypedConfigPaths = []TypedConfigPath{
 		},
 		PathTemplate: "rbac.rules.policies.*.permissions.%d.not_rule.or_rules.rules.%d.not_rule.uri_template.typed_config",
 		Kind:         "uri_template",
+	},
+}
+
+var UDPProxyTypedConfigPaths = []TypedConfigPath{
+	{
+		ArrayPaths: []ArrayPath{
+			{ParentPath: "access_log", IndexPath: "access_log.%d"},
+		},
+		PathTemplate: "access_log.%d.typed_config",
+		Kind:         "access_log",
+	},
+	{
+		ArrayPaths: []ArrayPath{
+			{ParentPath: "proxy_access_log", IndexPath: "proxy_access_log.%d"},
+		},
+		PathTemplate: "proxy_access_log.%d.typed_config",
+		Kind:         "access_log",
 	},
 }

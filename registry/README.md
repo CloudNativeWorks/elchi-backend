@@ -19,7 +19,7 @@ Existing controller registry service - manages controllers and client locations.
 ### 2. Routing Service  
 Envoy routing service - routes xDS requests from Envoy to control-planes.
 
-### 3. External Processor Service ⭐ NEW
+### 3. External Processor Service
 Envoy ext_proc service - integrates with Envoy for real-time HTTP request routing.
 
 ## Architecture

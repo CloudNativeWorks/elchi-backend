@@ -51,3 +51,45 @@ var UpstreamTLSContextUpstreams = map[string]GType{
 var GenericGRPCServiceUpstreams = map[string]GType{
 	"grpc_service.envoy_grpc.cluster_name": Cluster,
 }
+
+var OAuth2Upstreams = map[string]GType{
+	"config.token_endpoint.cluster":        Cluster,
+	"config.credentials.hmac_secret.name":  GenericSecret,
+	"config.credentials.token_secret.name": GenericSecret,
+}
+
+var ExtProcUpstreams = map[string]GType{
+	"grpc_service.envoy_grpc.cluster_name": Cluster,
+}
+
+var ExtProcPerRouteUpstreams = map[string]GType{
+	"overrides.grpc_service.envoy_grpc.cluster_name": Cluster,
+}
+
+var ExtAuthzUpstreams = map[string]GType{
+	"grpc_service.envoy_grpc.cluster_name": Cluster,
+	"http_service.server_uri.cluster":      Cluster,
+}
+
+var ExtAuthzPerRouteUpstreams = map[string]GType{
+	"check_settings.grpc_service.envoy_grpc.cluster_name": Cluster,
+	"check_settings.http_service.server_uri.cluster":      Cluster,
+}
+
+var JWTAuthenticationUpstreams = map[string]GType{
+	"providers.*.remote_jwks.http_uri.cluster": Cluster,
+}
+
+var UDPProxyUpstreams = map[string]GType{
+	"cluster":                      Cluster,
+	"matcher.on_no_match.action.0": Cluster, // Route action cluster
+}
+
+var DynamicForwardProxyHTTPUpstreams = map[string]GType{
+	// No upstream cluster dependencies - dns_cache_config references a shared cache config
+}
+
+var QuicDownstreamTransportUpstreams = map[string]GType{
+	"downstream_tls_context.common_tls_context.tls_certificate_sds_secret_configs.#.name": TLSCertificate,
+	"downstream_tls_context.common_tls_context.validation_context_sds_secret_config.name": CertificateValidationContext,
+}

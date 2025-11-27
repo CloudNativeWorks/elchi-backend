@@ -2,6 +2,7 @@ package responser
 
 import (
 	"encoding/json"
+	"strings"
 	"sync"
 
 	"gopkg.in/yaml.v3"
@@ -91,19 +92,27 @@ func (p *ProxyResponser) ValidateAndTransform(op models.OperationClass, response
 	path, _ := op.GetCommandPath()
 	isYAML := path == "/logging" || path == "/envoy"
 
-	respMap := jsonPool.Get().(map[string]any)
-	defer jsonPool.Put(respMap)
+	// CRITICAL FIX: Don't return pooled map directly - it gets reused and causes duplicate responses!
+	// Use pool for temporary processing, then create a new map for return value
+	tempMap := jsonPool.Get().(map[string]any)
+	defer func() {
+		// Clear map before returning to pool
+		for k := range tempMap {
+			delete(tempMap, k)
+		}
+		jsonPool.Put(tempMap)
+	}()
 
 	b, err := json.Marshal(response)
 	if err != nil {
 		return response
 	}
 
-	if err := json.Unmarshal(b, &respMap); err != nil {
+	if err := json.Unmarshal(b, &tempMap); err != nil {
 		return response
 	}
 
-	if result, ok := respMap["Result"].(map[string]any); ok {
+	if result, ok := tempMap["Result"].(map[string]any); ok {
 		if envoyAdmin, ok := result["EnvoyAdmin"].(map[string]any); ok {
 			if bodyStr, ok := envoyAdmin["body"].(string); ok {
 				var parsedBody map[string]any
@@ -123,11 +132,105 @@ func (p *ProxyResponser) ValidateAndTransform(op models.OperationClass, response
 				}
 
 				if parsedBody != nil {
-					envoyAdmin["body"] = parseBody(parsedBody, isYAML)
+					processedBody := parseBody(parsedBody, isYAML)
+					// Mask sensitive secret data in config_dump
+					maskSecretsInEnvoyConfig(processedBody)
+					envoyAdmin["body"] = processedBody
 				}
 			}
 		}
 	}
 
-	return respMap
+	// Create a NEW map to return (not the pooled one!)
+	// This prevents the pool from reusing the same map instance for multiple responses
+	resultMap := make(map[string]any, len(tempMap))
+	for k, v := range tempMap {
+		resultMap[k] = v
+	}
+
+	return resultMap
+}
+
+// maskSecretsInEnvoyConfig masks sensitive data in Envoy admin config dump
+func maskSecretsInEnvoyConfig(data map[string]any) {
+	// Check if this is a config_dump response
+	if configDump, ok := data["config_dump"].(map[string]any); ok {
+		if configs, ok := configDump["configs"].([]any); ok {
+			for _, config := range configs {
+				if configMap, ok := config.(map[string]any); ok {
+					maskSecretsRecursive(configMap)
+				}
+			}
+		}
+	}
+
+	// Also check top-level certs section
+	if certs, ok := data["certs"].(map[string]any); ok {
+		maskSecretsRecursive(certs)
+	}
+}
+
+// maskSecretsRecursive recursively masks sensitive fields in nested structures
+func maskSecretsRecursive(data map[string]any) {
+	for key, value := range data {
+		// Mask sensitive field values
+		if isSensitiveField(key) {
+			data[key] = "***REDACTED***"
+			continue
+		}
+
+		// Recursively process nested structures
+		switch v := value.(type) {
+		case map[string]any:
+			maskSecretsRecursive(v)
+		case []any:
+			for _, item := range v {
+				if itemMap, ok := item.(map[string]any); ok {
+					maskSecretsRecursive(itemMap)
+				}
+			}
+		}
+	}
+}
+
+// isSensitiveField checks if a field contains sensitive data
+func isSensitiveField(fieldName string) bool {
+	// Exact match fields (case-insensitive)
+	exactMatchFields := []string{
+		"private_key",
+		"password",
+		"token",
+		"api_key",
+		"credential",
+		"inline_bytes",
+		"inline_string",
+	}
+
+	// Case-insensitive comparison
+	fieldLower := ""
+	for _, c := range fieldName {
+		if c >= 'A' && c <= 'Z' {
+			fieldLower += string(c + 32)
+		} else {
+			fieldLower += string(c)
+		}
+	}
+
+	// Check exact matches
+	for _, sensitive := range exactMatchFields {
+		if fieldLower == sensitive {
+			return true
+		}
+	}
+
+	// Special case: "secret" only if it's the exact field name or ends with "_secret"
+	// This avoids masking "sds_secret_configs" which is just configuration
+	if fieldLower == "secret" || strings.HasSuffix(fieldLower, "_secret") {
+		// But exclude configuration fields that just reference secrets
+		if !strings.Contains(fieldLower, "secret_config") && !strings.Contains(fieldLower, "secret_provider") {
+			return true
+		}
+	}
+
+	return false
 }

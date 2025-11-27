@@ -45,6 +45,8 @@ SNAPSHOT_CLEANUP_ANALYSIS.md
 RACE_CONDITION_ANALYSIS.md
 feat.md
 CLIENT_CONNECTION_ISSUE.md# WAF CRS rules JSON files (generated)
+RESOURCE_UPGRADE_PLAN.md
+sonar-project.properties
 
 # WAF CRS rules JSON files (generated)
 # WAF CRS rules are committed to repo (needed for API)

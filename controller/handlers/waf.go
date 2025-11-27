@@ -64,7 +64,7 @@ func (h *WAFHandler) CreateWAFConfigWithAudit(c *gin.Context) {
 	userDetails, _ := GetUserDetails(c)
 	if !userDetails.IsOwner && userDetails.Role != models.RoleAdmin {
 		if h.parentHandler != nil {
-			h.parentHandler.setAuditResult(c, fmt.Errorf("Insufficient privileges"))
+			h.parentHandler.setAuditResult(c, fmt.Errorf("insufficient privileges"))
 		}
 		c.JSON(403, gin.H{"message": "Only Admin and Owner can create WAF configurations"})
 		return
@@ -106,7 +106,7 @@ func (h *WAFHandler) UpdateWAFConfigWithAudit(c *gin.Context) {
 	userDetails, _ := GetUserDetails(c)
 	if !userDetails.IsOwner && userDetails.Role != models.RoleAdmin {
 		if h.parentHandler != nil {
-			h.parentHandler.setAuditResult(c, fmt.Errorf("Insufficient privileges"))
+			h.parentHandler.setAuditResult(c, fmt.Errorf("insufficient privileges"))
 		}
 		c.JSON(403, gin.H{"message": "Only Admin and Owner can update WAF configurations"})
 		return
@@ -181,7 +181,7 @@ func (h *WAFHandler) DeleteWAFConfigWithAudit(c *gin.Context) {
 	}
 	if !userDetails.IsOwner && userDetails.Role != models.RoleAdmin {
 		if h.parentHandler != nil {
-			h.parentHandler.setAuditResult(c, fmt.Errorf("Insufficient privileges"))
+			h.parentHandler.setAuditResult(c, fmt.Errorf("insufficient privileges"))
 		}
 		c.JSON(403, gin.H{"message": "Only Admin and Owner can delete WAF configurations"})
 		return

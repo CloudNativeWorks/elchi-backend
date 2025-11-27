@@ -41,6 +41,8 @@ func NewCommandWithPayload(commandID string, cmdType pb.CommandType, subType pb.
 		command.Payload = p
 	case *pb.Command_Rsyslog:
 		command.Payload = p
+	case *pb.Command_UpgradeListener:
+		command.Payload = p
 	default:
 		return nil, fmt.Errorf("unsupported payload type: %T", payload)
 	}

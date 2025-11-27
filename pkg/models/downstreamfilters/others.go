@@ -107,7 +107,7 @@ func TypedConfigDownstreamFilters(dfm DownstreamFilter) []MongoFilters {
 	}
 }
 
-func TypedHTTPProtocolDownstreamFilters(dfm DownstreamFilter) []MongoFilters {
+func TypedClusterDownstreamFilters(dfm DownstreamFilter) []MongoFilters {
 	return []MongoFilters{
 		{
 			Collection: "clusters",

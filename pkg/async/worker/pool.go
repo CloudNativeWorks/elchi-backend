@@ -15,17 +15,18 @@ import (
 
 // Pool implements a distributed worker pool
 type Pool struct {
-	config       *PoolConfig
-	workers      []*Worker
-	ctx          context.Context
-	cancel       context.CancelFunc
-	wg           sync.WaitGroup
-	logger       *logger.Logger
-	jobManager   *job.Manager
-	pokeService  *bridge.PokeServiceClient
-	dbContext    *db.AppContext
-	isRunning    bool
-	runningMutex sync.RWMutex
+	config         *PoolConfig
+	workers        []*Worker
+	ctx            context.Context
+	cancel         context.CancelFunc
+	wg             sync.WaitGroup
+	logger         *logger.Logger
+	jobManager     *job.Manager
+	pokeService    *bridge.PokeServiceClient
+	dbContext      *db.AppContext
+	commandHandler ClientCommandHandler
+	isRunning      bool
+	runningMutex   sync.RWMutex
 }
 
 // PoolConfig holds configuration for the worker pool
@@ -37,6 +38,7 @@ type PoolConfig struct {
 	PollInterval       time.Duration
 	Logger             *logger.Logger
 	MaxConcurrentPokes int
+	CommandHandler     ClientCommandHandler
 }
 
 // WorkerConfig holds configuration passed to workers
@@ -71,11 +73,12 @@ func NewPool(config *PoolConfig) *Pool {
 	}
 
 	return &Pool{
-		config:     config,
-		logger:     config.Logger,
-		jobManager: job.NewManager(config.MongoDB, config.Logger),
-		dbContext:  config.DBContext,
-		workers:    make([]*Worker, 0, config.WorkerCount),
+		config:         config,
+		logger:         config.Logger,
+		jobManager:     job.NewManager(config.MongoDB, config.Logger),
+		dbContext:      config.DBContext,
+		commandHandler: config.CommandHandler,
+		workers:        make([]*Worker, 0, config.WorkerCount),
 	}
 }
 
@@ -103,7 +106,7 @@ func (p *Pool) Start(ctx context.Context, config *WorkerConfig) error {
 	// Create and start workers
 	for i := 0; i < p.config.WorkerCount; i++ {
 		workerID := fmt.Sprintf("worker-%d-%d", time.Now().Unix(), i)
-		worker := NewWorker(workerID, p.config, p.jobManager, p.pokeService, p.dbContext, config.WAFProcessor)
+		worker := NewWorker(workerID, p.config, p.jobManager, p.pokeService, p.dbContext, config.WAFProcessor, p.commandHandler)
 		p.workers = append(p.workers, worker)
 
 		p.wg.Add(1)

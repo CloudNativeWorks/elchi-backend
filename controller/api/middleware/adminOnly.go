@@ -3,6 +3,7 @@ package middleware
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -16,14 +17,14 @@ import (
 // ClientOperationExceptions defines which type+subtype combinations are allowed for editors/viewers
 // Empty array means all subtypes allowed for that command type
 var ClientOperationExceptions = map[string][]string{
-	"CLIENT_LOGS":  {}, // All client log operations allowed (readonly)
-	"CLIENT_STATS": {}, // All client stats operations allowed (readonly)
-	"FRR_LOGS":     {}, // All FRR log operations allowed (readonly)
-	"SERVICE":      {"SUB_LOGS", "SUB_STATUS"},                                                    // Only specific SERVICE subtypes allowed (readonly operations)
-	"PROXY":        {},                                                                            // PROXY operations will be checked by path in command authorization
+	"CLIENT_LOGS":  {},                                                                          // All client log operations allowed (readonly)
+	"CLIENT_STATS": {},                                                                          // All client stats operations allowed (readonly)
+	"FRR_LOGS":     {},                                                                          // All FRR log operations allowed (readonly)
+	"SERVICE":      {"SUB_LOGS", "SUB_STATUS"},                                                  // Only specific SERVICE subtypes allowed (readonly operations)
+	"PROXY":        {},                                                                          // PROXY operations will be checked by path in command authorization
 	"NETWORK":      {"SUB_GET_NETWORK_STATE", "SUB_GET_ROUTES", "SUB_GET_POLICIES", "SUB_LIST"}, // NETWORK readonly operations allowed
-	"FILEBEAT":     {"GET_FILEBEAT_CONFIG", "GET_FILEBEAT_STATUS", "SUB_LOGS"},                   // FILEBEAT readonly operations allowed (config read, status, logs)
-	"RSYSLOG":      {"GET_RSYSLOG_CONFIG", "GET_RSYSLOG_STATUS", "SUB_LOGS"},                     // RSYSLOG readonly operations allowed (config read, status, logs)
+	"FILEBEAT":     {"GET_FILEBEAT_CONFIG", "GET_FILEBEAT_STATUS", "SUB_LOGS"},                  // FILEBEAT readonly operations allowed (config read, status, logs)
+	"RSYSLOG":      {"GET_RSYSLOG_CONFIG", "GET_RSYSLOG_STATUS", "SUB_LOGS"},                    // RSYSLOG readonly operations allowed (config read, status, logs)
 }
 
 // isClientOperationAllowedForEditor checks if a client operation is allowed for editors
@@ -135,6 +136,65 @@ func checkOperationFromBody(bodyBytes []byte) bool {
 	return false
 }
 
+// checkBackupAuthorization checks if user is authorized for backup operation
+func checkBackupAuthorization(c *gin.Context, userDetails models.UserDetails) error {
+	// Only export needs authorization check (global backup = owner only)
+	if !strings.HasSuffix(c.Request.URL.Path, "/export") {
+		return nil // validate, metadata, import - no special check needed
+	}
+
+	// Read body to check backup_type
+	bodyBytes, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		return nil // Let handler handle the error
+	}
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+
+	var req struct {
+		BackupType string `json:"backup_type"`
+		ProjectID  string `json:"project_id"`
+	}
+	if json.Unmarshal(bodyBytes, &req) != nil {
+		return nil // Let handler validate
+	}
+
+	// Global backup = Owner only
+	if req.BackupType == "global" {
+		if !userDetails.IsOwner {
+			return errors.New("only owners can create global backups")
+		}
+		return nil // Owner can do global backup
+	}
+
+	// Project backup: Admin and Owner
+	if req.BackupType == "project" {
+		// Owner can backup any project
+		if userDetails.IsOwner {
+			return nil
+		}
+
+		// Admin can only backup projects they have access to
+		if userDetails.Role == models.RoleAdmin {
+			hasAccess := false
+			for _, projectID := range userDetails.Projects {
+				if projectID == req.ProjectID {
+					hasAccess = true
+					break
+				}
+			}
+			if !hasAccess {
+				return errors.New("admins can only backup projects they have access to")
+			}
+			return nil
+		}
+
+		// Other roles cannot do project backup
+		return errors.New("insufficient privileges for project backup")
+	}
+
+	return nil
+}
+
 func InitSettingMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userDetails, _ := handlers.GetUserDetails(c)
@@ -208,6 +268,17 @@ func InitSettingMiddleware() gin.HandlerFunc {
 		if strings.HasPrefix(c.Request.URL.Path, "/api/v3/waf/config") {
 			// POST, PUT, DELETE operations
 			// Handler will check for Admin/Owner role
+			c.Next()
+			return
+		}
+
+		// Special case for backup operations - check backup type authorization
+		if strings.HasPrefix(c.Request.URL.Path, "/api/v3/setting/maintenance/backup/") {
+			if err := checkBackupAuthorization(c, userDetails); err != nil {
+				c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+				c.Abort()
+				return
+			}
 			c.Next()
 			return
 		}

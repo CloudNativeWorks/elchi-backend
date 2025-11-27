@@ -130,4 +130,12 @@ var AllowedEndpoints = []string{
 	"/api/v3/waf/crs/:crs_version/:rule_id",
 	"/api/v3/waf/config",
 	"/api/v3/waf/config/:config_id",
+	// Upgrade endpoint
+	"/api/v3/resource/upgrade",
+	// Maintenance endpoints
+	"/api/v3/setting/maintenance/cleanup/versions/:version",
+	"/api/v3/setting/maintenance/backup/export",
+	"/api/v3/setting/maintenance/backup/import",
+	"/api/v3/setting/maintenance/backup/validate",
+	"/api/v3/setting/maintenance/backup/metadata",
 }

@@ -242,47 +242,36 @@ func getBootstrapTemplate(ctx context.Context, db *mongo.Database, project, vers
 
 // generateBootstrapFromTemplate creates bootstrap config using template + dynamic fields
 func generateBootstrapFromTemplate(ctx context.Context, db *mongo.Database, template *models.ResourceTemplate, listenerGeneral models.General, config *config.AppConfig) (map[string]any, error) {
-	// Template resource'u güvenli şekilde map'e dönüştür
 	var resourceData map[string]any
 
 	if template.Resource == nil {
-		// Template resource boşsa hardcoded'a fallback
 		return generateBootstrapHardcoded(ctx, db, listenerGeneral, config)
 	}
 
-	// JSON marshal/unmarshal ile güvenli tip dönüştürme
 	jsonBytes, err := json.Marshal(template.Resource)
 	if err != nil {
-		// Dönüştürme hatası varsa hardcoded'a fallback
 		return generateBootstrapHardcoded(ctx, db, listenerGeneral, config)
 	}
 
 	err = json.Unmarshal(jsonBytes, &resourceData)
 	if err != nil {
-		// Parse hatası varsa hardcoded'a fallback
 		return generateBootstrapHardcoded(ctx, db, listenerGeneral, config)
 	}
 
-	// Deep copy yap (original template'i değiştirme)
 	bootstrapData := deepCopyMap(resourceData)
 
-	// Dynamic field'ları ekle
 	nodeID := fmt.Sprintf("%s::%s", listenerGeneral.Name, listenerGeneral.Project)
 
-	// 1. Admin port ekle
 	port, err := GetNextAdminPort(ctx, db, listenerGeneral.Name, listenerGeneral.Project, listenerGeneral.Version)
 	if err != nil {
 		return nil, err
 	}
 	addAdminAddress(bootstrapData, port)
 
-	// 2. Node cluster ve ID ekle
 	addNodeClusterAndID(bootstrapData, nodeID)
 
-	// 3. Dynamic resources ekle
 	addDynamicResources(bootstrapData, nodeID, config.ElchiAddress, listenerGeneral.Version)
 
-	// 4. General section oluştur (template general + base general)
 	now := time.Now()
 	general := createGeneralConfigFromTemplate(template.General, listenerGeneral, now, now)
 

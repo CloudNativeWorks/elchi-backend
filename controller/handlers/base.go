@@ -59,6 +59,8 @@ type Handler struct {
 	RouteMap     *routemap.RouteMapHandler
 	Snippet      *SnippetHandler
 	WAF          *WAFHandler
+	Upgrade      *UpgradeHandler
+	Maintenance  *MaintenanceHandler
 }
 
 // getDatabaseConnection returns the first available database connection from handlers
@@ -82,7 +84,7 @@ func (h *Handler) getDatabaseConnection() *mongo.Database {
 	return nil
 }
 
-func NewHandler(xds *xds.AppHandler, extension *extension.AppHandler, custom *custom.AppHandler, settings *settings.AppHandler, dependency *dependency.AppHandler, stats *bridge.AppHandler, scenario *scenario.AppHandler, client *client.AppHandler, service *service.AppHandler, discovery *discovery.DiscoveryHandler, jobs *JobHandler, registry *RegistryHandler, openstack *openstack.Handler, auditService *audit.Service, template *ResourceTemplateHandler, routeMap *routemap.RouteMapHandler) *Handler {
+func NewHandler(xds *xds.AppHandler, extension *extension.AppHandler, custom *custom.AppHandler, settings *settings.AppHandler, dependency *dependency.AppHandler, stats *bridge.AppHandler, scenario *scenario.AppHandler, client *client.AppHandler, service *service.AppHandler, discovery *discovery.DiscoveryHandler, jobs *JobHandler, registry *RegistryHandler, openstack *openstack.Handler, auditService *audit.Service, template *ResourceTemplateHandler, routeMap *routemap.RouteMapHandler, maintenance *MaintenanceHandler, upgrade *UpgradeHandler) *Handler {
 	handler := &Handler{
 		XDS:          xds,
 		Extension:    extension,
@@ -100,6 +102,8 @@ func NewHandler(xds *xds.AppHandler, extension *extension.AppHandler, custom *cu
 		AuditService: auditService,
 		Template:     template,
 		RouteMap:     routeMap,
+		Maintenance:  maintenance,
+		Upgrade:      upgrade,
 	}
 
 	// Initialize snippet handler
@@ -351,9 +355,18 @@ func GetUserDetails(c *gin.Context) (models.UserDetails, error) {
 		userGroup = &[]string{}
 	}
 
+	// Handle projects - support both []string and *[]CombinedProjects from JWT
 	userProjects, ok := projects.([]string)
 	if !ok {
-		userProjects = []string{}
+		// Try CombinedProjects (from JWT claims)
+		if combinedProjects, ok := projects.(*[]models.CombinedProjects); ok {
+			userProjects = []string{}
+			for _, proj := range *combinedProjects {
+				userProjects = append(userProjects, proj.ProjectID)
+			}
+		} else {
+			userProjects = []string{}
+		}
 	}
 
 	userIsOwner, ok := isOwner.(bool)

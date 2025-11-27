@@ -47,6 +47,15 @@ func ClusterDownstreamFilters(dfm DownstreamFilter) []MongoFilters {
 								}}},
 							}},
 						},
+						bson.D{
+							{Key: "$and", Value: bson.A{
+								bson.D{{Key: "general.gtype", Value: "envoy.extensions.filters.udp.udp_proxy.v3.UdpProxyConfig"}},
+								bson.D{{Key: "$or", Value: bson.A{
+									bson.D{{Key: "resource.resource.cluster", Value: dfm.Name}},
+									bson.D{{Key: "resource.resource.matcher.on_no_match.action.0", Value: dfm.Name}},
+								}}},
+							}},
+						},
 					}}},
 				}},
 			},

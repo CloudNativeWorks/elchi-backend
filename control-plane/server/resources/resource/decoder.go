@@ -133,9 +133,14 @@ func (ar *AllResources) processConfigDiscoveries(ctx context.Context, configDisc
 // Returns:
 // - error: an error if any occurred during the processing of the configuration
 func (ar *AllResources) processExtension(ctx context.Context, extension *models.ConfigDiscovery, parentName string, context *db.AppContext, logger *logger.Logger) {
-	uniqKey := fmt.Sprintf("%s__%s__%s", extension.Name, parentName, extension.GType.String())
-	if ar.checkAndMarkDuplicate(uniqKey) {
-		return
+	// For VirtualHost, we don't check duplicate at this level because the same VH
+	// can be used by multiple routes (e.g., hopper-route and hopper-route-quic)
+	// Duplicate check will be done in AddToCollection with parent-specific unique key
+	if extension.GType != models.VirtualHost {
+		uniqKey := fmt.Sprintf("%s__%s__%s", extension.Name, parentName, extension.GType.String())
+		if ar.checkAndMarkDuplicate(uniqKey) {
+			return
+		}
 	}
 
 	extConfigs, additionalExtResources, err := ar.CollectAllResourcesWithParent(ctx, extension.GType, extension.Name, parentName, context, logger)
@@ -153,8 +158,9 @@ func (ar *AllResources) processExtension(ctx context.Context, extension *models.
 			} else {
 				virtualHostName = fmt.Sprintf("unknown_%d", i)
 			}
-			// Use actual VH name in unique key to prevent duplicates
-			uniqKey := fmt.Sprintf("%s__%s__%s", extension.Name, virtualHostName, extension.GType.String())
+			// Use actual VH name AND parent name in unique key to allow same VH in multiple routes
+			// This allows the same virtual host to be used by multiple routes (e.g., HTTP/2 and HTTP/3)
+			uniqKey := fmt.Sprintf("%s__%s__%s__%s", extension.Name, parentName, virtualHostName, extension.GType.String())
 			ar.AddToCollection(extConfig, extension.GType, uniqKey, &parentName, extension.Name, logger)
 		} else {
 			if extension.GType == models.HTTPConnectionManager {

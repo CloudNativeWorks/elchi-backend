@@ -152,7 +152,7 @@ func createAdminUser(ctx context.Context, db *AppContext) (string, error) {
 		user.Active = &adminActive
 		user.AuthType = &authType
 
-		token, refreshToken, _ := helper.GenerateAllTokens(user.Email, user.Username, user.UserID, nil, nil, nil, nil, user.Role)
+		token, refreshToken, _ := helper.GenerateAllTokens(user.Email, user.Username, user.UserID, nil, nil, nil, nil, user.Role, user.AuthType)
 		user.Token = &token
 		user.RefreshToken = &refreshToken
 

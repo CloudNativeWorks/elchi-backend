@@ -43,6 +43,7 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 
 	apiAuth := e.Group("/auth")
 	apiSettings := v3.Group("/setting")
+	apiProfile := v3.Group("/profile")
 	apiCustom := v3.Group("/custom")
 	apiExtension := v3.Group("/eo")
 	apiExtension.Use(middleware.ValidateResourceParams()) // Add resource parameter validation
@@ -75,6 +76,7 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 
 	initAuthRoutes(apiAuth, h)
 	initSettingRoutes(apiSettings, h)
+	initProfileRoutes(apiProfile, h) // Profile routes under /api/v3/profile
 	initCustomRoutes(apiCustom, h)
 	initExtensionRoutes(apiExtension, h)
 	initScenarioRoutes(apiScenario, h)

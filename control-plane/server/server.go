@@ -61,9 +61,6 @@ func NewServer(xdsServer server.Server, port uint, context *snapshot.Context, en
 
 // Run starts an xDS server at the given port.
 func (s *Server) Run(db *db.AppContext) {
-	// Enable detailed gRPC keepalive logging for debugging
-	// s.setupKeepaliveLogging()
-
 	// Note: Routing manager is now handled in cmd/control-plane.go
 
 	var grpcOptions []grpc.ServerOption

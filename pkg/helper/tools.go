@@ -156,7 +156,7 @@ func isCommonPassword(password string) bool {
 	commonPasswords := []string{
 		"password", "123456", "123456789", "qwerty", "abc123",
 		"password123", "admin", "administrator", "root", "user",
-		"guest", "test", "demo", "welcome", "login",
+		"guest", "test", "welcome", "login",
 	}
 
 	lowerPassword := strings.ToLower(password)
@@ -191,7 +191,7 @@ func HashPasswordWithValidation(password string) (string, error) {
 	return string(bytes), nil
 }
 
-func GenerateAllTokens(email, username *string, userID string, groups *[]string, projects *[]models.CombinedProjects, baseGroup, baseProject *string, role *models.Role) (signedToken, signedRefreshToken string, err error) {
+func GenerateAllTokens(email, username *string, userID string, groups *[]string, projects *[]models.CombinedProjects, baseGroup, baseProject *string, role *models.Role, authType *string) (signedToken, signedRefreshToken string, err error) {
 	claims := &models.SignedDetails{
 		Email:       email,
 		Username:    username,
@@ -201,6 +201,7 @@ func GenerateAllTokens(email, username *string, userID string, groups *[]string,
 		BaseGroup:   baseGroup,
 		BaseProject: baseProject,
 		Role:        role,
+		AuthType:    authType,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(getAccessTokenExpiry()),
 		},
@@ -215,6 +216,7 @@ func GenerateAllTokens(email, username *string, userID string, groups *[]string,
 		BaseGroup:   baseGroup,
 		BaseProject: baseProject,
 		Role:        role,
+		AuthType:    authType,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(getRefreshTokenExpiry()),
 		},

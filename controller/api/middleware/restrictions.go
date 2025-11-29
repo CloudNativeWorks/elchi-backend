@@ -16,7 +16,6 @@ var AllowedEndpoints = []string{
 	"/logout",
 	"/refresh",
 	"/auth/login",
-	"/auth/demo/:email",
 	// Admin + Owner endpoints (User/Group management)
 	"/api/v3/setting/user_list",
 	"/api/v3/setting/user/:user_id",
@@ -38,6 +37,21 @@ var AllowedEndpoints = []string{
 	"/api/v3/setting/ldap-config",
 	"/api/v3/setting/ldap-config/test",
 	"/api/v3/setting/ldap-config/test-auth",
+
+	// OTP Admin endpoints (Admin/Owner only)
+	"/api/v3/setting/otp-config",
+	"/api/v3/setting/otp/reset-user/:user_id",
+
+	// Profile endpoints (All authenticated users)
+	"/api/v3/profile",
+	"/api/v3/profile/email",
+	"/api/v3/profile/password",
+	"/api/v3/profile/otp/status",
+	"/api/v3/profile/otp/enable",
+	"/api/v3/profile/otp/verify",
+	"/api/v3/profile/otp/disable",
+	"/api/v3/profile/otp/regenerate-backup-codes",
+
 	"/api/v3/xds/secrets",
 	"/api/v3/xds/secrets/:name",
 	"/api/v3/xds/bootstrap",

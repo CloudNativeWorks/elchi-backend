@@ -37,23 +37,12 @@ func initServiceRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 }
 
 func initAuthRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
-	enableDemo := h.Settings.Context.Config.ElchiEnableDemo == "true"
 	routes := []struct {
 		method  string
 		path    string
 		handler gin.HandlerFunc
 	}{
 		{"POST", "/login", h.Settings.Login()},
-	}
-
-	if enableDemo {
-		routes = append(routes, struct {
-			method  string
-			path    string
-			handler gin.HandlerFunc
-		}{
-			"POST", "/demo/:email", h.Settings.DemoAccount,
-		})
 	}
 
 	initRoutes(rg, routes)
@@ -122,6 +111,11 @@ func initSettingRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		{"DELETE", "/ldap-config", h.DeleteLDAPConfigWithAudit},
 		{"POST", "/ldap-config/test", h.TestLDAPConfigWithAudit},
 		{"POST", "/ldap-config/test-auth", h.TestLDAPAuthWithAudit},
+
+		// OTP configuration endpoints (Admin/Owner only)
+		{"GET", "/otp-config", h.Settings.GetOTPConfig()},
+		{"PUT", "/otp-config", h.Settings.UpdateOTPConfig()},
+		{"POST", "/otp/reset-user/:user_id", h.Settings.ResetUserOTP()},
 	}
 
 	initRoutes(rg, routes)
@@ -471,6 +465,28 @@ func initMaintenanceRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		{"POST", "/backup/import", h.Maintenance.Backup.ImportBackup},
 		{"POST", "/backup/validate", h.Maintenance.Backup.ValidateBackup},
 		{"POST", "/backup/metadata", h.Maintenance.Backup.GetBackupMetadata},
+	}
+
+	initRoutes(rg, routes)
+}
+
+func initProfileRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
+	routes := []struct {
+		method  string
+		path    string
+		handler gin.HandlerFunc
+	}{
+		// Profile endpoints
+		{"GET", "", h.Profile.GetProfile()},
+		{"PUT", "/email", h.Profile.UpdateEmail()},
+		{"PUT", "/password", h.Profile.UpdatePassword()},
+
+		// OTP management endpoints
+		{"GET", "/otp/status", h.Profile.GetOTPStatus()},
+		{"POST", "/otp/enable", h.Profile.EnableOTP()},
+		{"POST", "/otp/verify", h.Profile.VerifyOTP()},
+		{"POST", "/otp/disable", h.Profile.DisableOTP()},
+		{"POST", "/otp/regenerate-backup-codes", h.Profile.RegenerateBackupCodes()},
 	}
 
 	initRoutes(rg, routes)

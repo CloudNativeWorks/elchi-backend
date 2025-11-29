@@ -88,7 +88,6 @@ elchi:
   address: "0.0.0.0"
   port: 8080
   tls_enabled: false
-  enable_demo: false
   versions: ["1.27", "1.28", "1.29"]
   namespace: "elchi-system"
 
@@ -253,7 +252,6 @@ go run main.go elchi-control-plane --config config.yaml
 ELCHI_ADDRESS=0.0.0.0
 ELCHI_PORT=8080
 ELCHI_TLS_ENABLED=false
-ELCHI_ENABLE_DEMO=false
 ELCHI_VERSIONS="1.27,1.28,1.29"
 ELCHI_NAMESPACE=elchi-system
 ```

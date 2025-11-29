@@ -8,6 +8,9 @@ type Settings struct {
 	DiscoveryToken  string                 `bson:"discovery_token,omitempty"`
 	Clouds          map[string]CloudConfig `bson:"clouds,omitempty"`
 	LDAPConfig      *LDAPConfig            `bson:"ldap_config,omitempty"`
+
+	// OTP/2FA enforcement
+	OTPEnforced bool `json:"otp_enforced" bson:"otp_enforced"` // Project-level OTP requirement
 }
 
 type Token struct {

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/CloudNativeWorks/elchi-backend/controller/api/profile"
 	"github.com/CloudNativeWorks/elchi-backend/controller/api/settings"
 	"github.com/CloudNativeWorks/elchi-backend/controller/bridge"
 	"github.com/CloudNativeWorks/elchi-backend/controller/client"
@@ -22,6 +23,7 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/pkg/audit"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/authorization"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/errstr"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 
 	"github.com/gin-gonic/gin"
@@ -45,6 +47,7 @@ type Handler struct {
 	Extension    *extension.AppHandler
 	Custom       *custom.AppHandler
 	Settings     *settings.AppHandler
+	Profile      *profile.ProfileHandler
 	dependency   *dependency.AppHandler
 	Bridge       *bridge.AppHandler
 	Scenario     *scenario.AppHandler
@@ -105,6 +108,10 @@ func NewHandler(xds *xds.AppHandler, extension *extension.AppHandler, custom *cu
 		Maintenance:  maintenance,
 		Upgrade:      upgrade,
 	}
+
+	// Initialize profile handler
+	profileLogger := logger.NewLogger("controller/profile")
+	handler.Profile = profile.NewProfileHandler(xds.Context, profileLogger)
 
 	// Initialize snippet handler
 	handler.Snippet = NewSnippetHandler(handler)

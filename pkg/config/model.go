@@ -4,7 +4,6 @@ type AppConfig struct {
 	ElchiAddress               string   `mapstructure:"ELCHI_ADDRESS" yaml:"ELCHI_ADDRESS"`
 	ElchiPort                  string   `mapstructure:"ELCHI_PORT" yaml:"ELCHI_PORT"`
 	ElchiTLSEnabled            string   `mapstructure:"ELCHI_TLS_ENABLED" yaml:"ELCHI_TLS_ENABLED"`
-	ElchiEnableDemo            string   `mapstructure:"ELCHI_ENABLE_DEMO" yaml:"ELCHI_ENABLE_DEMO"`
 	ElchiVersions              []string `mapstructure:"ELCHI_VERSIONS" yaml:"ELCHI_VERSIONS"`
 	ElchiInternalCommunication string   `mapstructure:"ELCHI_INTERNAL_COMMUNICATION" yaml:"ELCHI_INTERNAL_COMMUNICATION"`
 	ElchiInternalAddressPort   string   `mapstructure:"ELCHI_INTERNAL_ADDRESS_PORT" yaml:"ELCHI_INTERNAL_ADDRESS_PORT"`
@@ -23,15 +22,8 @@ type AppConfig struct {
 	MongodbAuthSource    string `mapstructure:"MONGODB_AUTH_SOURCE" yaml:"MONGODB_AUTH_SOURCE"`
 	MongodbAuthMechanism string `mapstructure:"MONGODB_AUTH_MECHANISM" yaml:"MONGODB_AUTH_MECHANISM"`
 
-	// Logging configuration - flattened for environment variable support
-	LoggingLevel      string `mapstructure:"LOGGING_LEVEL" yaml:"LOGGING_LEVEL"`
-	LoggingFormat     string `mapstructure:"LOGGING_FORMAT" yaml:"LOGGING_FORMAT"`
-	LoggingOutputPath string `mapstructure:"LOGGING_OUTPUT_PATH" yaml:"LOGGING_OUTPUT_PATH"`
-
 	// Keep nested for YAML compatibility
 	Logging LoggingConfig `mapstructure:"LOGGING" yaml:"LOGGING"`
-
-	SMTPPassword string `mapstructure:"SMTP_PASSWORD" yaml:"SMTP_PASSWORD"`
 
 	// JWT Security configuration
 	ElchiJWTSecret               string `mapstructure:"ELCHI_JWT_SECRET" yaml:"ELCHI_JWT_SECRET"`

@@ -110,6 +110,12 @@ func Authentication(appContext *db.AppContext) gin.HandlerFunc {
 			}
 			return ""
 		}())
+		c.Set("auth_type", func() string {
+			if claims.AuthType != nil {
+				return *claims.AuthType
+			}
+			return "local" // Default to local if not set
+		}())
 
 		if claims.Role != nil && *claims.Role == models.RoleOwner {
 			isOwner = true
@@ -208,6 +214,12 @@ func Refresh() gin.HandlerFunc {
 		c.Set("projects", claims.Projects)
 		c.Set("role", claims.Role)
 		c.Set("user_name", claims.Username)
+		c.Set("auth_type", func() string {
+			if claims.AuthType != nil {
+				return *claims.AuthType
+			}
+			return "local"
+		}())
 
 		c.Next()
 	}

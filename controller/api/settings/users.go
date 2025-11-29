@@ -18,6 +18,7 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/pkg/helper"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/ldap"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
+	otpHelper "github.com/CloudNativeWorks/elchi-backend/pkg/otp"
 )
 
 type UserWithGroups struct {
@@ -67,61 +68,6 @@ func (handler *AppHandler) GetUserByID(c *gin.Context) {
 			"username": username,
 		},
 	})
-}
-
-func (handler *AppHandler) DemoAccount(c *gin.Context) {
-	var userCollection *mongo.Collection = handler.Context.Client.Collection("users")
-	var userWG UserWithGroups
-	var status int
-	var msg, userID string
-	email := c.Param("email")
-
-	if checkUserByEmailAndIP(userCollection, email, c.ClientIP()) {
-		respondWithJSON(c, http.StatusBadRequest, "Email or clientIP already exists", "0")
-		return
-	}
-
-	clientIP := c.ClientIP()
-	baseProjectID := handler.GetDemoProjectID()
-	baseGroupID := handler.GetDemoGroupID(baseProjectID)
-	ctx := c.Request.Context()
-	user := "demo" + helper.GenerateUniqueID(4)
-	userWG.Username = &user
-	passwd := helper.GenerateUniqueID(12) // Minimum 12 characters required for password validation
-	userWG.Password = &passwd
-	userWG.Email = &email
-	active := true
-	userWG.Active = &active
-	userWG.Projects = []string{baseProjectID}
-	userWG.BaseProject = &baseProjectID
-	role := models.RoleEditor
-	userWG.Role = &role
-	userWG.ClientIP = &clientIP
-	status, msg, userID = handler.CreateUser(ctx, userCollection, userWG)
-
-	if status == http.StatusOK {
-		if baseProjectID != "" {
-			var groupsCollection *mongo.Collection = handler.Context.Client.Collection("groups")
-			filter := bson.M{
-				"_id": baseGroupID,
-			}
-			update := bson.M{
-				"$addToSet": bson.M{
-					"members": userID,
-				},
-			}
-			_, err := groupsCollection.UpdateOne(ctx, filter, update)
-			if err != nil {
-				handler.Logger.Errorf("Failed to add user to default group: %v", err)
-			}
-		}
-
-		if err := SendEmail(user, passwd, email, handler.Context.Config.SMTPPassword); err != nil {
-			handler.Logger.Errorf("Failed to send email: %v", err)
-		}
-	}
-
-	respondWithJSON(c, status, msg, userID)
 }
 
 func (handler *AppHandler) SetUpdateUser(c *gin.Context) {
@@ -193,7 +139,7 @@ func (handler *AppHandler) CreateUser(ctx context.Context, userCollection *mongo
 	userWG.UpdatedAt = primitive.NewDateTimeFromTime(now)
 	userWG.ID = primitive.NewObjectID()
 	userWG.UserID = userWG.ID.Hex()
-	token, refreshToken, _ := helper.GenerateAllTokens(userWG.Email, userWG.Username, userWG.UserID, nil, nil, nil, nil, userWG.Role)
+	token, refreshToken, _ := helper.GenerateAllTokens(userWG.Email, userWG.Username, userWG.UserID, nil, nil, nil, nil, userWG.Role, userWG.AuthType)
 	userWG.Token = &token
 	userWG.RefreshToken = &refreshToken
 
@@ -350,19 +296,31 @@ func (handler *AppHandler) Login() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
 		defer cancel()
-		var user models.User
 		var foundUser models.User
 
-		if err := c.BindJSON(&user); err != nil {
+		// Parse login request with OTP code
+		var loginRequest struct {
+			Username *string `json:"username" binding:"required"`
+			Password *string `json:"password" binding:"required"`
+			OTPCode  string  `json:"otp_code"`
+		}
+
+		if err := c.BindJSON(&loginRequest); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 			return
 		}
 
 		// Step 1: Check if user exists in database
-		err := userCollection.FindOne(ctx, bson.M{"username": user.Username}).Decode(&foundUser)
+		err := userCollection.FindOne(ctx, bson.M{"username": loginRequest.Username}).Decode(&foundUser)
 		if err == nil {
 			// User found - authenticate based on auth_type
-			if handler.authenticateExistingUser(&foundUser, *user.Password) {
+			if handler.authenticateExistingUser(&foundUser, *loginRequest.Password) {
+				// Password correct - now check OTP requirements
+				otpCheckResult := handler.checkOTPRequirementsWithCode(c, &foundUser, loginRequest.OTPCode, ctx)
+				if otpCheckResult != "ok" {
+					// OTP check handled the response
+					return
+				}
 				handler.generateTokensAndRespond(c, &foundUser)
 				return
 			} else {
@@ -382,7 +340,7 @@ func (handler *AppHandler) Login() gin.HandlerFunc {
 		}
 
 		// Step 2: User not found, try LDAP authentication using any available project config
-		newUser, err := handler.tryLDAPAuthenticationAndCreateUser(ctx, *user.Username, *user.Password)
+		newUser, err := handler.tryLDAPAuthenticationAndCreateUser(ctx, *loginRequest.Username, *loginRequest.Password)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"message": "username or password is incorrect"})
 			return
@@ -447,7 +405,7 @@ func (handler *AppHandler) Refresh() gin.HandlerFunc {
 		groups, baseGroup, _ := handler.GetUserGroups(ctx, foundUser.UserID)
 		projects, baseProject := handler.GetUserProject(ctx, foundUser.UserID)
 
-		signedToken, signedRefreshToken, _ := helper.GenerateAllTokens(foundUser.Email, foundUser.Username, foundUser.UserID, groups, projects, baseGroup, baseProject, foundUser.Role)
+		signedToken, signedRefreshToken, _ := helper.GenerateAllTokens(foundUser.Email, foundUser.Username, foundUser.UserID, groups, projects, baseGroup, baseProject, foundUser.Role, foundUser.AuthType)
 		UpdateAllTokens(handler, signedToken, signedRefreshToken, foundUser.UserID)
 
 		c.JSON(http.StatusOK, gin.H{
@@ -602,55 +560,6 @@ func isOwnerUpdatingNonOwner(currentUserRole models.Role, user models.User) bool
 func isAdminUpdatingNonOwner(currentUserRole models.Role, user models.User) bool {
 	return currentUserRole == models.RoleAdmin &&
 		(*user.Role == models.RoleAdmin || *user.Role == models.RoleViewer || *user.Role == models.RoleEditor)
-}
-
-func checkUserByEmailAndIP(userCollection *mongo.Collection, email, clientIP string) bool {
-	filter := bson.M{
-		"$or": []bson.M{
-			{"email": email},
-			{"client_ip": clientIP},
-		},
-	}
-
-	var user models.User
-	err := userCollection.FindOne(context.TODO(), filter).Decode(&user)
-	return err == nil
-}
-
-func (handler *AppHandler) GetDemoProjectID() string {
-	client := handler.Context.Client.Collection("projects")
-	var project bson.M
-	err := client.FindOne(context.TODO(), bson.M{"projectname": "demo"}).Decode(&project)
-	if err != nil {
-		handler.Logger.Errorf("Failed to find demo project: %v", err)
-		return ""
-	}
-
-	id, ok := project["_id"].(primitive.ObjectID)
-	if !ok {
-		handler.Logger.Errorf("Invalid project ID: %v", err)
-		return ""
-	}
-
-	return id.Hex()
-}
-
-func (handler *AppHandler) GetDemoGroupID(projectID string) primitive.ObjectID {
-	client := handler.Context.Client.Collection("groups")
-	var group bson.M
-	err := client.FindOne(context.TODO(), bson.M{"groupname": "default", "project": projectID}).Decode(&group)
-	if err != nil {
-		handler.Logger.Errorf("Failed to find default group: %v", err)
-		return primitive.NilObjectID
-	}
-
-	id, ok := group["_id"].(primitive.ObjectID)
-	if !ok {
-		handler.Logger.Errorf("Invalid group ID: %v", err)
-		return primitive.NilObjectID
-	}
-
-	return id
 }
 
 func (handler *AppHandler) DeleteUser(c *gin.Context) {
@@ -829,7 +738,7 @@ func (handler *AppHandler) createLDAPUser(ctx context.Context, username, project
 	newUser.UserID = newUser.ID.Hex()
 
 	// Generate tokens for the new LDAP user
-	token, refreshToken, _ := helper.GenerateAllTokens(newUser.Email, newUser.Username, newUser.UserID, nil, nil, nil, nil, newUser.Role)
+	token, refreshToken, _ := helper.GenerateAllTokens(newUser.Email, newUser.Username, newUser.UserID, nil, nil, nil, nil, newUser.Role, newUser.AuthType)
 	newUser.Token = &token
 	newUser.RefreshToken = &refreshToken
 
@@ -874,8 +783,8 @@ func (handler *AppHandler) generateTokensAndRespond(c *gin.Context, user *models
 	groups, baseGroup, _ := handler.GetUserGroups(ctx, user.UserID)
 	projects, baseProject := handler.GetUserProject(ctx, user.UserID)
 
-	// Generate JWT tokens
-	token, refreshToken, _ := helper.GenerateAllTokens(user.Email, user.Username, user.UserID, groups, projects, baseGroup, baseProject, user.Role)
+	// Generate JWT tokens with AuthType
+	token, refreshToken, _ := helper.GenerateAllTokens(user.Email, user.Username, user.UserID, groups, projects, baseGroup, baseProject, user.Role, user.AuthType)
 
 	user.Token = &token
 	user.RefreshToken = &refreshToken
@@ -921,4 +830,100 @@ func (handler *AppHandler) getFirstAvailableLDAPConfig() (*models.LDAPConfig, st
 	}
 
 	return settings.LDAPConfig, settings.Project, nil
+}
+
+// checkOTPRequirementsWithCode validates OTP requirements for user login
+// Returns "ok" if login should proceed, otherwise handles the response and returns error code
+func (handler *AppHandler) checkOTPRequirementsWithCode(c *gin.Context, user *models.User, otpCode string, ctx context.Context) string {
+	// Check if user has OTP enabled
+	if user.OTPEnabled != nil && *user.OTPEnabled {
+		// OTP is enabled for this user
+		if otpCode == "" {
+			// No OTP code provided
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"requires_otp": true,
+				"message":      "OTP code required",
+			})
+			return "requires_otp"
+		}
+
+		// Validate OTP code
+		if user.OTPSecret != nil {
+			valid := otpHelper.ValidateOTPCode(*user.OTPSecret, otpCode)
+			if valid {
+				// OTP code is correct
+				return "ok"
+			}
+
+			// Try backup codes
+			if len(user.OTPBackupCodes) > 0 {
+				validBackup, usedIndex := otpHelper.ValidateBackupCode(user.OTPBackupCodes, otpCode)
+				if validBackup {
+					// Backup code is valid - remove it and allow login
+					updatedCodes := otpHelper.RemoveBackupCode(user.OTPBackupCodes, usedIndex)
+
+					// Update user's backup codes in database
+					handler.Context.Client.Collection("users").UpdateOne(
+						ctx,
+						bson.M{"user_id": user.UserID},
+						bson.M{
+							"$set": bson.M{
+								"otp_backup_codes": updatedCodes,
+								"updated_at":       primitive.NewDateTimeFromTime(time.Now()),
+							},
+						},
+					)
+
+					handler.Logger.Infof("User %s used backup code for login", user.UserID)
+					return "ok"
+				}
+			}
+
+			// Invalid OTP code
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"message": "Invalid OTP code",
+			})
+			return "invalid_otp"
+		}
+	}
+
+	// Check if project enforces OTP but user doesn't have it set up
+	if user.BaseProject != nil {
+		var settings models.Settings
+		err := handler.Context.Client.Collection("settings").
+			FindOne(ctx, bson.M{"project": *user.BaseProject}).
+			Decode(&settings)
+
+		if err == nil && settings.OTPEnforced {
+			// Project enforces OTP
+			if user.OTPEnabled == nil || !*user.OTPEnabled {
+				// User doesn't have OTP enabled - generate temporary token for OTP setup only
+				// This token allows access ONLY to OTP setup endpoints
+				groups, baseGroup, _ := handler.GetUserGroups(ctx, user.UserID)
+				projects, baseProject := handler.GetUserProject(ctx, user.UserID)
+
+				tempToken, _, _ := helper.GenerateAllTokens(
+					user.Email,
+					user.Username,
+					user.UserID,
+					groups,
+					projects,
+					baseGroup,
+					baseProject,
+					user.Role,
+					user.AuthType,
+				)
+
+				c.JSON(http.StatusForbidden, gin.H{
+					"requires_otp_setup": true,
+					"message":            "OTP setup required by project policy",
+					"temp_token":         tempToken, // Temporary token for OTP setup
+				})
+				return "requires_otp_setup"
+			}
+		}
+	}
+
+	// No OTP requirements or checks passed
+	return "ok"
 }

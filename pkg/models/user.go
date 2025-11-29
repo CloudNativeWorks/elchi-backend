@@ -35,6 +35,12 @@ type User struct {
 	ClientIP     *string            `json:"client_ip" bson:"client_ip"`
 	UserID       string             `json:"user_id" bson:"user_id"`
 	AuthType     *string            `json:"auth_type" bson:"auth_type"` // "local" | "ldap"
+
+	// OTP/2FA fields
+	OTPEnabled     *bool    `json:"otp_enabled" bson:"otp_enabled"`
+	OTPSecret      *string  `json:"-" bson:"otp_secret"` // Never expose in JSON
+	OTPBackupCodes []string `json:"-" bson:"otp_backup_codes"` // Hashed backup codes
+	OTPVerified    *bool    `json:"otp_verified" bson:"otp_verified"` // Setup completed
 }
 
 type Group struct {
@@ -73,6 +79,7 @@ type SignedDetails struct {
 	Role        *Role
 	BaseGroup   *string
 	BaseProject *string
+	AuthType    *string // "local" | "ldap"
 	jwt.RegisteredClaims
 }
 

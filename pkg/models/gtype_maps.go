@@ -28,10 +28,14 @@ import (
 	http_dynamic_forward_proxy "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/http/dynamic_forward_proxy/v3"
 	ext_authz "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/http/ext_authz/v3"
 	ext_proc "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/http/ext_proc/v3"
+	h_grpc_http1_bridge "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/http/grpc_http1_bridge/v3"
+	h_grpc_web "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/http/grpc_web/v3"
+	h_header_mutation "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/http/header_mutation/v3"
 	jwt_authn "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/http/jwt_authn/v3"
 	h_local_ratelimit "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/http/local_ratelimit/v3"
 	lua "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/http/lua/v3"
 	oauth2 "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/http/oauth2/v3"
+	h_original_src "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/http/original_src/v3"
 	h_rbac "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/http/rbac/v3"
 	router "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/http/router/v3"
 	stateful_session "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/http/stateful_session/v3"
@@ -50,9 +54,19 @@ import (
 	l_dns_filter "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/udp/dns_filter/v3"
 	udp_proxy "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/udp/udp_proxy/v3"
 	hcefs "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/health_check/event_sinks/file/v3"
+	original_ip_custom "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/http/original_ip_detection/custom_header/v3"
+	original_ip_xff "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/http/original_ip_detection/xff/v3"
 	stateful_session_cookie "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/http/stateful_session/cookie/v3"
 	stateful_session_header "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/http/stateful_session/header/v3"
+	internal_redirect_allow_listed_routes "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/internal_redirect/allow_listed_routes/v3"
+	internal_redirect_previous_routes "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/internal_redirect/previous_routes/v3"
+	internal_redirect_safe_cross_scheme "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/internal_redirect/safe_cross_scheme/v3"
 	utm "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/path/match/uri_template/v3"
+	uri_template_rewrite "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/path/rewrite/uri_template/v3"
+	rm_cgroup_memory "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/resource_monitors/cgroup_memory/v3"
+	rm_cpu "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/resource_monitors/cpu_utilization/v3"
+	rm_downstream_conn "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/resource_monitors/downstream_connections/v3"
+	rm_fixed_heap "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/resource_monitors/fixed_heap/v3"
 	stat_sink_otel "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/stat_sinks/open_telemetry/v3"
 	quic "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/transport_sockets/quic/v3"
 	tls "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/transport_sockets/tls/v3"
@@ -121,6 +135,14 @@ var URLs = map[string]string{
 	"connection_limit":              "/filters/network/connection_limit/",
 	"n_local_ratelimit":             "/filters/network/n_local_ratelimit/",
 	"h_local_ratelimit":             "/filters/http/h_local_ratelimit/",
+	"h_original_src":                "/filters/http/original_src/",
+	"h_grpc_web":                    "/filters/http/grpc_web/",
+	"h_grpc_http1_bridge":           "/filters/http/grpc_http1_bridge/",
+	"h_header_mutation":             "/filters/http/header_mutation/",
+	"original_ip_detection":         "/extensions/original_ip_detection/",
+	"path_rewrite":                  "/extensions/path_rewrite/",
+	"internal_redirect":             "/extensions/internal_redirect/",
+	"resource_monitors":             "/extensions/resource_monitors/",
 	"oauth2":                        "/filters/http/oauth2/",
 	"tls":                           "/resource/tls/",
 	"stat_sinks":                    "/extensions/stat_sinks/",
@@ -810,7 +832,7 @@ var gTypeMappings = map[GType]GTypeMapping{
 		TypedConfigPaths:              UDPProxyTypedConfigPaths,
 		UpstreamPaths:                 UDPProxyUpstreams,
 	},
-	ListeneProxyProtocol: {
+	ListenerProxyProtocol: {
 		PrettyName:                    "Proxy Protocol",
 		Collection:                    "filters",
 		Type:                          "listener_filter",
@@ -819,7 +841,7 @@ var gTypeMappings = map[GType]GTypeMapping{
 		URL:                           URLs["l_proxy_protocol"],
 		Message:                       &l_proxy_protocol.ProxyProtocol{},
 		DownstreamFiltersFunc:         downstreamfilters.DownstreamTypedFilters,
-		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(ListeneProxyProtocol.String()),
+		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(ListenerProxyProtocol.String()),
 		TypedConfigPaths:              nil,
 		UpstreamPaths:                 nil,
 	},
@@ -859,6 +881,201 @@ var gTypeMappings = map[GType]GTypeMapping{
 		Message:                       &h_local_ratelimit.LocalRateLimit{},
 		DownstreamFiltersFunc:         downstreamfilters.DiscoverAndTypedHTTPFilterDownstreamFilters,
 		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(HTTPLocalRatelimit.String()),
+		TypedConfigPaths:              nil,
+		UpstreamPaths:                 nil,
+	},
+	HTTPOriginalSrc: {
+		PrettyName:                    "Original Src",
+		Collection:                    "filters",
+		Type:                          "http_filter",
+		CanonicalName:                 "envoy.filters.http.original_src",
+		Category:                      "envoy.filters.http",
+		URL:                           URLs["h_original_src"],
+		Message:                       &h_original_src.OriginalSrc{},
+		DownstreamFiltersFunc:         downstreamfilters.ConfigDiscoveryHTTPFilterDownstreamFilters,
+		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(HTTPOriginalSrc.String()),
+		TypedConfigPaths:              nil,
+		UpstreamPaths:                 nil,
+	},
+	GRPCWeb: {
+		PrettyName:                    "gRPC Web",
+		Collection:                    "filters",
+		Type:                          "http_filter",
+		CanonicalName:                 "envoy.filters.http.grpc_web",
+		Category:                      "envoy.filters.http",
+		URL:                           URLs["h_grpc_web"],
+		Message:                       &h_grpc_web.GrpcWeb{},
+		DownstreamFiltersFunc:         downstreamfilters.ConfigDiscoveryHTTPFilterDownstreamFilters,
+		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(GRPCWeb.String()),
+		TypedConfigPaths:              nil,
+		UpstreamPaths:                 nil,
+	},
+	GRPCHttp1Bridge: {
+		PrettyName:                    "gRPC HTTP/1.1 Bridge",
+		Collection:                    "filters",
+		Type:                          "http_filter",
+		CanonicalName:                 "envoy.filters.http.grpc_http1_bridge",
+		Category:                      "envoy.filters.http",
+		URL:                           URLs["h_grpc_http1_bridge"],
+		Message:                       &h_grpc_http1_bridge.Config{},
+		DownstreamFiltersFunc:         downstreamfilters.ConfigDiscoveryHTTPFilterDownstreamFilters,
+		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(GRPCHttp1Bridge.String()),
+		TypedConfigPaths:              nil,
+		UpstreamPaths:                 nil,
+	},
+	HeaderMutation: {
+		PrettyName:                    "Header Mutation",
+		Collection:                    "filters",
+		Type:                          "http_filter",
+		CanonicalName:                 "envoy.filters.http.header_mutation",
+		Category:                      "envoy.filters.http",
+		URL:                           URLs["h_header_mutation"],
+		Message:                       &h_header_mutation.HeaderMutation{},
+		DownstreamFiltersFunc:         downstreamfilters.ConfigDiscoveryHTTPFilterDownstreamFilters,
+		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(HeaderMutation.String()),
+		TypedConfigPaths:              nil,
+		UpstreamPaths:                 nil,
+	},
+	HeaderMutationPerRoute: {
+		PrettyName:                    "Header Mutation Per Route",
+		Collection:                    "filters",
+		Type:                          "http_filter",
+		CanonicalName:                 "envoy.filters.http.header_mutation",
+		Category:                      "envoy.filters.http",
+		URL:                           URLs["h_header_mutation"],
+		Message:                       &h_header_mutation.HeaderMutationPerRoute{},
+		DownstreamFiltersFunc:         downstreamfilters.TypedHTTPFilterDownstreamFilters,
+		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(HeaderMutationPerRoute.String()),
+		TypedConfigPaths:              nil,
+		UpstreamPaths:                 nil,
+	},
+	OriginalIPDetectionCustom: {
+		PrettyName:                    "Original IP Detection (Custom Header)",
+		Collection:                    "extensions",
+		Type:                          "original_ip_detection",
+		CanonicalName:                 "envoy.http.original_ip_detection.custom_header",
+		Category:                      "envoy.http.original_ip_detection",
+		URL:                           URLs["original_ip_detection"],
+		Message:                       &original_ip_custom.CustomHeaderConfig{},
+		DownstreamFiltersFunc:         downstreamfilters.TypedConfigDownstreamFilters,
+		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(OriginalIPDetectionCustom.String()),
+		TypedConfigPaths:              nil,
+		UpstreamPaths:                 nil,
+	},
+	OriginalIPDetectionXFF: {
+		PrettyName:                    "Original IP Detection (XFF)",
+		Collection:                    "extensions",
+		Type:                          "original_ip_detection",
+		CanonicalName:                 "envoy.http.original_ip_detection.xff",
+		Category:                      "envoy.http.original_ip_detection",
+		URL:                           URLs["original_ip_detection"],
+		Message:                       &original_ip_xff.XffConfig{},
+		DownstreamFiltersFunc:         downstreamfilters.TypedConfigDownstreamFilters,
+		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(OriginalIPDetectionXFF.String()),
+		TypedConfigPaths:              nil,
+		UpstreamPaths:                 nil,
+	},
+	ResourceMonitorCgroupMemory: {
+		PrettyName:                    "Resource Monitor (Cgroup Memory)",
+		Collection:                    "extensions",
+		Type:                          "resource_monitor",
+		CanonicalName:                 "envoy.resource_monitors.cgroup_memory",
+		Category:                      "envoy.resource_monitors",
+		URL:                           URLs["resource_monitors"],
+		Message:                       &rm_cgroup_memory.CgroupMemoryConfig{},
+		DownstreamFiltersFunc:         downstreamfilters.TypedConfigDownstreamBootstrapFilters,
+		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(ResourceMonitorCgroupMemory.String()),
+		TypedConfigPaths:              nil,
+		UpstreamPaths:                 nil,
+	},
+	ResourceMonitorCPU: {
+		PrettyName:                    "Resource Monitor (CPU Utilization)",
+		Collection:                    "extensions",
+		Type:                          "resource_monitor",
+		CanonicalName:                 "envoy.resource_monitors.cpu_utilization",
+		Category:                      "envoy.resource_monitors",
+		URL:                           URLs["resource_monitors"],
+		Message:                       &rm_cpu.CpuUtilizationConfig{},
+		DownstreamFiltersFunc:         downstreamfilters.TypedConfigDownstreamBootstrapFilters,
+		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(ResourceMonitorCPU.String()),
+		TypedConfigPaths:              nil,
+		UpstreamPaths:                 nil,
+	},
+	ResourceMonitorFixedHeap: {
+		PrettyName:                    "Resource Monitor (Fixed Heap)",
+		Collection:                    "extensions",
+		Type:                          "resource_monitor",
+		CanonicalName:                 "envoy.resource_monitors.fixed_heap",
+		Category:                      "envoy.resource_monitors",
+		URL:                           URLs["resource_monitors"],
+		Message:                       &rm_fixed_heap.FixedHeapConfig{},
+		DownstreamFiltersFunc:         downstreamfilters.TypedConfigDownstreamBootstrapFilters,
+		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(ResourceMonitorFixedHeap.String()),
+		TypedConfigPaths:              nil,
+		UpstreamPaths:                 nil,
+	},
+	ResourceMonitorDownstreamMax: {
+		PrettyName:                    "Resource Monitor (Downstream Connections)",
+		Collection:                    "extensions",
+		Type:                          "resource_monitor",
+		CanonicalName:                 "envoy.resource_monitors.downstream_connections",
+		Category:                      "envoy.resource_monitors",
+		URL:                           URLs["resource_monitors"],
+		Message:                       &rm_downstream_conn.DownstreamConnectionsConfig{},
+		DownstreamFiltersFunc:         downstreamfilters.TypedConfigDownstreamBootstrapFilters,
+		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(ResourceMonitorDownstreamMax.String()),
+		TypedConfigPaths:              nil,
+		UpstreamPaths:                 nil,
+	},
+	URITemplateRewrite: {
+		PrettyName:                    "URI Template Rewrite",
+		Collection:                    "extensions",
+		Type:                          "path_rewrite",
+		CanonicalName:                 "envoy.path.rewrite.uri_template.uri_template_rewriter",
+		Category:                      "envoy.path.rewrite",
+		URL:                           URLs["path_rewrite"],
+		Message:                       &uri_template_rewrite.UriTemplateRewriteConfig{},
+		DownstreamFiltersFunc:         downstreamfilters.RouteBaseDownstreamFilters,
+		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(URITemplateRewrite.String()),
+		TypedConfigPaths:              nil,
+		UpstreamPaths:                 nil,
+	},
+	InternalRedirectAllowListRoutes: {
+		PrettyName:                    "Internal Redirect (Allow Listed Routes)",
+		Collection:                    "extensions",
+		Type:                          "internal_redirect",
+		CanonicalName:                 "envoy.internal_redirect_predicates.allow_listed_routes",
+		Category:                      "envoy.internal_redirect_predicates",
+		URL:                           URLs["internal_redirect"],
+		Message:                       &internal_redirect_allow_listed_routes.AllowListedRoutesConfig{},
+		DownstreamFiltersFunc:         downstreamfilters.RouteBaseDownstreamFilters,
+		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(InternalRedirectAllowListRoutes.String()),
+		TypedConfigPaths:              nil,
+		UpstreamPaths:                 nil,
+	},
+	InternalRedirectPreviousRoutes: {
+		PrettyName:                    "Internal Redirect (Previous Routes)",
+		Collection:                    "extensions",
+		Type:                          "internal_redirect",
+		CanonicalName:                 "envoy.internal_redirect_predicates.previous_routes",
+		Category:                      "envoy.internal_redirect_predicates",
+		URL:                           URLs["internal_redirect"],
+		Message:                       &internal_redirect_previous_routes.PreviousRoutesConfig{},
+		DownstreamFiltersFunc:         downstreamfilters.RouteBaseDownstreamFilters,
+		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(InternalRedirectPreviousRoutes.String()),
+		TypedConfigPaths:              nil,
+		UpstreamPaths:                 nil,
+	},
+	InternalRedirectSafeCrossScheme: {
+		PrettyName:                    "Internal Redirect (Safe Cross Scheme)",
+		Collection:                    "extensions",
+		Type:                          "internal_redirect",
+		CanonicalName:                 "envoy.internal_redirect_predicates.safe_cross_scheme",
+		Category:                      "envoy.internal_redirect_predicates",
+		URL:                           URLs["internal_redirect"],
+		Message:                       &internal_redirect_safe_cross_scheme.SafeCrossSchemeConfig{},
+		DownstreamFiltersFunc:         downstreamfilters.RouteBaseDownstreamFilters,
+		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(InternalRedirectSafeCrossScheme.String()),
 		TypedConfigPaths:              nil,
 		UpstreamPaths:                 nil,
 	},

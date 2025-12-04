@@ -33,6 +33,13 @@ var BootstrapTypedConfigPaths = []TypedConfigPath{
 		PathTemplate: "stats_sinks.%d.typed_config",
 		Kind:         "stats_sinks",
 	},
+	{
+		ArrayPaths: []ArrayPath{
+			{ParentPath: "overload_manager.resource_monitors", IndexPath: "overload_manager.resource_monitors.%d"},
+		},
+		PathTemplate: "overload_manager.resource_monitors.%d.typed_config",
+		Kind:         "resource_monitor",
+	},
 }
 
 var ListenerTypedConfigPaths = []TypedConfigPath{
@@ -136,6 +143,23 @@ var RouteTypedConfigPaths = []TypedConfigPath{
 		PathTemplate: "virtual_hosts.%d.routes.%d.match.path_match_policy.typed_config",
 		Kind:         "route",
 	},
+	{
+		ArrayPaths: []ArrayPath{
+			{ParentPath: "virtual_hosts", IndexPath: "virtual_hosts.%d"},
+			{ParentPath: "virtual_hosts.%d.routes", IndexPath: routes},
+		},
+		PathTemplate: "virtual_hosts.%d.routes.%d.route.path_rewrite_policy.typed_config",
+		Kind:         "path_rewrite",
+	},
+	{
+		ArrayPaths: []ArrayPath{
+			{ParentPath: "virtual_hosts", IndexPath: "virtual_hosts.%d"},
+			{ParentPath: "virtual_hosts.%d.routes", IndexPath: routes},
+			{ParentPath: "virtual_hosts.%d.routes.%d.route.internal_redirect_policy.predicates", IndexPath: "virtual_hosts.%d.routes.%d.route.internal_redirect_policy.predicates.%d"},
+		},
+		PathTemplate: "virtual_hosts.%d.routes.%d.route.internal_redirect_policy.predicates.%d.typed_config",
+		Kind:         "internal_redirect",
+	},
 }
 
 var VirtualHostTypedConfigPaths = []TypedConfigPath{
@@ -160,6 +184,21 @@ var VirtualHostTypedConfigPaths = []TypedConfigPath{
 		PathTemplate: "routes.%d.match.path_match_policy.typed_config",
 		Kind:         "virtual_hosts",
 	},
+	{
+		ArrayPaths: []ArrayPath{
+			{ParentPath: "routes", IndexPath: "routes.%d"},
+		},
+		PathTemplate: "routes.%d.route.path_rewrite_policy.typed_config",
+		Kind:         "path_rewrite",
+	},
+	{
+		ArrayPaths: []ArrayPath{
+			{ParentPath: "routes", IndexPath: "routes.%d"},
+			{ParentPath: "routes.%d.route.internal_redirect_policy.predicates", IndexPath: "routes.%d.route.internal_redirect_policy.predicates.%d"},
+		},
+		PathTemplate: "routes.%d.route.internal_redirect_policy.predicates.%d.typed_config",
+		Kind:         "internal_redirect",
+	},
 }
 
 var HTTPConnectionManagerTypedConfigPaths = []TypedConfigPath{
@@ -169,6 +208,13 @@ var HTTPConnectionManagerTypedConfigPaths = []TypedConfigPath{
 		},
 		PathTemplate: accessLogTypedConfig,
 		Kind:         "access_log",
+	},
+	{
+		ArrayPaths: []ArrayPath{
+			{ParentPath: "original_ip_detection_extensions", IndexPath: "original_ip_detection_extensions.%d"},
+		},
+		PathTemplate: "original_ip_detection_extensions.%d.typed_config",
+		Kind:         "original_ip_detection",
 	},
 	{
 		ArrayPaths:       []ArrayPath{},
@@ -200,6 +246,23 @@ var HTTPConnectionManagerTypedConfigPaths = []TypedConfigPath{
 		},
 		PathTemplate: "route_config.virtual_hosts.%d.routes.%d.match.path_match_policy.typed_config",
 		Kind:         "hcm",
+	},
+	{
+		ArrayPaths: []ArrayPath{
+			{ParentPath: "route_config.virtual_hosts", IndexPath: "route_config.virtual_hosts.%d"},
+			{ParentPath: "route_config.virtual_hosts.%d.routes", IndexPath: routes},
+		},
+		PathTemplate: "route_config.virtual_hosts.%d.routes.%d.route.path_rewrite_policy.typed_config",
+		Kind:         "path_rewrite",
+	},
+	{
+		ArrayPaths: []ArrayPath{
+			{ParentPath: "route_config.virtual_hosts", IndexPath: "route_config.virtual_hosts.%d"},
+			{ParentPath: "route_config.virtual_hosts.%d.routes", IndexPath: routes},
+			{ParentPath: "route_config.virtual_hosts.%d.routes.%d.route.internal_redirect_policy.predicates", IndexPath: "route_config.virtual_hosts.%d.routes.%d.route.internal_redirect_policy.predicates.%d"},
+		},
+		PathTemplate: "route_config.virtual_hosts.%d.routes.%d.route.internal_redirect_policy.predicates.%d.typed_config",
+		Kind:         "internal_redirect",
 	},
 }
 

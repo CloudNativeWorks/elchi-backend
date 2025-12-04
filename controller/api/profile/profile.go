@@ -2,10 +2,12 @@ package profile
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/ldap"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 	otpHelper "github.com/CloudNativeWorks/elchi-backend/pkg/otp"
@@ -119,23 +121,25 @@ func (h *ProfileHandler) EnableOTP() gin.HandlerFunc {
 			return
 		}
 
-		// Verify password (local auth only)
+		// Verify password based on auth_type
 		if user.AuthType != nil && *user.AuthType == "ldap" {
-			// LDAP users can also use OTP, but we don't verify password against LDAP here
-			// They should use their LDAP password
-			c.JSON(http.StatusBadRequest, gin.H{"error": "LDAP users must verify via LDAP login"})
-			return
-		}
+			// LDAP users - verify password against LDAP server
+			if !h.authenticateWithLDAP(*user.Username, request.Password, user.BaseProject) {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid LDAP password"})
+				return
+			}
+		} else {
+			// Local users - verify password using bcrypt
+			if user.Password == nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "User password not found"})
+				return
+			}
 
-		if user.Password == nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "User password not found"})
-			return
-		}
-
-		err = bcrypt.CompareHashAndPassword([]byte(*user.Password), []byte(request.Password))
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid password"})
-			return
+			err = bcrypt.CompareHashAndPassword([]byte(*user.Password), []byte(request.Password))
+			if err != nil {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid password"})
+				return
+			}
 		}
 
 		// Generate OTP secret
@@ -327,16 +331,25 @@ func (h *ProfileHandler) DisableOTP() gin.HandlerFunc {
 			return
 		}
 
-		// Verify password
-		if user.Password == nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "User password not found"})
-			return
-		}
+		// Verify password based on auth_type
+		if user.AuthType != nil && *user.AuthType == "ldap" {
+			// LDAP users - verify password against LDAP server
+			if !h.authenticateWithLDAP(*user.Username, request.Password, user.BaseProject) {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid LDAP password"})
+				return
+			}
+		} else {
+			// Local users - verify password using bcrypt
+			if user.Password == nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "User password not found"})
+				return
+			}
 
-		err = bcrypt.CompareHashAndPassword([]byte(*user.Password), []byte(request.Password))
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid password"})
-			return
+			err = bcrypt.CompareHashAndPassword([]byte(*user.Password), []byte(request.Password))
+			if err != nil {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid password"})
+				return
+			}
 		}
 
 		// Check if OTP is enabled
@@ -675,4 +688,64 @@ func (h *ProfileHandler) UpdatePassword() gin.HandlerFunc {
 			"message": "Password updated successfully",
 		})
 	}
+}
+
+// authenticateWithLDAP validates username/password against LDAP using project config
+func (h *ProfileHandler) authenticateWithLDAP(username, password string, preferredProject *string) bool {
+	ldapConfig, err := h.getLDAPConfigForAuthentication(preferredProject)
+	if err != nil || ldapConfig == nil || !ldapConfig.Enabled {
+		h.Logger.Errorf("Failed to get LDAP config for authentication: %v", err)
+		return false
+	}
+
+	client, err := ldap.NewClient(ldapConfig)
+	if err != nil {
+		h.Logger.Errorf("Failed to create LDAP client: %v", err)
+		return false
+	}
+	defer client.Close()
+
+	if err := client.ValidatePassword(username, password); err != nil {
+		h.Logger.Errorf("LDAP password validation failed for user %s: %v", username, err)
+		return false
+	}
+
+	return true
+}
+
+// getLDAPConfigForAuthentication gets LDAP config from preferred project or any available project
+func (h *ProfileHandler) getLDAPConfigForAuthentication(preferredProject *string) (*models.LDAPConfig, error) {
+	ctx := context.Background()
+	settingsCollection := h.AppContext.Client.Collection("settings")
+
+	// If preferred project is specified, try to get config from it first
+	if preferredProject != nil && *preferredProject != "" {
+		var settings models.Settings
+		err := settingsCollection.FindOne(ctx, bson.M{"project": *preferredProject}).Decode(&settings)
+		if err == nil && settings.LDAPConfig != nil && settings.LDAPConfig.Enabled {
+			return settings.LDAPConfig, nil
+		}
+	}
+
+	// Otherwise, find any project with enabled LDAP config
+	ldapConfig, _, err := h.getFirstAvailableLDAPConfig()
+	return ldapConfig, err
+}
+
+// getFirstAvailableLDAPConfig finds the first project with enabled LDAP config
+func (h *ProfileHandler) getFirstAvailableLDAPConfig() (*models.LDAPConfig, string, error) {
+	ctx := context.Background()
+	settingsCollection := h.AppContext.Client.Collection("settings")
+
+	filter := bson.M{
+		"ldap_config.enabled": true,
+	}
+
+	var settings models.Settings
+	err := settingsCollection.FindOne(ctx, filter).Decode(&settings)
+	if err != nil {
+		return nil, "", fmt.Errorf("no enabled LDAP configuration found")
+	}
+
+	return settings.LDAPConfig, settings.Project, nil
 }

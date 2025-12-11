@@ -204,34 +204,8 @@ func (ds *DiscoveryService) updateEndpointFromNodes(ctx context.Context, endpoin
 		Roles:       discoveryConfig.Roles,
 	}
 
-	// Debug logging: Log the filtering inputs
-	ds.logger.Warnf("🔍 FilterAndExtractIPs for endpoint %s (cluster: %s): "+
-		"config={address_type: %s, roles: %v, port: %d}, "+
-		"total_nodes: %d, current_ips: %d",
-		endpoint.General.Name, clusterName,
-		helperConfig.AddressType, helperConfig.Roles, helperConfig.Port,
-		len(helperNodes), len(currentIPs))
-
-	// Log first few nodes for inspection
-	if len(helperNodes) > 0 {
-		sampleSize := 2
-		if len(helperNodes) < sampleSize {
-			sampleSize = len(helperNodes)
-		}
-		for i := 0; i < sampleSize; i++ {
-			node := helperNodes[i]
-			ds.logger.Warnf("  📋 Sample node[%d]: status=%s, roles=%v, addresses=%v",
-				i, node.Status, node.Roles, node.Addresses)
-		}
-	}
-
 	// Use helper utility for filtering and IP extraction
 	newIPs := helper.FilterAndExtractIPs(helperNodes, helperConfig)
-
-	// Debug logging: Log the filtering result
-	ds.logger.Warnf("✅ FilterAndExtractIPs result for endpoint %s (cluster: %s): "+
-		"extracted_ips=%d, ips=%v",
-		endpoint.General.Name, clusterName, len(newIPs), newIPs)
 
 	// UpdatedIPs will be set after successful filtering and comparison
 	updateResult.UpdatedIPs = newIPs

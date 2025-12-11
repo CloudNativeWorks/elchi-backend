@@ -46,17 +46,17 @@ func roleMatches(nodeRole, requiredRole string) bool {
 	if nodeRole == requiredRole {
 		return true
 	}
-	
+
 	// Role aliases/mappings
 	switch requiredRole {
 	case "master":
 		// "master" requirement matches both "master" and "control-plane"
 		return nodeRole == "control-plane"
 	case "control-plane":
-		// "control-plane" requirement matches both "control-plane" and "master"  
+		// "control-plane" requirement matches both "control-plane" and "master"
 		return nodeRole == "master"
 	}
-	
+
 	return false
 }
 
@@ -102,34 +102,16 @@ func FilterAndExtractIPs(nodes []NodeInfo, config DiscoveryConfig) []string {
 	requiredRoles := GetRequiredRoles(config)
 	var ips []string
 
-	readyCount := 0
-	roleMatchCount := 0
-	ipExtractedCount := 0
-
 	for _, node := range nodes {
-		// Only process Ready nodes
-		if node.Status != "Ready" {
-			continue
-		}
-		readyCount++
-
 		// Check if node matches required roles
 		if !NodeMatchesRoles(node, requiredRoles) {
 			continue
 		}
-		roleMatchCount++
 
 		// Get IP based on address type preference
 		if nodeIP := GetNodeIP(node, config.AddressType); nodeIP != "" {
 			ips = append(ips, nodeIP)
-			ipExtractedCount++
 		}
-	}
-
-	// Debug: If we have ready nodes with matching roles but no IPs extracted, log warning
-	if readyCount > 0 && roleMatchCount > 0 && ipExtractedCount == 0 {
-		// This indicates GetNodeIP() is failing - address_type mismatch
-		// Logging would go here if we had access to logger
 	}
 
 	return ips

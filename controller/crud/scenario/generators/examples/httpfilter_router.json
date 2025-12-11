@@ -1,0 +1,24 @@
+{
+    "general": {
+        "name": "feefef",
+        "version": "v1.33.5",
+        "type": "http_filter",
+        "gtype": "envoy.extensions.filters.http.router.v3.Router",
+        "project": "683b2148ff7e3ae67d825cfa",
+        "canonical_name": "envoy.filters.http.router",
+        "metadata": {
+            "http_filter": "main"
+        },
+        "category": "envoy.filters.http",
+        "permissions": {
+            "users": [],
+            "groups": []
+        },
+        "config_discovery": [],
+        "collection": "filters"
+    },
+    "resource": {
+        "resource": {},
+        "version": "1"
+    }
+}

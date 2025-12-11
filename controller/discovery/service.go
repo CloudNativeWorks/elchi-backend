@@ -211,6 +211,17 @@ func (ds *DiscoveryService) updateEndpointFromNodes(ctx context.Context, endpoin
 
 	// Compare IP lists
 	if !ds.compareIPLists(currentIPs, newIPs) {
+		// IMPORTANT: If new IPs list is empty, don't mark as changed
+		// This prevents unnecessary snapshot updates when discovery filtering returns no nodes
+		if len(newIPs) == 0 && len(currentIPs) > 0 {
+			ds.logger.Warnf("Discovery filtering returned 0 IPs for endpoint %s (cluster: %s), but current has %d IPs. "+
+				"Check elchi_discovery config (roles, address_type). Skipping update to prevent clearing valid IPs.",
+				endpoint.General.Name, clusterName, len(currentIPs))
+			updateResult.UpdatedIPs = currentIPs // Keep current IPs
+			updateResult.Changed = false
+			return updateResult
+		}
+
 		// Calculate added and removed IPs for audit
 		addedIPs := []string{}
 		removedIPs := []string{}

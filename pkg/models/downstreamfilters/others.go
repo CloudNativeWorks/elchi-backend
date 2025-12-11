@@ -121,3 +121,18 @@ func TypedClusterDownstreamFilters(dfm DownstreamFilter) []MongoFilters {
 		},
 	}
 }
+
+func GenericSecretDownstreamFilters(dfm DownstreamFilter) []MongoFilters {
+	return []MongoFilters{
+		{
+			Collection: "filters",
+			Filter: bson.D{
+				{Key: "$and", Value: bson.A{
+					bson.D{{Key: generalProject, Value: dfm.Project}},
+					bson.D{{Key: generalVersion, Value: dfm.Version}},
+					bson.D{{Key: "general.typed_config.name", Value: dfm.Name}},
+				}},
+			},
+		},
+	}
+}

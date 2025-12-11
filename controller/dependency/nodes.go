@@ -66,7 +66,6 @@ func (h *AppHandler) AddNodeAndEdge(source Node, target Depend, isUpstream bool)
 	}
 
 	if edge.Data.Source != edge.Data.Target && !h.isEdgeAlreadyAdded(edge.Data.Source, edge.Data.Target) {
-		h.Logger.Debugf("Adding edge: %+v\n", edge)
 		h.Dependencies.Edges = append(h.Dependencies.Edges, edge)
 	} else {
 		h.Logger.Debugf("Skipping self or existing edge: %+v\n", edge)

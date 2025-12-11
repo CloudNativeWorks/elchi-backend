@@ -125,13 +125,3 @@ func RemoveBackupCode(hashedCodes []string, index int) []string {
 	// Remove by creating a new slice without the element at index
 	return append(hashedCodes[:index], hashedCodes[index+1:]...)
 }
-
-// GetCurrentCode generates the current OTP code for the given secret
-// Useful for testing/debugging
-func GetCurrentCode(secret string) (string, error) {
-	code, err := totp.GenerateCode(secret, time.Now())
-	if err != nil {
-		return "", fmt.Errorf("failed to generate current OTP code: %w", err)
-	}
-	return code, nil
-}

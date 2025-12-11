@@ -806,9 +806,10 @@ func (s *ClientService) IsConnectionHealthy(clientID string) bool {
 		}
 
 		// Check last seen time (if too old, consider unhealthy)
+		// Stale threshold: 5 minutes (aligned with ping interval and sync mechanisms)
 		lastSeenAge := time.Since(client.LastSeen)
-		if lastSeenAge > 10*time.Minute {
-			s.logger.Debugf("🔍 DEBUG: Health check for client %s - FAILED: Last seen too old (%v > 10m)",
+		if lastSeenAge > 5*time.Minute {
+			s.logger.Debugf("🔍 DEBUG: Health check for client %s - FAILED: Last seen too old (%v > 5m)",
 				clientID, lastSeenAge)
 			done <- false
 			return
@@ -849,39 +850,21 @@ func (s *ClientService) CleanupUnhealthyConnections() {
 			continue
 		}
 
-		// Skip recently connected clients (grace period of 1 minute)
+		// Skip recently connected clients (grace period of 2 minutes - allows 1 missed ping)
 		timeSinceLastSeen := time.Since(client.LastSeen)
 		s.clientsMux.RUnlock()
 
-		if timeSinceLastSeen < 1*time.Minute {
+		if timeSinceLastSeen < 2*time.Minute {
 			s.logger.Debugf("Skipping cleanup for recently active client %s (last seen: %v ago)", clientID, timeSinceLastSeen)
 			continue
 		}
 
-		// Only cleanup truly stale connections (older than 1 minute)
+		// Only cleanup truly stale connections
 		if !s.IsConnectionHealthy(clientID) {
-			s.logger.Infof("Cleaning up unhealthy connection: %s (inactive for %v)", clientID, timeSinceLastSeen)
+			s.logger.Warnf("Client %s unhealthy, disconnecting (inactive for %v)", clientID, timeSinceLastSeen)
 
-			// Lock only for modification
-			s.clientsMux.Lock()
-			if client, exists := s.clients[clientID]; exists {
-				// Cancel context if exists
-				if client.CancelFunc != nil {
-					client.CancelFunc()
-				}
-
-				// Mark as disconnected
-				client.Connected = false
-				client.Stream = nil
-			}
-			s.clientsMux.Unlock()
-
-			// Update DB asynchronously
-			go func(id string) {
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
-				s.MarkClientDisconnectedInDBWithReason(ctx, id, "health_check_unhealthy")
-			}(clientID)
+			// DisconnectClient() handles both memory removal and DB update atomically
+			s.DisconnectClient(clientID)
 		} else {
 			s.logger.Debugf("Client %s passed health check (inactive for %v)", clientID, timeSinceLastSeen)
 			
@@ -930,4 +913,34 @@ func (s *ClientService) DeleteClientFromDB(ctx context.Context, clientID string)
 
 	s.logger.Infof("Client %s deleted from database", clientID)
 	return nil
+}
+
+// AddClientToMemoryFromPing adds a client from DB to in-memory map during ping recovery
+// This is used when a client pings but is not found in memory (e.g., after cleanup or controller restart)
+func (s *ClientService) AddClientToMemoryFromPing(clientInfo *client.ClientInfo) {
+	s.clientsMux.Lock()
+	defer s.clientsMux.Unlock()
+
+	// Stream will be nil until client reconnects via command stream
+	clientInfo.Stream = nil
+	clientInfo.Context = nil
+	clientInfo.CancelFunc = nil
+
+	// Mark as connected (since they're pinging)
+	clientInfo.Connected = true
+	clientInfo.LastSeen = time.Now()
+
+	s.clients[clientInfo.ClientID] = clientInfo
+
+	s.logger.Infof("✅ Added client %s to memory from ping (recovery)", clientInfo.ClientID)
+}
+
+// HasRegistryClient checks if registry client is set
+func (s *ClientService) HasRegistryClient() bool {
+	return s.registryClient != nil
+}
+
+// NotifyRegistryClientConnect notifies registry about client connection (public wrapper)
+func (s *ClientService) NotifyRegistryClientConnect(clientID string) {
+	s.notifyRegistryClientConnect(clientID)
 }

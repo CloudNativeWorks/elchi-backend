@@ -52,8 +52,27 @@ func ClusterDownstreamFilters(dfm DownstreamFilter) []MongoFilters {
 								bson.D{{Key: "general.gtype", Value: "envoy.extensions.filters.udp.udp_proxy.v3.UdpProxyConfig"}},
 								bson.D{{Key: "$or", Value: bson.A{
 									bson.D{{Key: "resource.resource.cluster", Value: dfm.Name}},
-									bson.D{{Key: "resource.resource.matcher.on_no_match.action.0", Value: dfm.Name}},
 								}}},
+							}},
+						},
+						bson.D{
+							{Key: "$and", Value: bson.A{
+								bson.D{{Key: "general.gtype", Value: "envoy.extensions.filters.network.redis_proxy.v3.RedisProxy"}},
+								bson.D{{Key: "$or", Value: bson.A{
+									bson.D{{Key: "resource.resource.prefix_routes.routes.cluster", Value: dfm.Name}},
+									bson.D{{Key: "resource.resource.prefix_routes.routes.request_mirror_policy.cluster", Value: dfm.Name}},
+									bson.D{{Key: "resource.resource.prefix_routes.routes.read_command_policy.cluster", Value: dfm.Name}},
+									bson.D{{Key: "resource.resource.prefix_routes.catch_all_route.cluster", Value: dfm.Name}},
+									bson.D{{Key: "resource.resource.prefix_routes.catch_all_route.request_mirror_policy.cluster", Value: dfm.Name}},
+									bson.D{{Key: "resource.resource.prefix_routes.catch_all_route.read_command_policy.cluster", Value: dfm.Name}},
+									bson.D{{Key: "resource.resource.external_auth_provider.grpc_service.envoy_grpc.cluster_name", Value: dfm.Name}},
+								}}},
+							}},
+						},
+						bson.D{
+							{Key: "$and", Value: bson.A{
+								bson.D{{Key: "general.gtype", Value: "envoy.extensions.filters.http.oauth2.v3.OAuth2"}},
+								bson.D{{Key: "resource.resource.config.token_endpoint.cluster", Value: dfm.Name}},
 							}},
 						},
 					}}},
@@ -71,6 +90,18 @@ func ClusterDownstreamFilters(dfm DownstreamFilter) []MongoFilters {
 							{Key: "$and", Value: bson.A{
 								bson.D{{Key: "general.gtype", Value: "envoy.extensions.access_loggers.fluentd.v3.FluentdAccessLogConfig"}},
 								bson.D{{Key: "resource.resource.cluster", Value: dfm.Name}},
+							}},
+						},
+						bson.D{
+							{Key: "$and", Value: bson.A{
+								bson.D{{Key: "general.gtype", Value: "envoy.extensions.access_loggers.grpc.v3.HttpGrpcAccessLogConfig"}},
+								bson.D{{Key: "resource.resource.common_config.grpc_service.envoy_grpc.cluster_name", Value: dfm.Name}},
+							}},
+						},
+						bson.D{
+							{Key: "$and", Value: bson.A{
+								bson.D{{Key: "general.gtype", Value: "envoy.extensions.access_loggers.grpc.v3.TcpGrpcAccessLogConfig"}},
+								bson.D{{Key: "resource.resource.common_config.grpc_service.envoy_grpc.cluster_name", Value: dfm.Name}},
 							}},
 						},
 						bson.D{

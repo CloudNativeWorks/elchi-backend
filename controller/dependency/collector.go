@@ -96,7 +96,6 @@ func addDependency(ctx context.Context, appCtx *AppHandler, name, path string, g
 	}
 
 	*dependencies = append(*dependencies, dependency)
-	appCtx.Logger.Debugf("Added dependency: %s of type %s with ID: %s", dependency.Name, dependency.Gtype, dependency.ID)
 }
 
 func GenericDownstreamCollector(ctx context.Context, appCtx *AppHandler, activeResource Depend, visited map[string]bool, version string) (Node, []Depend) {

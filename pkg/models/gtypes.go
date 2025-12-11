@@ -17,6 +17,8 @@ const (
 	FileAccessLog                GType = "envoy.extensions.access_loggers.file.v3.FileAccessLog"
 	StdoutAccessLog              GType = "envoy.extensions.access_loggers.stream.v3.StdoutAccessLog"
 	StdErrAccessLog              GType = "envoy.extensions.access_loggers.stream.v3.StderrAccessLog"
+	HTTPGRPCAccessLog            GType = "envoy.extensions.access_loggers.grpc.v3.HttpGrpcAccessLogConfig"
+	TCPGRPCAccessLog             GType = "envoy.extensions.access_loggers.grpc.v3.TcpGrpcAccessLogConfig"
 	DownstreamTLSContext         GType = "envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext"
 	UpstreamTLSContext           GType = "envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext"
 	QuicDownstreamTransport      GType = "envoy.extensions.transport_sockets.quic.v3.QuicDownstreamTransport"
@@ -89,4 +91,8 @@ const (
 	InternalRedirectAllowListRoutes GType = "envoy.extensions.internal_redirect.allow_listed_routes.v3.AllowListedRoutesConfig"
 	InternalRedirectPreviousRoutes  GType = "envoy.extensions.internal_redirect.previous_routes.v3.PreviousRoutesConfig"
 	InternalRedirectSafeCrossScheme GType = "envoy.extensions.internal_redirect.safe_cross_scheme.v3.SafeCrossSchemeConfig"
+	MongoProxy                      GType = "envoy.extensions.filters.network.mongo_proxy.v3.MongoProxy"
+	RedisProxy                      GType = "envoy.extensions.filters.network.redis_proxy.v3.RedisProxy"
+	SNICluster                      GType = "envoy.extensions.filters.network.sni_cluster.v3.SniCluster"
+	SNIDynamicForwardProxy          GType = "envoy.extensions.filters.network.sni_dynamic_forward_proxy.v3.FilterConfig"
 )

@@ -34,6 +34,14 @@ var FluentdAccessLogUpstreams = map[string]GType{
 	"cluster": Cluster,
 }
 
+var HTTPGRPCAccessLogUpstreams = map[string]GType{
+	"common_config.grpc_service.envoy_grpc.cluster_name": Cluster,
+}
+
+var TCPGRPCAccessLogUpstreams = map[string]GType{
+	"common_config.grpc_service.envoy_grpc.cluster_name": Cluster,
+}
+
 var BootstrapUpstreams = map[string]GType{
 	"static_resources.clusters.#.name": Cluster,
 }
@@ -92,4 +100,14 @@ var DynamicForwardProxyHTTPUpstreams = map[string]GType{
 var QuicDownstreamTransportUpstreams = map[string]GType{
 	"downstream_tls_context.common_tls_context.tls_certificate_sds_secret_configs.#.name": TLSCertificate,
 	"downstream_tls_context.common_tls_context.validation_context_sds_secret_config.name": CertificateValidationContext,
+}
+
+var RedisProxyUpstreams = map[string]GType{
+	"prefix_routes.routes.#.cluster":                                Cluster,
+	"prefix_routes.routes.#.request_mirror_policy.#.cluster":        Cluster,
+	"prefix_routes.routes.#.read_command_policy.cluster":            Cluster,
+	"prefix_routes.catch_all_route.cluster":                         Cluster,
+	"prefix_routes.catch_all_route.request_mirror_policy.#.cluster": Cluster,
+	"prefix_routes.catch_all_route.read_command_policy.cluster":     Cluster,
+	"external_auth_provider.grpc_service.envoy_grpc.cluster_name":   Cluster,
 }

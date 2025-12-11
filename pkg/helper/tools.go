@@ -1,11 +1,9 @@
 package helper
 
 import (
-	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"log"
-	"math/big"
 	"strconv"
 	"strings"
 	"time"
@@ -310,22 +308,6 @@ func ConvertToJSON(v any, logger *logger.Logger) string {
 
 func EscapePointKey(key string) string {
 	return strings.ReplaceAll(key, ".", `\.`)
-}
-
-func GenerateUniqueID(length int) string {
-	const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-	charactersLength := big.NewInt(int64(len(characters)))
-	result := make([]byte, length)
-
-	for i := 0; i < length; i++ {
-		num, err := rand.Int(rand.Reader, charactersLength)
-		if err != nil {
-			return ""
-		}
-		result[i] = characters[num.Int64()]
-	}
-
-	return string(result)
 }
 
 // ToK8sServiceName converts a controller ID to its full Kubernetes headless service DNS name for StatefulSet

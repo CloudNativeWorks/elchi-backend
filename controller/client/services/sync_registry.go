@@ -161,8 +161,8 @@ func (s *ClientService) handleOwnRegistryClient(ctx context.Context, clientID st
 			s.logger.Errorf("Failed to cleanup stale registry entry for %s: %v", clientID, notifyErr)
 		}
 		
-		// Also mark as disconnected in DB if stale enough
-		if lastSeenAge > 10*time.Minute {
+		// Also mark as disconnected in DB if stale enough (aligned with health check threshold)
+		if lastSeenAge > 5*time.Minute {
 			s.logger.Infof("Client %s not locally connected and stale, marking as disconnected", clientID)
 			if syncErr := s.MarkClientDisconnectedInDBWithReason(ctx, clientID, "sync_stale_registry_entry"); syncErr != nil {
 				s.logger.Errorf("Failed to mark client %s as disconnected: %v", clientID, syncErr)
@@ -263,9 +263,8 @@ func (s *ClientService) handleMissingButConnectedClient(clientID string) bool {
 func (s *ClientService) handleMissingAndDisconnectedClient(ctx context.Context, dbClient *client.ClientInfo, lastSeenAge time.Duration) bool {
 	clientID := dbClient.ClientID
 	
-	// Only mark as disconnected if genuinely stale
-	// Increased threshold to 15 minutes for more stability
-	if lastSeenAge > 11*time.Minute {
+	// Only mark as disconnected if genuinely stale (aligned with health check threshold)
+	if lastSeenAge > 5*time.Minute {
 		s.logger.Warnf("Client %s (%s) not in registry, not locally connected, and stale (last seen: %v ago), marking as disconnected",
 			dbClient.Name, clientID, lastSeenAge)
 
@@ -317,9 +316,8 @@ func (s *ClientService) CleanupStaleClientsFromDB(ctx context.Context) error {
 			}
 		}
 
-		// Mark as disconnected if last_seen older than 7 minutes (stale)
-		// Client ping interval is 5 minutes, so 7 minutes allows for network delays
-		if lastSeenAge > 2*time.Minute {
+		// Mark as disconnected if last_seen older than 5 minutes (stale, aligned with health check threshold)
+		if lastSeenAge > 5*time.Minute {
 			s.logger.Warnf("🧹 CLEANUP-MARK: Client %s (%s) is stale (last seen: %v ago), marking as disconnected",
 				dbClient.Name, clientID, lastSeenAge)
 

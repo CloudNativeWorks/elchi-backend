@@ -12,6 +12,7 @@ import (
 	route "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/config/route/v3"
 	al_file "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/access_loggers/file/v3"
 	al_fluentd "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/access_loggers/fluentd/v3"
+	al_grpc "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/access_loggers/grpc/v3"
 	al_stream "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/access_loggers/stream/v3"
 	dynamic_forward_proxy "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/clusters/dynamic_forward_proxy/v3"
 	brotli_compressor "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/compression/brotli/compressor/v3"
@@ -49,7 +50,11 @@ import (
 	connection_limit "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/network/connection_limit/v3"
 	hcm "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	n_local_ratelimit "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/network/local_ratelimit/v3"
+	mongo_proxy "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/network/mongo_proxy/v3"
 	n_rbac "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/network/rbac/v3"
+	redis_proxy "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/network/redis_proxy/v3"
+	sni_cluster "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/network/sni_cluster/v3"
+	sni_dfp "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/network/sni_dynamic_forward_proxy/v3"
 	tcp "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/network/tcp_proxy/v3"
 	l_dns_filter "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/udp/dns_filter/v3"
 	udp_proxy "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/udp/udp_proxy/v3"
@@ -109,6 +114,7 @@ var URLs = map[string]string{
 	"h_rbac":                        "/filters/http/http_rbac/",
 	"secrets":                       "/resource/secret/",
 	"access_log":                    "/extensions/access_log/",
+	"al_grpc":                       "/extensions/access_loggers/grpc/",
 	"http_router":                   "/filters/http/http_router/",
 	"hcefs":                         "/extensions/hcefs/",
 	"utm":                           "/extensions/utm/",
@@ -133,6 +139,10 @@ var URLs = map[string]string{
 	"l_dns_filter":                  "/filters/listener/l_dns_filter/",
 	"l_proxy_protocol":              "/filters/listener/l_proxy_protocol/",
 	"connection_limit":              "/filters/network/connection_limit/",
+	"mongo_proxy":                   "/filters/network/mongo_proxy/",
+	"redis_proxy":                   "/filters/network/redis_proxy/",
+	"sni_cluster":                   "/filters/network/sni_cluster/",
+	"sni_dfp":                       "/filters/network/sni_dynamic_forward_proxy/",
 	"n_local_ratelimit":             "/filters/network/n_local_ratelimit/",
 	"h_local_ratelimit":             "/filters/http/h_local_ratelimit/",
 	"h_original_src":                "/filters/http/original_src/",
@@ -363,6 +373,32 @@ var gTypeMappings = map[GType]GTypeMapping{
 		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(StdErrAccessLog.String()),
 		TypedConfigPaths:              nil,
 		UpstreamPaths:                 nil,
+	},
+	HTTPGRPCAccessLog: {
+		PrettyName:                    "Access Log(HTTP gRPC)",
+		Collection:                    "extensions",
+		Type:                          "access_log",
+		CanonicalName:                 "envoy.access_loggers.http_grpc",
+		Category:                      "envoy.access_loggers",
+		URL:                           URLs["al_grpc"],
+		Message:                       &al_grpc.HttpGrpcAccessLogConfig{},
+		DownstreamFiltersFunc:         downstreamfilters.ALSDownstreamFilters,
+		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(HTTPGRPCAccessLog.String()),
+		TypedConfigPaths:              nil,
+		UpstreamPaths:                 HTTPGRPCAccessLogUpstreams,
+	},
+	TCPGRPCAccessLog: {
+		PrettyName:                    "Access Log(TCP gRPC)",
+		Collection:                    "extensions",
+		Type:                          "access_log",
+		CanonicalName:                 "envoy.access_loggers.tcp_grpc",
+		Category:                      "envoy.access_loggers",
+		URL:                           URLs["al_grpc"],
+		Message:                       &al_grpc.TcpGrpcAccessLogConfig{},
+		DownstreamFiltersFunc:         downstreamfilters.ALSDownstreamFilters,
+		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(TCPGRPCAccessLog.String()),
+		TypedConfigPaths:              nil,
+		UpstreamPaths:                 TCPGRPCAccessLogUpstreams,
 	},
 	DownstreamTLSContext: {
 		PrettyName:                    "Downstream TLS",
@@ -858,6 +894,58 @@ var gTypeMappings = map[GType]GTypeMapping{
 		TypedConfigPaths:              nil,
 		UpstreamPaths:                 nil,
 	},
+	MongoProxy: {
+		PrettyName:                    "Mongo Proxy",
+		Collection:                    "filters",
+		Type:                          "network_filter",
+		CanonicalName:                 "envoy.filters.network.mongo_proxy",
+		Category:                      "envoy.filters.network",
+		URL:                           URLs["mongo_proxy"],
+		Message:                       &mongo_proxy.MongoProxy{},
+		DownstreamFiltersFunc:         downstreamfilters.DownstreamTypedFilters,
+		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(MongoProxy.String()),
+		TypedConfigPaths:              nil,
+		UpstreamPaths:                 nil,
+	},
+	RedisProxy: {
+		PrettyName:                    "Redis Proxy",
+		Collection:                    "filters",
+		Type:                          "network_filter",
+		CanonicalName:                 "envoy.filters.network.redis_proxy",
+		Category:                      "envoy.filters.network",
+		URL:                           URLs["redis_proxy"],
+		Message:                       &redis_proxy.RedisProxy{},
+		DownstreamFiltersFunc:         downstreamfilters.DownstreamTypedFilters,
+		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(RedisProxy.String()),
+		TypedConfigPaths:              nil,
+		UpstreamPaths:                 RedisProxyUpstreams,
+	},
+	SNICluster: {
+		PrettyName:                    "SNI Cluster",
+		Collection:                    "filters",
+		Type:                          "network_filter",
+		CanonicalName:                 "envoy.filters.network.sni_cluster",
+		Category:                      "envoy.filters.network",
+		URL:                           URLs["sni_cluster"],
+		Message:                       &sni_cluster.SniCluster{},
+		DownstreamFiltersFunc:         downstreamfilters.DownstreamTypedFilters,
+		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(SNICluster.String()),
+		TypedConfigPaths:              nil,
+		UpstreamPaths:                 nil,
+	},
+	SNIDynamicForwardProxy: {
+		PrettyName:                    "SNI Dynamic Forward Proxy",
+		Collection:                    "filters",
+		Type:                          "network_filter",
+		CanonicalName:                 "envoy.filters.network.sni_dynamic_forward_proxy",
+		Category:                      "envoy.filters.network",
+		URL:                           URLs["sni_dfp"],
+		Message:                       &sni_dfp.FilterConfig{},
+		DownstreamFiltersFunc:         downstreamfilters.DownstreamTypedFilters,
+		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(SNIDynamicForwardProxy.String()),
+		TypedConfigPaths:              nil,
+		UpstreamPaths:                 nil,
+	},
 	NetworkLocalRatelimit: {
 		PrettyName:                    "Local Ratelimit",
 		Collection:                    "filters",
@@ -1087,7 +1175,7 @@ var gTypeMappings = map[GType]GTypeMapping{
 		Category:                      "envoy.transport_sockets.tls",
 		URL:                           URLs["secrets"],
 		Message:                       &tls.GenericSecret{},
-		DownstreamFiltersFunc:         downstreamfilters.TLSCertificateDownstreamFilters,
+		DownstreamFiltersFunc:         downstreamfilters.GenericSecretDownstreamFilters,
 		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(GenericSecret.String()),
 		TypedConfigPaths:              nil,
 		UpstreamPaths:                 nil,

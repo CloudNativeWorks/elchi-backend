@@ -50,12 +50,12 @@ func Init(config Config) error {
 		logger.SetFormatter(&logrus.TextFormatter{
 			FullTimestamp:          true,
 			CallerPrettyfier:       callerPrettyfier,
-			DisableSorting:         false,  // Enable sorting for consistent field order
+			DisableSorting:         false, // Enable sorting for consistent field order
 			DisableTimestamp:       false,
 			DisableLevelTruncation: true,
-			ForceColors:            true,   // Force colors for all outputs
-			DisableColors:          false,  // Keep colors enabled
-			PadLevelText:           true,   // Keep level padding for consistency
+			ForceColors:            true,  // Force colors for all outputs
+			DisableColors:          false, // Keep colors enabled
+			PadLevelText:           true,  // Keep level padding for consistency
 			SortingFunc: func(keys []string) {
 				// Define custom field order for HTTP logs
 				order := map[string]int{
@@ -69,12 +69,12 @@ func Init(config Config) error {
 					"userAgent":      8,
 					"requestReferer": 9,
 				}
-				
+
 				// Sort based on predefined order, then alphabetically for unknown fields
 				sort.Slice(keys, func(i, j int) bool {
 					orderI, hasI := order[keys[i]]
 					orderJ, hasJ := order[keys[j]]
-					
+
 					if hasI && hasJ {
 						return orderI < orderJ
 					}
@@ -227,12 +227,6 @@ func (l *Logger) WithFields(fields Fields) *logrus.Entry {
 // WithError adds an error to the logger
 func (l *Logger) WithError(err error) *logrus.Entry {
 	return l.WithFields(Fields{"error": err})
-}
-
-func Infof(format string, args ...any) {
-	if globalLogger != nil {
-		globalLogger.Infof(format, args...)
-	}
 }
 
 func Errorf(format string, args ...any) {

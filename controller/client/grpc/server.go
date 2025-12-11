@@ -89,13 +89,32 @@ func (s *Server) Ping(ctx context.Context, req *pb.PingRequest) (*pb.PingRespons
 	// Check if client is registered
 	client, err := s.clientService.GetClient(req.ClientId)
 	if err != nil {
-		s.logger.Warnf("Ping from unregistered client: %s", req.ClientId)
-		return &pb.PingResponse{
-			ClientTimestamp: req.Timestamp,
-			ServerTimestamp: time.Now().Unix(),
-			Message:         "client not registered",
-			Success:         false,
-		}, nil
+		// Client not in memory, try loading from DB (self-healing mechanism)
+		s.logger.Infof("Client %s not in memory, attempting DB recovery", req.ClientId)
+
+		dbClient, dbErr := s.clientService.GetClientByClientID(ctx, req.ClientId)
+		if dbErr == nil && dbClient.Connected {
+			// Client exists in DB and marked as connected
+			// Add to in-memory map
+			s.clientService.AddClientToMemoryFromPing(dbClient)
+
+			// Notify registry
+			if s.clientService.HasRegistryClient() {
+				s.clientService.NotifyRegistryClientConnect(req.ClientId)
+			}
+
+			s.logger.Infof("✅ Client %s recovered from DB and added to memory", req.ClientId)
+			client = dbClient
+		} else {
+			// Truly unregistered
+			s.logger.Warnf("Ping from unregistered client: %s (not in DB or disconnected)", req.ClientId)
+			return &pb.PingResponse{
+				ClientTimestamp: req.Timestamp,
+				ServerTimestamp: time.Now().Unix(),
+				Message:         "client not registered",
+				Success:         false,
+			}, nil
+		}
 	}
 
 	// Update client's last seen time (in-memory)

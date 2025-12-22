@@ -7,7 +7,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/go-acme/lego/v4/challenge/dns01"
 	"github.com/go-acme/lego/v4/providers/dns/cloudflare"
 	"github.com/go-acme/lego/v4/providers/dns/digitalocean"
 	"github.com/go-acme/lego/v4/providers/dns/gcloud"
@@ -23,30 +22,10 @@ type DNSProvider interface {
 	CleanUp(domain, token, keyAuth string) error
 }
 
-// createDNSProviderOptions creates DNS provider options for DNS-01 challenge
-// Strategy for split-horizon DNS (internal authoritative NS, public domain):
-// 1. Try authoritative NS first (may timeout if internal/unreachable)
-// 2. Fallback to public recursive DNS (Google, Cloudflare) - FAST FAILOVER with 3s timeout
-// 3. Continue retrying for full PropagationTimeout duration (5 minutes)
-//
-// IMPORTANT: We use AddRecursiveNameservers as FALLBACK resolvers only.
-// The default behavior queries authoritative NS first, then falls back to these.
-// The 3-second DNS timeout ensures fast failover when authoritative NS is unreachable.
-func createDNSProviderOptions() []dns01.ChallengeOption {
-	return []dns01.ChallengeOption{
-		// Add public recursive DNS as fallback when authoritative NS fail/timeout
-		dns01.AddRecursiveNameservers([]string{
-			"8.8.8.8:53",  // Google Public DNS Primary
-			"1.1.1.1:53",  // Cloudflare DNS Primary
-			"8.8.4.4:53",  // Google Public DNS Secondary
-			"1.0.0.1:53",  // Cloudflare DNS Secondary
-		}),
-		// CRITICAL: Reduce DNS query timeout from default 10s to 3s
-		// This makes authoritative NS (private IPs) fail fast in split-horizon DNS
-		// Then lego immediately tries recursive nameservers as fallback
-		dns01.AddDNSTimeout(3 * time.Second),
-	}
-}
+// NOTE: DNS resolver configuration (AddRecursiveNameservers, AddDNSTimeout)
+// is performed globally in cmd/controller.go init() function to ensure
+// it's set before any lego package initialization. This prevents split-horizon
+// DNS issues where internal Kubernetes DNS cannot resolve external SOA records.
 
 // SetupGoogleCloudDNSProvider creates a Google Cloud DNS provider
 func (m *CertificateManager) SetupGoogleCloudDNSProvider(ctx context.Context, credentialID primitive.ObjectID, project string) (DNSProvider, error) {
@@ -75,6 +54,9 @@ func (m *CertificateManager) SetupGoogleCloudDNSProvider(ctx context.Context, cr
 		return nil, fmt.Errorf("service_account_json is required for Google Cloud DNS")
 	}
 
+	// DNS resolvers are configured globally in cmd/controller.go init()
+	// to ensure they're set before any lego package initialization
+
 	// Use lego's NewDNSProviderServiceAccountKey which properly initializes the HTTP client
 	// This handles all the OAuth2 authentication setup internally
 	provider, err := gcloud.NewDNSProviderServiceAccountKey([]byte(gcpCreds.ServiceAccountJSON))
@@ -82,7 +64,7 @@ func (m *CertificateManager) SetupGoogleCloudDNSProvider(ctx context.Context, cr
 		return nil, fmt.Errorf("failed to create Google Cloud DNS provider: %w", err)
 	}
 
-	m.logger.Infof("Created Google Cloud DNS provider for project: %s", gcpCreds.ProjectID)
+	m.logger.Infof("Created Google Cloud DNS provider for project: %s with public DNS resolvers", gcpCreds.ProjectID)
 	return provider, nil
 }
 

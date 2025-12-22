@@ -152,9 +152,15 @@ func (s *RenewalScheduler) checkRenewals(ctx context.Context) {
 	totalChecked := 0
 	totalRenewed := 0
 	totalFailed := 0
+	totalExpired := 0
 
 	// Check each project
 	for _, project := range projects {
+		// First, mark expired certificates
+		expired := s.markExpiredCertificates(ctx, project)
+		totalExpired += expired
+
+		// Then check for renewals
 		checked, renewed, failed := s.checkProjectRenewals(ctx, project)
 		totalChecked += checked
 		totalRenewed += renewed
@@ -162,8 +168,8 @@ func (s *RenewalScheduler) checkRenewals(ctx context.Context) {
 	}
 
 	duration := time.Since(startTime)
-	s.logger.Infof("Renewal check completed in %v - Checked: %d, Renewed: %d, Failed: %d",
-		duration, totalChecked, totalRenewed, totalFailed)
+	s.logger.Infof("Renewal check completed in %v - Expired: %d, Checked: %d, Renewed: %d, Failed: %d",
+		duration, totalExpired, totalChecked, totalRenewed, totalFailed)
 }
 
 // getActiveProjects retrieves all unique projects that have certificates
@@ -297,4 +303,34 @@ func (s *RenewalScheduler) renewCertificate(ctx context.Context, cert *ACMECerti
 	}
 
 	return nil
+}
+
+// markExpiredCertificates updates the status of expired certificates to "expired"
+func (s *RenewalScheduler) markExpiredCertificates(ctx context.Context, project string) int {
+	collection := s.manager.db.Collection("acme_certificates")
+
+	// Find active certificates that have expired
+	filter := map[string]any{
+		"project":    project,
+		"status":     "active",
+		"expires_at": map[string]any{"$lt": time.Now()},
+	}
+
+	update := map[string]any{
+		"$set": map[string]any{
+			"status": "expired",
+		},
+	}
+
+	result, err := collection.UpdateMany(ctx, filter, update)
+	if err != nil {
+		s.logger.Errorf("Failed to mark expired certificates for project %s: %v", project, err)
+		return 0
+	}
+
+	if result.ModifiedCount > 0 {
+		s.logger.Infof("Marked %d expired certificate(s) in project %s", result.ModifiedCount, project)
+	}
+
+	return int(result.ModifiedCount)
 }

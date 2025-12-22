@@ -746,10 +746,9 @@ func (m *CertificateManager) VerifyCertificateWithDNSProviderAsync(
 		return nil, fmt.Errorf("failed to setup DNS provider: %w", err)
 	}
 
-	// Set DNS provider on ACME client with custom DNS resolver options
-	// This uses recursive resolvers (Google DNS, Cloudflare, etc.) instead of authoritative nameservers
-	dnsOptions := createDNSProviderOptions()
-	if err := acmeClient.GetClient().Challenge.SetDNS01Provider(dnsProvider, dnsOptions...); err != nil {
+	// Set DNS provider on ACME client
+	// DNS resolver options (public nameservers, timeouts) are configured globally in cmd/controller.go init()
+	if err := acmeClient.GetClient().Challenge.SetDNS01Provider(dnsProvider); err != nil {
 		return nil, fmt.Errorf("failed to set DNS provider: %w", err)
 	}
 
@@ -960,9 +959,9 @@ func (m *CertificateManager) RenewCertificate(ctx context.Context, certID string
 		return nil, fmt.Errorf("failed to setup DNS provider: %w", err)
 	}
 
-	// Set DNS provider on ACME client with custom DNS resolver options
-	dnsOptions := createDNSProviderOptions()
-	if err := acmeClient.GetClient().Challenge.SetDNS01Provider(dnsProvider, dnsOptions...); err != nil {
+	// Set DNS provider on ACME client
+	// DNS resolver options (public nameservers, timeouts) are configured globally in cmd/controller.go init()
+	if err := acmeClient.GetClient().Challenge.SetDNS01Provider(dnsProvider); err != nil {
 		_ = m.updateCertificateStatus(ctx, certObjID, project, "renewal_failed", err.Error())
 		return nil, fmt.Errorf("failed to set DNS provider: %w", err)
 	}

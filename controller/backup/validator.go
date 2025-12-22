@@ -83,6 +83,10 @@ func (v *Validator) validateDuplicateIDs(backup *BackupData) error {
 		{"services", backup.Services.Services},
 		{"admin_ports", backup.Services.AdminPorts},
 		{"waf", backup.Services.WAF},
+		{"acme_accounts", backup.ACME.ACMEAccounts},
+		{"acme_dns_credentials", backup.ACME.ACMEDNSCredentials},
+		{"acme_temp_keys", backup.ACME.ACMETempKeys},
+		{"acme_certificates", backup.ACME.ACMECertificates},
 	}
 
 	for _, coll := range collections {

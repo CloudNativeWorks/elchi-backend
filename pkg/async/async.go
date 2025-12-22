@@ -43,6 +43,9 @@ type AsyncJobSystem interface {
 	CreatePreliminaryJob(ctx context.Context, req *CreateJobRequest) (*Job, error)
 	PerformBackgroundAnalysis(jobID string, resource interface{}, requestDetails interface{}, project string)
 
+	// Let's Encrypt specific methods
+	CreateACMEVerificationJob(ctx context.Context, req *CreateACMEJobRequest) (*Job, error)
+
 	// Statistics and monitoring
 	GetJobStats(ctx context.Context) (*JobStats, error)
 	GetJobStatsFiltered(ctx context.Context, filter *JobFilter) (*JobStats, error)
@@ -407,4 +410,54 @@ func (s *asyncJobSystem) SetPokeService(service *bridge.PokeServiceClient) error
 	}
 	s.pokeService = service
 	return nil
+}
+
+// CreateACMEVerificationJob creates a job for Let's Encrypt DNS verification
+func (s *asyncJobSystem) CreateACMEVerificationJob(ctx context.Context, req *CreateACMEJobRequest) (*Job, error) {
+	// Determine DNS provider from credential
+	var dnsProvider string
+	if req.DNSCredentialID != "" {
+		// We'll detect provider from the credential in the worker
+		// For now, we can pass it through metadata
+		dnsProvider = "auto" // Will be determined by worker
+	}
+
+	// Create job metadata
+	metadata := &JobMetadata{
+		TriggerUser: &TriggerUser{
+			ID:          req.TriggerUser.UserID,
+			Username:    req.TriggerUser.UserName,
+			DisplayName: req.TriggerUser.UserName,
+			Role:        string(req.TriggerUser.Role),
+		},
+		ACMEMetadata: &job.ACMEJobMetadata{
+			CertificateID:   req.CertificateID,
+			CertificateName: req.CertificateName,
+			Domains:         req.Domains,
+			Environment:     req.Environment,
+			DNSProvider:     dnsProvider,
+			ACMEAccountID:   req.ACMEAccountID,
+			DNSCredentialID: req.DNSCredentialID,
+			Project:         req.Project,
+			Versions:        req.Versions,
+			IsRenewal:       req.IsRenewal, // Pass renewal flag to worker
+		},
+	}
+
+	// Create the job
+	createReq := &CreateJobRequest{
+		Type:     job.JobTypeACMEVerification,
+		Status:   job.JobStatusPending,
+		Metadata: metadata,
+	}
+
+	createdJob, err := s.jobManager.CreateJob(ctx, createReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Let's Encrypt verification job: %w", err)
+	}
+
+	s.logger.Infof("Created Let's Encrypt verification job %s for certificate %s (domains: %v)",
+		createdJob.JobID, req.CertificateName, req.Domains)
+
+	return createdJob, nil
 }

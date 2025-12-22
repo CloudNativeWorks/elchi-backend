@@ -58,6 +58,18 @@ func (m *Manager) CreateJob(ctx context.Context, req *CreateJobRequest) (*Job, e
 	}
 
 	now := time.Now()
+
+	// Extract project and version based on job type
+	var project, version string
+	if req.Metadata.SourceResource != nil {
+		project = req.Metadata.SourceResource.ProjectID
+		version = req.Metadata.SourceResource.Version
+	} else if req.Metadata.ACMEMetadata != nil {
+		// For Let's Encrypt verification jobs
+		project = req.Metadata.ACMEMetadata.Project
+		version = "" // Let's Encrypt jobs don't have a version
+	}
+
 	job := &Job{
 		ID:       primitive.NewObjectID(),
 		JobID:    jobID,
@@ -72,8 +84,8 @@ func (m *Manager) CreateJob(ctx context.Context, req *CreateJobRequest) (*Job, e
 		},
 		CreatedBy: req.Metadata.TriggerUser.ID,
 		CreatedAt: now,
-		Project:   req.Metadata.SourceResource.ProjectID,
-		Version:   req.Metadata.SourceResource.Version,
+		Project:   project,
+		Version:   version,
 	}
 
 	// If no work needed, mark as completed immediately
@@ -89,7 +101,86 @@ func (m *Manager) CreateJob(ctx context.Context, req *CreateJobRequest) (*Job, e
 		return nil, fmt.Errorf("failed to create job: %w", err)
 	}
 
-	m.logger.Infof("Created job %s (ID: %s) for %s", jobID, job.ID.Hex(), req.Metadata.SourceResource.Name)
+	// Log with appropriate resource name based on job type
+	var resourceName string
+	if req.Metadata.SourceResource != nil {
+		resourceName = req.Metadata.SourceResource.Name
+	} else if req.Metadata.ACMEMetadata != nil {
+		resourceName = req.Metadata.ACMEMetadata.CertificateName
+	} else {
+		resourceName = "unknown"
+	}
+
+	m.logger.Infof("Created job %s (ID: %s) for %s", jobID, job.ID.Hex(), resourceName)
+	return job, nil
+}
+
+// CreateJobWithParent creates a new background job with a parent job reference
+// This is used to enforce dependency ordering - the child job should not process
+// until the parent job has completed and its database writes are visible
+func (m *Manager) CreateJobWithParent(ctx context.Context, req *CreateJobRequest, parentJobID *primitive.ObjectID) (*Job, error) {
+	jobID, err := m.generateJobID(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+
+	// Extract project and version based on job type
+	var project, version string
+	if req.Metadata.SourceResource != nil {
+		project = req.Metadata.SourceResource.ProjectID
+		version = req.Metadata.SourceResource.Version
+	} else if req.Metadata.ACMEMetadata != nil {
+		// For Let's Encrypt verification jobs
+		project = req.Metadata.ACMEMetadata.Project
+		version = "" // Let's Encrypt jobs don't have a version
+	}
+
+	job := &Job{
+		ID:          primitive.NewObjectID(),
+		JobID:       jobID,
+		Type:        req.Type,
+		Status:      req.Status,
+		Metadata:    req.Metadata,
+		ParentJobID: parentJobID, // Link to parent job for dependency tracking
+		Progress: &JobProgress{
+			Total:      req.Metadata.TotalAffected,
+			Completed:  0,
+			Failed:     0,
+			Percentage: 0.0,
+		},
+		CreatedBy: req.Metadata.TriggerUser.ID,
+		CreatedAt: now,
+		Project:   project,
+		Version:   version,
+	}
+
+	// If no work needed, mark as completed immediately
+	if req.Status == JobStatusNoWorkNeeded {
+		job.CompletedAt = &now
+		job.Progress.Percentage = 100.0
+	}
+
+	// Insert into MongoDB
+	collection := m.db.Collection("background_jobs")
+	_, err = collection.InsertOne(ctx, job)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create job: %w", err)
+	}
+
+	// Log with appropriate resource name based on job type
+	var resourceName string
+	if req.Metadata.SourceResource != nil {
+		resourceName = req.Metadata.SourceResource.Name
+	} else if req.Metadata.ACMEMetadata != nil {
+		resourceName = req.Metadata.ACMEMetadata.CertificateName
+	} else {
+		resourceName = "unknown"
+	}
+
+	m.logger.Infof("Created job %s (ID: %s) for %s with parent job %s",
+		jobID, job.ID.Hex(), resourceName, parentJobID.Hex())
 	return job, nil
 }
 

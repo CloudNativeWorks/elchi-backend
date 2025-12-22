@@ -127,6 +127,8 @@ func (w *Worker) processNextJob(ctx context.Context) {
 		w.processWAFPropagationJob(ctx, claimedJob)
 	case job.JobTypeResourceUpgrade:
 		w.processResourceUpgradeJob(ctx, claimedJob)
+	case job.JobTypeACMEVerification:
+		w.processACMEVerificationJob(ctx, claimedJob)
 	default:
 		w.logger.Errorf("Unknown job type: %s", claimedJob.Type)
 		w.jobManager.FailJob(ctx, claimedJob.ID, fmt.Errorf("unknown job type"))
@@ -135,6 +137,17 @@ func (w *Worker) processNextJob(ctx context.Context) {
 
 // processSnapshotUpdateJob processes a snapshot update job
 func (w *Worker) processSnapshotUpdateJob(ctx context.Context, j *job.Job) {
+	// DEPENDENCY CHECK: If this job has a parent (e.g., ACME verification),
+	// verify that the parent's secrets were actually written to MongoDB
+	if j.ParentJobID != nil {
+		if err := w.verifyParentJobCompleted(ctx, j); err != nil {
+			w.logger.Errorf("Parent job dependency check failed for job %s: %v", j.JobID, err)
+			w.jobManager.FailJob(ctx, j.ID, fmt.Errorf("parent job dependency check failed: %w", err))
+			return
+		}
+		w.logger.Infof("✅ Parent job dependency verified for job %s", j.JobID)
+	}
+
 	// Check if job has any work to do
 	if j.Status == job.JobStatusNoWorkNeeded || len(j.Metadata.AffectedListeners) == 0 {
 		w.logger.Infof("Job %s has no work needed", j.JobID)
@@ -199,6 +212,80 @@ func (w *Worker) processSnapshotUpdateJob(ctx context.Context, j *job.Job) {
 	}
 
 	w.logger.Infof("Job %s completed: %d successful, %d failed", j.JobID, completed, failed)
+}
+
+// verifyParentJobCompleted verifies that a parent job has completed and its database writes are visible
+// This prevents race conditions where child jobs (e.g., snapshot updates) start processing before
+// parent jobs (e.g., ACME certificate verification) have committed their writes to MongoDB
+func (w *Worker) verifyParentJobCompleted(ctx context.Context, childJob *job.Job) error {
+	// 1. Load the parent job
+	parentJob, err := w.jobManager.GetJob(ctx, childJob.ParentJobID.Hex())
+	if err != nil {
+		return fmt.Errorf("failed to load parent job: %w", err)
+	}
+
+	// 2. Verify parent job is completed
+	if parentJob.Status != job.JobStatusCompleted {
+		return fmt.Errorf("parent job %s is not completed (status: %s)", parentJob.JobID, parentJob.Status)
+	}
+
+	// 3. Verify parent job completed BEFORE this child job was created
+	// This ensures the parent's completion timestamp is reliable
+	if parentJob.CompletedAt == nil {
+		return fmt.Errorf("parent job %s has no completion timestamp", parentJob.JobID)
+	}
+
+	if parentJob.CompletedAt.After(childJob.CreatedAt) {
+		return fmt.Errorf("parent job %s completed AFTER child job was created (race condition)", parentJob.JobID)
+	}
+
+	// 4. For ACME-triggered snapshot jobs, verify the secret was actually updated
+	if parentJob.Type == job.JobTypeACMEVerification && childJob.Metadata.SourceResource != nil {
+		secretName := childJob.Metadata.SourceResource.Name
+		version := childJob.Metadata.SourceResource.Version
+		project := childJob.Metadata.SourceResource.ProjectID
+
+		// Query secrets collection to verify the resource exists and was updated after parent job completion
+		collection := w.dbContext.Client.Collection("secrets")
+
+		var secret struct {
+			General struct {
+				UpdatedAt time.Time `bson:"updated_at"`
+			} `bson:"general"`
+		}
+
+		err := collection.FindOne(ctx, map[string]interface{}{
+			"general.name":    secretName,
+			"general.version": version,
+			"general.project": project,
+		}).Decode(&secret)
+
+		if err != nil {
+			return fmt.Errorf("secret %s (version: %s) not found in secrets collection: %w", secretName, version, err)
+		}
+
+		// Verify the secret was updated around the time of parent job completion
+		// Allow 5 second window before parent completion (for clock skew) and require update within 30 seconds after
+		minUpdateTime := parentJob.CompletedAt.Add(-5 * time.Second)
+		maxUpdateTime := parentJob.CompletedAt.Add(30 * time.Second)
+
+		if secret.General.UpdatedAt.Before(minUpdateTime) {
+			return fmt.Errorf("secret %s was last updated at %s, which is before parent job completion at %s",
+				secretName, secret.General.UpdatedAt.Format(time.RFC3339), parentJob.CompletedAt.Format(time.RFC3339))
+		}
+
+		if secret.General.UpdatedAt.After(maxUpdateTime) {
+			w.logger.Warnf("⚠️  Secret %s was updated at %s, which is suspiciously late after parent job completion at %s",
+				secretName, secret.General.UpdatedAt.Format(time.RFC3339), parentJob.CompletedAt.Format(time.RFC3339))
+			// Don't fail - just warn, as this might be a clock skew issue
+		}
+
+		w.logger.Debugf("Secret %s verified: updated at %s (parent job completed at %s)",
+			secretName, secret.General.UpdatedAt.Format(time.RFC3339), parentJob.CompletedAt.Format(time.RFC3339))
+	}
+
+	// 5. All checks passed
+	return nil
 }
 
 // processBatch processes a batch of listeners

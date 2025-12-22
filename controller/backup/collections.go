@@ -37,4 +37,10 @@ var RestoreOrder = []CollectionMetadata{
 	{Name: "services", Order: 19, Category: "services"},
 	{Name: "admin_ports", Order: 20, Category: "services"},
 	{Name: "waf", Order: 21, Category: "services"},
+
+	// Phase 5: ACME Certificate Management (22-25)
+	{Name: "acme_accounts", Order: 22, Category: "acme"},
+	{Name: "acme_dns_credentials", Order: 23, Category: "acme"},
+	{Name: "acme_temp_keys", Order: 24, Category: "acme"},
+	{Name: "acme_certificates", Order: 25, Category: "acme"},
 }

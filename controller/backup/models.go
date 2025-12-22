@@ -39,6 +39,7 @@ type BackupData struct {
 	XDSResources XDSResourcesBackup     `json:"xds_resources"`
 	Templates    TemplatesBackup        `json:"templates"`
 	Services     ServicesBackup         `json:"services"`
+	ACME         ACMEBackup             `json:"acme"`
 }
 
 // SettingsBackup contains settings and authorization data
@@ -76,6 +77,14 @@ type ServicesBackup struct {
 	Services   []primitive.M `json:"services"`
 	AdminPorts []primitive.M `json:"admin_ports"`
 	WAF        []primitive.M `json:"waf"`
+}
+
+// ACMEBackup contains ACME certificate management data
+type ACMEBackup struct {
+	ACMEAccounts       []primitive.M `json:"acme_accounts"`
+	ACMEDNSCredentials []primitive.M `json:"acme_dns_credentials"`
+	ACMETempKeys       []primitive.M `json:"acme_temp_keys"`
+	ACMECertificates   []primitive.M `json:"acme_certificates"`
 }
 
 // ExportRequest represents the request to export a backup

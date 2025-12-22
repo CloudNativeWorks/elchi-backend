@@ -10,9 +10,10 @@ import (
 type JobType string
 
 const (
-	JobTypeSnapshotUpdate JobType = "SNAPSHOT_UPDATE"
-	JobTypeWAFPropagation JobType = "WAF_PROPAGATION"
-	JobTypeResourceUpgrade JobType = "RESOURCE_UPGRADE"
+	JobTypeSnapshotUpdate      JobType = "SNAPSHOT_UPDATE"
+	JobTypeWAFPropagation      JobType = "WAF_PROPAGATION"
+	JobTypeResourceUpgrade     JobType = "RESOURCE_UPGRADE"
+	JobTypeACMEVerification    JobType = "ACME_VERIFICATION"
 )
 
 // JobStatus represents the current status of a job
@@ -50,22 +51,23 @@ const (
 
 // Job represents a background job in the system
 type Job struct {
-	ID               primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	JobID            string             `bson:"job_id" json:"job_id"` // Human-friendly ID (EC-1, EC-2, etc.)
-	Type             JobType            `bson:"type" json:"type"`
-	Status           JobStatus          `bson:"status" json:"status"`
-	Progress         *JobProgress       `bson:"progress" json:"progress"`
-	Metadata         *JobMetadata       `bson:"metadata" json:"metadata"`
-	ExecutionDetails *ExecutionDetails  `bson:"execution_details,omitempty" json:"execution_details,omitempty"`
-	WorkerInfo       *WorkerInfo        `bson:"worker_info,omitempty" json:"worker_info,omitempty"`
-	RetryInfo        *RetryInfo         `bson:"retry_info,omitempty" json:"retry_info,omitempty"`
-	CreatedBy        string             `bson:"created_by" json:"created_by"` // User ObjectID as string
-	CreatedAt        time.Time          `bson:"created_at" json:"created_at"`
-	StartedAt        *time.Time         `bson:"started_at,omitempty" json:"started_at,omitempty"`
-	CompletedAt      *time.Time         `bson:"completed_at,omitempty" json:"completed_at,omitempty"`
-	Error            string             `bson:"error,omitempty" json:"error,omitempty"`
-	Project          string             `bson:"project" json:"project"` // Project ObjectID as string
-	Version          string             `bson:"version" json:"version"`
+	ID               primitive.ObjectID  `bson:"_id,omitempty" json:"id"`
+	JobID            string              `bson:"job_id" json:"job_id"` // Human-friendly ID (EC-1, EC-2, etc.)
+	Type             JobType             `bson:"type" json:"type"`
+	Status           JobStatus           `bson:"status" json:"status"`
+	Progress         *JobProgress        `bson:"progress" json:"progress"`
+	Metadata         *JobMetadata        `bson:"metadata" json:"metadata"`
+	ExecutionDetails *ExecutionDetails   `bson:"execution_details,omitempty" json:"execution_details,omitempty"`
+	WorkerInfo       *WorkerInfo         `bson:"worker_info,omitempty" json:"worker_info,omitempty"`
+	RetryInfo        *RetryInfo          `bson:"retry_info,omitempty" json:"retry_info,omitempty"`
+	ParentJobID      *primitive.ObjectID `bson:"parent_job_id,omitempty" json:"parent_job_id,omitempty"` // Parent job that must complete before this job can process
+	CreatedBy        string              `bson:"created_by" json:"created_by"`                            // User ObjectID as string
+	CreatedAt        time.Time           `bson:"created_at" json:"created_at"`
+	StartedAt        *time.Time          `bson:"started_at,omitempty" json:"started_at,omitempty"`
+	CompletedAt      *time.Time          `bson:"completed_at,omitempty" json:"completed_at,omitempty"`
+	Error            string              `bson:"error,omitempty" json:"error,omitempty"`
+	Project          string              `bson:"project" json:"project"` // Project ObjectID as string
+	Version          string              `bson:"version" json:"version"`
 }
 
 // JobProgress tracks the progress of a job
@@ -78,20 +80,35 @@ type JobProgress struct {
 
 // JobMetadata contains metadata about the job
 type JobMetadata struct {
-	SourceResource    *SourceResource  `bson:"source_resource,omitempty" json:"source_resource,omitempty"`
-	TriggerUser       *TriggerUser     `bson:"trigger_user" json:"trigger_user"`
-	AffectedListeners []string         `bson:"affected_listeners" json:"affected_listeners"`
-	TotalAffected     int              `bson:"total_affected" json:"total_affected"`
-	AnalysisDuration  int64            `bson:"analysis_duration_ms" json:"analysis_duration_ms"`
-	WAFConfig         *WAFConfigMeta   `bson:"waf_config,omitempty" json:"waf_config,omitempty"`       // For WAF_PROPAGATION jobs
-	AffectedWASM      []string         `bson:"affected_wasm,omitempty" json:"affected_wasm,omitempty"` // For WAF_PROPAGATION jobs
-	UpgradeConfig     *UpgradeMetadata `bson:"upgrade_config,omitempty" json:"upgrade_config,omitempty"` // For RESOURCE_UPGRADE jobs
+	SourceResource      *SourceResource            `bson:"source_resource,omitempty" json:"source_resource,omitempty"`
+	TriggerUser         *TriggerUser               `bson:"trigger_user" json:"trigger_user"`
+	AffectedListeners   []string                   `bson:"affected_listeners" json:"affected_listeners"`
+	TotalAffected       int                        `bson:"total_affected" json:"total_affected"`
+	AnalysisDuration    int64                      `bson:"analysis_duration_ms" json:"analysis_duration_ms"`
+	WAFConfig           *WAFConfigMeta             `bson:"waf_config,omitempty" json:"waf_config,omitempty"`               // For WAF_PROPAGATION jobs
+	AffectedWASM        []string                   `bson:"affected_wasm,omitempty" json:"affected_wasm,omitempty"`         // For WAF_PROPAGATION jobs
+	UpgradeConfig       *UpgradeMetadata           `bson:"upgrade_config,omitempty" json:"upgrade_config,omitempty"`       // For RESOURCE_UPGRADE jobs
+	ACMEMetadata        *ACMEJobMetadata           `bson:"acme,omitempty" json:"acme,omitempty"`                           // For ACME_VERIFICATION jobs
 }
 
 // WAFConfigMeta contains metadata about the WAF config that triggered propagation
 type WAFConfigMeta struct {
 	Name    string `bson:"name" json:"name"`
 	Project string `bson:"project" json:"project"`
+}
+
+// ACMEJobMetadata contains metadata for ACME DNS verification jobs
+type ACMEJobMetadata struct {
+	CertificateID   string   `bson:"certificate_id" json:"certificate_id"`       // ObjectID of acme_certificates document
+	CertificateName string   `bson:"certificate_name" json:"certificate_name"`   // Secret name
+	Domains         []string `bson:"domains" json:"domains"`                     // Domains being verified
+	Environment     string   `bson:"environment" json:"environment"`             // "staging" or "production"
+	DNSProvider     string   `bson:"dns_provider" json:"dns_provider"`           // "godaddy" or "google"
+	ACMEAccountID   string   `bson:"acme_account_id" json:"acme_account_id"`     // ObjectID reference
+	DNSCredentialID string   `bson:"dns_credential_id" json:"dns_credential_id"` // ObjectID reference
+	Project         string   `bson:"project" json:"project"`                     // Project ID
+	Versions        []string `bson:"versions" json:"versions"`                   // Secret versions to create
+	IsRenewal       bool     `bson:"is_renewal" json:"is_renewal"`               // true if this is a renewal operation
 }
 
 // SourceResource represents the resource that triggered the job
@@ -115,6 +132,7 @@ type TriggerUser struct {
 // ExecutionDetails contains details about job execution
 type ExecutionDetails struct {
 	ProcessedSnapshots []SnapshotExecution `bson:"processed_snapshots" json:"processed_snapshots"`
+	ACMEResult         *ACMEExecution      `bson:"acme,omitempty" json:"acme,omitempty"` // For ACME_VERIFICATION jobs
 }
 
 // SnapshotExecution represents a single snapshot update execution
@@ -124,6 +142,17 @@ type SnapshotExecution struct {
 	PokeStatus   PokeStatus `bson:"poke_status" json:"poke_status"`
 	PokeSentAt   time.Time  `bson:"poke_sent_at" json:"poke_sent_at"`
 	Error        *string    `bson:"error,omitempty" json:"error,omitempty"`
+}
+
+// ACMEExecution represents the result of an ACME verification job
+type ACMEExecution struct {
+	CertificateID string     `bson:"certificate_id" json:"certificate_id"` // ObjectID of certificate
+	SecretName    string     `bson:"secret_name" json:"secret_name"`       // Name of created secret
+	Domains       []string   `bson:"domains" json:"domains"`               // Verified domains
+	Status        string     `bson:"status" json:"status"`                 // "active" or "verification_failed"
+	IssuedAt      *time.Time `bson:"issued_at,omitempty" json:"issued_at,omitempty"`
+	ExpiresAt     *time.Time `bson:"expires_at,omitempty" json:"expires_at,omitempty"`
+	ErrorMessage  *string    `bson:"error_message,omitempty" json:"error_message,omitempty"`
 }
 
 // WorkerInfo contains information about the worker processing the job

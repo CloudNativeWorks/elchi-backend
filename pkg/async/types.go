@@ -108,3 +108,17 @@ type DependencyAnalysis struct {
 	DependencyChain   []string        `json:"dependency_chain"`
 	DurationMS        int64           `json:"duration_ms"`
 }
+
+// CreateACMEJobRequest represents a request to create a Let's Encrypt verification job
+type CreateACMEJobRequest struct {
+	CertificateID   string          `json:"certificate_id"`
+	CertificateName string          `json:"certificate_name"`
+	Domains         []string        `json:"domains"`
+	Environment     string          `json:"environment"`
+	DNSCredentialID string          `json:"dns_credential_id"`
+	ACMEAccountID   string          `json:"acme_account_id"`
+	Project         string          `json:"project"`
+	Versions        []string        `json:"versions"`
+	TriggerUser     models.UserDetails `json:"trigger_user"`
+	IsRenewal       bool            `json:"is_renewal"` // true if this is a renewal operation
+}

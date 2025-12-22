@@ -1,5 +1,7 @@
 package config
 
+import "fmt"
+
 type AppConfig struct {
 	ElchiAddress               string   `mapstructure:"ELCHI_ADDRESS" yaml:"ELCHI_ADDRESS"`
 	ElchiPort                  string   `mapstructure:"ELCHI_PORT" yaml:"ELCHI_PORT"`
@@ -36,10 +38,77 @@ type AppConfig struct {
 	// Routing configuration
 	RegistryAddress string `mapstructure:"REGISTRY_ADDRESS" yaml:"REGISTRY_ADDRESS"`
 	RegistryPort    uint   `mapstructure:"REGISTRY_PORT" yaml:"REGISTRY_PORT"`
+
+	// ACME certificate management configuration
+	ACME ACMEConfig `mapstructure:"ACME" yaml:"ACME"`
+
+	// CA Providers configuration (embedded in config instead of separate file)
+	CAProviders map[string]CAProviderConfig `mapstructure:"CA_PROVIDERS" yaml:"CA_PROVIDERS"`
 }
 
 type LoggingConfig struct {
 	Level      string `mapstructure:"level"`
 	Format     string `mapstructure:"format"`
 	OutputPath string `mapstructure:"output_path"`
+}
+
+// ACMEConfig contains ACME certificate management configuration
+type ACMEConfig struct {
+	Enabled            bool   `mapstructure:"enabled" yaml:"enabled"`
+	DefaultEnvironment string `mapstructure:"default_environment" yaml:"default_environment"` // "staging" | "production"
+	DefaultCAProvider  string `mapstructure:"default_ca_provider" yaml:"default_ca_provider"` // "letsencrypt" | "google"
+}
+
+// CAProviderEnvironment represents a specific environment (staging/production) for a CA provider
+type CAProviderEnvironment struct {
+	DirectoryURL string         `yaml:"directory_url" mapstructure:"directory_url"`
+	RateLimits   map[string]int `yaml:"rate_limits" mapstructure:"rate_limits"`
+}
+
+// CAProviderConfig represents a Certificate Authority provider configuration
+type CAProviderConfig struct {
+	Name               string                           `yaml:"name" mapstructure:"name"`
+	Description        string                           `yaml:"description" mapstructure:"description"`
+	Supported          bool                             `yaml:"supported" mapstructure:"supported"`
+	RequiresEAB        bool                             `yaml:"requires_eab" mapstructure:"requires_eab"`
+	EABInstructionsURL string                           `yaml:"eab_instructions_url,omitempty" mapstructure:"eab_instructions_url"`
+	Environments       map[string]CAProviderEnvironment `yaml:"environments" mapstructure:"environments"`
+}
+
+// GetDirectoryURL returns the ACME directory URL for a given provider and environment
+func (a *AppConfig) GetDirectoryURL(provider, environment string) (string, error) {
+	providerConfig, exists := a.CAProviders[provider]
+	if !exists {
+		return "", fmt.Errorf("unknown CA provider: %s", provider)
+	}
+
+	if !providerConfig.Supported {
+		return "", fmt.Errorf("CA provider %s is not yet supported", provider)
+	}
+
+	envConfig, exists := providerConfig.Environments[environment]
+	if !exists {
+		return "", fmt.Errorf("environment %s not supported for %s", environment, provider)
+	}
+
+	return envConfig.DirectoryURL, nil
+}
+
+// RequiresEAB returns true if the given CA provider requires External Account Binding
+func (a *AppConfig) RequiresEAB(provider string) bool {
+	if providerConfig, exists := a.CAProviders[provider]; exists {
+		return providerConfig.RequiresEAB
+	}
+	return false
+}
+
+// GetSupportedProviders returns a list of all supported CA providers
+func (a *AppConfig) GetSupportedProviders() []string {
+	var providers []string
+	for name, config := range a.CAProviders {
+		if config.Supported {
+			providers = append(providers, name)
+		}
+	}
+	return providers
 }

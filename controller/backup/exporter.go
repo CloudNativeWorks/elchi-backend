@@ -59,6 +59,7 @@ func (e *Exporter) Export(ctx context.Context, req ExportRequest, username strin
 		XDSResources: XDSResourcesBackup{},
 		Templates:    TemplatesBackup{},
 		Services:     ServicesBackup{},
+		ACME:         ACMEBackup{},
 	}
 
 	// Get project name if project backup
@@ -85,6 +86,10 @@ func (e *Exporter) Export(ctx context.Context, req ExportRequest, username strin
 
 	if err := e.exportServices(ctx, backup, req); err != nil {
 		return nil, fmt.Errorf("failed to export services: %w", err)
+	}
+
+	if err := e.exportACME(ctx, backup, req); err != nil {
+		return nil, fmt.Errorf("failed to export ACME: %w", err)
 	}
 
 	// Calculate total statistics
@@ -273,8 +278,41 @@ func (e *Exporter) exportServices(ctx context.Context, backup *BackupData, req E
 	return nil
 }
 
+// exportACME exports ACME certificate management collections
+func (e *Exporter) exportACME(ctx context.Context, backup *BackupData, req ExportRequest) error {
+	projectFilter := e.buildProjectFilter(req)
+
+	var err error
+
+	backup.ACME.ACMEAccounts, err = e.exportCollection(ctx, "acme_accounts", req, projectFilter)
+	if err != nil {
+		return err
+	}
+	backup.Metadata.Statistics.Collections["acme_accounts"] = len(backup.ACME.ACMEAccounts)
+
+	backup.ACME.ACMEDNSCredentials, err = e.exportCollection(ctx, "acme_dns_credentials", req, projectFilter)
+	if err != nil {
+		return err
+	}
+	backup.Metadata.Statistics.Collections["acme_dns_credentials"] = len(backup.ACME.ACMEDNSCredentials)
+
+	backup.ACME.ACMETempKeys, err = e.exportCollection(ctx, "acme_temp_keys", req, projectFilter)
+	if err != nil {
+		return err
+	}
+	backup.Metadata.Statistics.Collections["acme_temp_keys"] = len(backup.ACME.ACMETempKeys)
+
+	backup.ACME.ACMECertificates, err = e.exportCollection(ctx, "acme_certificates", req, projectFilter)
+	if err != nil {
+		return err
+	}
+	backup.Metadata.Statistics.Collections["acme_certificates"] = len(backup.ACME.ACMECertificates)
+
+	return nil
+}
+
 // exportCollection exports a single collection with filters
-func (e *Exporter) exportCollection(ctx context.Context, collectionName string, req ExportRequest, filter bson.M) ([]primitive.M, error) {
+func (e *Exporter) exportCollection(ctx context.Context, collectionName string, _ ExportRequest, filter bson.M) ([]primitive.M, error) {
 	collection := e.Context.Client.Collection(collectionName)
 
 	cursor, err := collection.Find(ctx, filter)

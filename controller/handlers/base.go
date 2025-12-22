@@ -64,6 +64,8 @@ type Handler struct {
 	WAF          *WAFHandler
 	Upgrade      *UpgradeHandler
 	Maintenance  *MaintenanceHandler
+	ACME         *ACMEHandler
+	CAProviders  *CAProvidersHandler
 }
 
 // getDatabaseConnection returns the first available database connection from handlers
@@ -87,7 +89,7 @@ func (h *Handler) getDatabaseConnection() *mongo.Database {
 	return nil
 }
 
-func NewHandler(xds *xds.AppHandler, extension *extension.AppHandler, custom *custom.AppHandler, settings *settings.AppHandler, dependency *dependency.AppHandler, stats *bridge.AppHandler, scenario *scenario.AppHandler, client *client.AppHandler, service *service.AppHandler, discovery *discovery.DiscoveryHandler, jobs *JobHandler, registry *RegistryHandler, openstack *openstack.Handler, auditService *audit.Service, template *ResourceTemplateHandler, routeMap *routemap.RouteMapHandler, maintenance *MaintenanceHandler, upgrade *UpgradeHandler) *Handler {
+func NewHandler(xds *xds.AppHandler, extension *extension.AppHandler, custom *custom.AppHandler, settings *settings.AppHandler, dependency *dependency.AppHandler, stats *bridge.AppHandler, scenario *scenario.AppHandler, client *client.AppHandler, service *service.AppHandler, discovery *discovery.DiscoveryHandler, jobs *JobHandler, registry *RegistryHandler, openstack *openstack.Handler, auditService *audit.Service, template *ResourceTemplateHandler, routeMap *routemap.RouteMapHandler, maintenance *MaintenanceHandler, upgrade *UpgradeHandler, acme *ACMEHandler, caProviders *CAProvidersHandler) *Handler {
 	handler := &Handler{
 		XDS:          xds,
 		Extension:    extension,
@@ -107,6 +109,8 @@ func NewHandler(xds *xds.AppHandler, extension *extension.AppHandler, custom *cu
 		RouteMap:     routeMap,
 		Maintenance:  maintenance,
 		Upgrade:      upgrade,
+		ACME:         acme,
+		CAProviders:  caProviders,
 	}
 
 	// Initialize profile handler
@@ -119,6 +123,11 @@ func NewHandler(xds *xds.AppHandler, extension *extension.AppHandler, custom *cu
 	// Initialize WAF handler with required dependencies
 	handler.WAF = NewWAFHandler(xds.Context, xds.PokeService, jobs.asyncSystem, xds.Logger)
 	handler.WAF.SetParentHandler(handler) // Set parent reference for audit functions
+
+	// Set parent handler for ACME (for audit functions)
+	if acme != nil {
+		acme.SetParentHandler(handler)
+	}
 
 	return handler
 }

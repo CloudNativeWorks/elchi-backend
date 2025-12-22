@@ -51,7 +51,7 @@ func (i *Importer) Import(ctx context.Context, backup *BackupData, username stri
 	phaseGroups := i.groupCollectionsByPhase(orderedCollections)
 
 	// Process each phase sequentially, but collections within a phase in parallel
-	for _, phaseName := range []string{"settings", "xds", "templates", "services"} {
+	for _, phaseName := range []string{"settings", "xds", "templates", "services", "acme"} {
 		collections, exists := phaseGroups[phaseName]
 		if !exists || len(collections) == 0 {
 			continue
@@ -381,6 +381,18 @@ func (i *Importer) getOrderedCollections(backup *BackupData) []CollectionMetadat
 	if len(backup.Services.WAF) > 0 {
 		collectionsWithData["waf"] = true
 	}
+	if len(backup.ACME.ACMEAccounts) > 0 {
+		collectionsWithData["acme_accounts"] = true
+	}
+	if len(backup.ACME.ACMEDNSCredentials) > 0 {
+		collectionsWithData["acme_dns_credentials"] = true
+	}
+	if len(backup.ACME.ACMETempKeys) > 0 {
+		collectionsWithData["acme_temp_keys"] = true
+	}
+	if len(backup.ACME.ACMECertificates) > 0 {
+		collectionsWithData["acme_certificates"] = true
+	}
 
 	// Filter RestoreOrder to only include collections with data
 	var orderedCollections []CollectionMetadata
@@ -443,6 +455,14 @@ func (i *Importer) getCollectionDocuments(backup *BackupData, collectionName str
 		return backup.Services.AdminPorts
 	case "waf":
 		return backup.Services.WAF
+	case "acme_accounts":
+		return backup.ACME.ACMEAccounts
+	case "acme_dns_credentials":
+		return backup.ACME.ACMEDNSCredentials
+	case "acme_temp_keys":
+		return backup.ACME.ACMETempKeys
+	case "acme_certificates":
+		return backup.ACME.ACMECertificates
 	default:
 		return nil
 	}

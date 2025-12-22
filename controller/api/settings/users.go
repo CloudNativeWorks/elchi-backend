@@ -194,8 +194,8 @@ func (handler *AppHandler) checkUserAuthorization(c *gin.Context, userID string)
 func (handler *AppHandler) buildUpdateFields(userWG UserWithGroups) (bson.M, error) {
 	setMap := bson.M{}
 
-	if userWG.Username != nil {
-		setMap["username"] = userWG.Username
+	if userWG.Username != nil && *userWG.Username != "" {
+		setMap["username"] = *userWG.Username
 	}
 	if userWG.Password != nil && *userWG.Password != "" {
 		// Validate and hash password
@@ -205,26 +205,26 @@ func (handler *AppHandler) buildUpdateFields(userWG UserWithGroups) (bson.M, err
 		}
 		setMap["password"] = hashedPassword
 	}
-	if userWG.Email != nil {
-		setMap["email"] = userWG.Email
+	if userWG.Email != nil && *userWG.Email != "" {
+		setMap["email"] = *userWG.Email
 	}
 	if userWG.Role != nil {
-		setMap["role"] = userWG.Role
+		setMap["role"] = *userWG.Role
 	}
 	if userWG.BaseGroup != nil {
 		setMap["base_group"] = nil
 		if *userWG.BaseGroup != "xremove" {
-			setMap["base_group"] = userWG.BaseGroup
+			setMap["base_group"] = *userWG.BaseGroup
 		}
 	}
 	if userWG.BaseProject != nil {
 		setMap["base_project"] = nil
 		if *userWG.BaseProject != "xremove" {
-			setMap["base_project"] = userWG.BaseProject
+			setMap["base_project"] = *userWG.BaseProject
 		}
 	}
 	if userWG.Active != nil {
-		setMap["active"] = userWG.Active
+		setMap["active"] = *userWG.Active
 	}
 
 	setMap["updated_at"] = primitive.NewDateTimeFromTime(time.Now())
@@ -419,11 +419,11 @@ func (handler *AppHandler) CheckUserProjectPermission(c *gin.Context) bool {
 	ctx := c.Request.Context()
 	roleAny, _ := c.Get("isOwner")
 	role, _ := roleAny.(bool)
-	
+
 	// Debug logging
 	handler.Logger.Infof("🔍 CheckUserProjectPermission - isOwner: %v", role)
 	handler.Logger.Infof("🔍 Query project param: %s", c.Query("project"))
-	
+
 	if role {
 		handler.Logger.Infof("✅ User is owner, permission granted")
 		return true
@@ -434,9 +434,9 @@ func (handler *AppHandler) CheckUserProjectPermission(c *gin.Context) bool {
 	if !ok {
 		userID = ""
 	}
-	
+
 	handler.Logger.Infof("🔍 Current user_id: %s", userID)
-	
+
 	projects, _ := handler.GetUserProject(ctx, userID)
 	if projects != nil {
 		handler.Logger.Infof("🔍 User has %d projects", len(*projects))
@@ -552,7 +552,7 @@ func isSelfUpdatingAdmin(user models.User, c *gin.Context) bool {
 	return *user.Username == "admin" && c.GetString("user_id") == user.UserID
 }
 
-func isOwnerUpdatingNonOwner(currentUserRole models.Role, user models.User) bool {
+func isOwnerUpdatingNonOwner(currentUserRole models.Role, _ models.User) bool {
 	// Owner can update ANY user (including other owners)
 	return currentUserRole == models.RoleOwner
 }

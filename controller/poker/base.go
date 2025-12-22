@@ -64,6 +64,17 @@ func DetectChangedResource(ctx context.Context, gType models.GType, version, res
 }
 
 func HandlePoke(ctx context.Context, context *db.AppContext, resourceName, project, version string, processed *Processed, poke *bridge.PokeServiceClient, downstreamAddress string) {
+	// Add listener to processed list
+	processed.Listeners = append(processed.Listeners, resourceName)
+
+	// If poke service is nil, we're only doing dependency analysis - skip actual poke
+	if poke == nil {
+		context.Logger.Debugf("🔍 POKE DEBUG: Skipping poke for listener '%s' (analysis mode only)", resourceName)
+		result := strings.Join(processed.Depends, " \n ")
+		context.Logger.Infof("Listener '%s' added to dependency analysis. Processed resource paths: \n %s", resourceName, result)
+		return
+	}
+
 	// DEBUG: Log poke initiation
 	context.Logger.Debugf("🔍 POKE DEBUG: Initiating poke for listener '%s' (envoy.version=%s, project=%s)",
 		resourceName, version, project)
@@ -75,7 +86,6 @@ func HandlePoke(ctx context.Context, context *db.AppContext, resourceName, proje
 		context.Logger.Debugf("🔍 POKE DEBUG: Poke successful for listener '%s'", resourceName)
 	}
 
-	processed.Listeners = append(processed.Listeners, resourceName)
 	result := strings.Join(processed.Depends, " \n ")
 	context.Logger.Infof("new version added to snapshot for (%s) processed resource paths: \n %s", resourceName, result)
 }

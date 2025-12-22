@@ -25,14 +25,49 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/controller/handlers"
 	"github.com/CloudNativeWorks/elchi-backend/controller/routemap"
 	"github.com/CloudNativeWorks/elchi-backend/controller/service"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/async"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/audit"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/config"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/helper"
 	server "github.com/CloudNativeWorks/elchi-backend/pkg/httpserver"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/acme"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/registry"
 )
+
+// acmeJobAdapter adapts async.AsyncJobSystem to acme.AsyncJobCreator interface
+// This avoids circular dependency between pkg/async and pkg/acme
+type acmeJobAdapter struct {
+	asyncSystem async.AsyncJobSystem
+}
+
+// CreateACMEVerificationJob converts letsencrypt request to async request and creates job
+func (a *acmeJobAdapter) CreateACMEVerificationJob(ctx context.Context, req *acme.ACMEJobRequest) (*acme.ACMEJob, error) {
+	// Convert to async request format
+	asyncReq := &async.CreateACMEJobRequest{
+		CertificateID:   req.CertificateID,
+		CertificateName: req.CertificateName,
+		Domains:         req.Domains,
+		Environment:     req.Environment,
+		DNSCredentialID: req.DNSCredentialID,
+		ACMEAccountID:   req.ACMEAccountID,
+		Project:         req.Project,
+		Versions:        req.Versions,
+		TriggerUser:     req.TriggerUser,
+	}
+
+	// Create job via async system
+	job, err := a.asyncSystem.CreateACMEVerificationJob(ctx, asyncReq)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert back to letsencrypt format
+	return &acme.ACMEJob{
+		JobID: job.JobID,
+	}, nil
+}
 
 // restCmd represents the command for starting the REST API server.
 // It initializes the server, sets up routes, and starts listening for incoming HTTP requests.
@@ -176,6 +211,61 @@ var restCmd = &cobra.Command{
 		templateHandler := handlers.NewResourceTemplateHandler(appContext, nil)
 		routeMapHandler := routemap.NewRouteMapHandler(appContext)
 
+		// Initialize ACME certificate manager
+		acmeLogger := logger.NewLogger("controller/acme")
+		acmeManager, err := acme.NewCertificateManager(
+			appContext.Client,
+			appConfig.ElchiJWTSecret,
+			&appConfig.ACME,
+			&appConfig.CAProviders,
+			acmeLogger,
+		)
+		if err != nil {
+			rootLogger.Fatalf("Failed to initialize ACME certificate manager: %v", err)
+		}
+
+		// Initialize ACME handler with async job system
+		acmeHandler := handlers.NewACMEHandler(acmeManager, asyncSystem, acmeLogger)
+
+		// Create CA providers handler
+		caProvidersHandler := handlers.NewCAProvidersHandler(appConfig)
+
+		// Set dependency services for snapshot updates on certificate renewal
+		acmeManager.SetDependencyServices(appContext, &bridgeHandler.Poke)
+
+		// Create renewal scheduler with constant interval (defined in pkg/acme/constants.go)
+		baseScheduler := acme.NewRenewalScheduler(
+			acmeManager,
+			acmeLogger,
+			acme.RenewalCheckInterval,
+		)
+
+		// Set async job creator after initialization (avoids import cycle)
+		baseScheduler.SetAsyncJobCreator(&acmeJobAdapter{asyncSystem: asyncSystem})
+
+		// Wrap with distributed scheduler for multi-pod safety
+		distributedScheduler := acme.NewDistributedScheduler(
+			baseScheduler,
+			appContext.Client,
+			acmeLogger,
+		)
+
+		// Start distributed scheduler in background
+		ctx := context.Background()
+		if err := distributedScheduler.Start(ctx); err != nil {
+			rootLogger.Errorf("Failed to start distributed renewal scheduler: %v", err)
+		} else {
+			acmeLogger.Infof("ACME distributed renewal scheduler started (check interval: %v)", acme.RenewalCheckInterval)
+			acmeLogger.Infof("Multi-pod deployment: Leader election enabled via MongoDB")
+		}
+
+		// Setup graceful shutdown for distributed scheduler
+		defer func() {
+			if err := distributedScheduler.Stop(); err != nil {
+				acmeLogger.Errorf("Failed to stop distributed renewal scheduler: %v", err)
+			}
+		}()
+
 		// Create main handler with all dependencies
 		h := handlers.NewHandler(
 			xdsHandler,
@@ -196,6 +286,8 @@ var restCmd = &cobra.Command{
 			routeMapHandler,
 			maintenanceHandler,
 			upgradeHandler,
+			acmeHandler,
+			caProvidersHandler,
 		)
 
 		// Set handler reference for audit functionality

@@ -60,6 +60,12 @@ var Indices = map[string]mongo.IndexModel{
 	"resource_templates": {Keys: bson.D{{Key: "gtype", Value: 1}, {Key: "version", Value: 1}, {Key: "project", Value: 1}}, Options: options.Index().SetUnique(true).SetName("gtype_version_project_1").SetCollation(&options.Collation{Locale: "en", Strength: 2})},
 	"snippets":           {Keys: bson.D{{Key: "name", Value: 1}, {Key: "project", Value: 1}, {Key: "gtype", Value: 1}}, Options: options.Index().SetUnique(true).SetName("name_project_gtype_1").SetCollation(&options.Collation{Locale: "en", Strength: 2})},
 	"admin_ports":        {Keys: bson.D{{Key: "name", Value: 1}, {Key: "project", Value: 1}, {Key: "version", Value: 1}}, Options: options.Index().SetUnique(true).SetName("name_project_version_1").SetCollation(&options.Collation{Locale: "en", Strength: 2})},
+	// ACME certificate management collections (supports multiple CAs: Let's Encrypt, Google Trust Services, etc.)
+	// NOTE: One certificate can be used by multiple Envoy versions (stored in secret_versions array)
+	"acme_certificates":    {Keys: bson.D{{Key: "secret_name", Value: 1}, {Key: "project", Value: 1}}, Options: options.Index().SetUnique(true).SetName("secret_name_project_1").SetCollation(&options.Collation{Locale: "en", Strength: 2})},
+	"acme_dns_credentials": {Keys: bson.D{{Key: "name", Value: 1}, {Key: "project", Value: 1}}, Options: options.Index().SetUnique(true).SetName("name_project_1").SetCollation(&options.Collation{Locale: "en", Strength: 2})},
+	"acme_temp_keys":       {Keys: bson.M{"cert_request_id": 1}, Options: options.Index().SetUnique(true).SetName("cert_request_id_1")},
+	"acme_accounts":        {Keys: bson.D{{Key: "email", Value: 1}, {Key: "ca_provider", Value: 1}, {Key: "environment", Value: 1}, {Key: "project", Value: 1}}, Options: options.Index().SetUnique(true).SetName("email_ca_provider_environment_project_1").SetCollation(&options.Collation{Locale: "en", Strength: 2})},
 }
 
 // TextSearchIndices defines text search indexes for secure search functionality
@@ -226,6 +232,122 @@ var AuditIndices = map[string]mongo.IndexModel{
 	"audit_request_id": {
 		Keys:    bson.M{"request_id": 1},
 		Options: options.Index(),
+	},
+}
+
+// ACMEIndices defines specialized indexes for ACME collections
+var ACMEIndices = map[string][]mongo.IndexModel{
+	"acme_certificates": {
+		// Project-based queries (CRITICAL for project isolation)
+		{
+			Keys:    bson.M{"project": 1},
+			Options: options.Index().SetName("project_1"),
+		},
+		// Status-based queries for renewal scheduler
+		{
+			Keys:    bson.M{"status": 1},
+			Options: options.Index().SetName("status_1"),
+		},
+		// Renewal window queries
+		{
+			Keys:    bson.D{{Key: "renewal_starts_at", Value: 1}, {Key: "auto_renew", Value: 1}},
+			Options: options.Index().SetName("renewal_starts_at_auto_renew_1"),
+		},
+		// Permission-based queries
+		{
+			Keys:    bson.M{"permissions.groups": 1},
+			Options: options.Index().SetName("permissions_groups_1"),
+		},
+		{
+			Keys:    bson.M{"permissions.users": 1},
+			Options: options.Index().SetName("permissions_users_1"),
+		},
+		// Expiration monitoring
+		{
+			Keys:    bson.M{"expires_at": 1},
+			Options: options.Index().SetName("expires_at_1"),
+		},
+		// DNS credential lookup
+		{
+			Keys:    bson.M{"dns_verification.dns_credential_id": 1},
+			Options: options.Index().SetName("dns_credential_id_1").SetSparse(true),
+		},
+	},
+	"acme_accounts": {
+		// Project-based queries
+		{
+			Keys:    bson.M{"project": 1},
+			Options: options.Index().SetName("project_1"),
+		},
+		// Query optimization for account listing
+		{
+			Keys: bson.D{
+				{Key: "project", Value: 1},
+				{Key: "ca_provider", Value: 1},
+				{Key: "status", Value: 1},
+			},
+			Options: options.Index().SetName("project_ca_provider_status_1"),
+		},
+		// Permission-based filtering
+		{
+			Keys:    bson.M{"permissions.groups": 1},
+			Options: options.Index().SetName("permissions_groups_1"),
+		},
+		{
+			Keys:    bson.M{"permissions.users": 1},
+			Options: options.Index().SetName("permissions_users_1"),
+		},
+		// Certificate count tracking
+		{
+			Keys: bson.D{
+				{Key: "project", Value: 1},
+				{Key: "certificate_count", Value: 1},
+			},
+			Options: options.Index().SetName("project_certificate_count_1"),
+		},
+	},
+	"acme_dns_credentials": {
+		// Project-based queries (CRITICAL for project isolation)
+		{
+			Keys:    bson.M{"project": 1},
+			Options: options.Index().SetName("project_1"),
+		},
+		// Provider filtering
+		{
+			Keys:    bson.M{"provider": 1},
+			Options: options.Index().SetName("provider_1"),
+		},
+		// Status monitoring
+		{
+			Keys:    bson.M{"status": 1},
+			Options: options.Index().SetName("status_1"),
+		},
+		// Permission-based queries
+		{
+			Keys:    bson.M{"permissions.groups": 1},
+			Options: options.Index().SetName("permissions_groups_1"),
+		},
+		{
+			Keys:    bson.M{"permissions.users": 1},
+			Options: options.Index().SetName("permissions_users_1"),
+		},
+	},
+	"acme_temp_keys": {
+		// Project-based queries
+		{
+			Keys:    bson.M{"project": 1},
+			Options: options.Index().SetName("project_1"),
+		},
+		// Status filtering
+		{
+			Keys:    bson.M{"status": 1},
+			Options: options.Index().SetName("status_1"),
+		},
+		// TTL index for automatic cleanup of expired temp keys (also used for sorting)
+		{
+			Keys:    bson.M{"expires_at": 1},
+			Options: options.Index().SetName("expires_at_ttl_1").SetExpireAfterSeconds(0),
+		},
 	},
 }
 
@@ -499,6 +621,32 @@ func collectCreateIndex(ctx context.Context, database *mongo.Database, logger *l
 			logger.Infof("Created audit index: %s (%s)", indexKey, indexName)
 		} else {
 			logger.Debugf("Audit index already exists: %s (%s)", indexKey, indexName)
+		}
+	}
+
+	// Create ACME specialized indexes
+	for collectionName, indexes := range ACMEIndices {
+		collection := database.Collection(collectionName)
+		for _, index := range indexes {
+			indexName := getIndexName(index)
+
+			// Check if index exists first
+			exists, err := indexExists(ctx, collection, indexName)
+			if err != nil {
+				logger.Errorf("Failed to check ACME index for %s.%s: %v", collectionName, indexName, err)
+				continue
+			}
+
+			if !exists {
+				if err := createIndex(ctx, collection, index, indexName); err != nil {
+					logger.Errorf("Failed to create ACME index for %s.%s: %v", collectionName, indexName, err)
+					// Don't fail on ACME index creation - continue with others
+					continue
+				}
+				logger.Infof("Created ACME index: %s.%s", collectionName, indexName)
+			} else {
+				logger.Debugf("ACME index already exists: %s.%s", collectionName, indexName)
+			}
 		}
 	}
 

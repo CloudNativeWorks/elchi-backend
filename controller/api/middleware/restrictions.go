@@ -152,4 +152,23 @@ var AllowedEndpoints = []string{
 	"/api/v3/setting/maintenance/backup/import",
 	"/api/v3/setting/maintenance/backup/validate",
 	"/api/v3/setting/maintenance/backup/metadata",
+	// Let's Encrypt certificate management endpoints
+	"/api/v3/acme/certificates",
+	"/api/v3/acme/certificates/:cert_id",
+	"/api/v3/acme/certificates/:cert_id/duplicate",
+	"/api/v3/acme/certificates/:cert_id/dns-challenges",
+	"/api/v3/acme/certificates/:cert_id/verify",
+	"/api/v3/acme/certificates/:cert_id/renew",
+	"/api/v3/acme/certificates/:cert_id/retry-verification",
+	"/api/v3/acme/certificates/:cert_id/dns-credential",
+	"/api/v3/acme/dns-credentials",
+	"/api/v3/acme/dns-credentials/:cred_id",
+	"/api/v3/acme/dns-credentials/test",
+	// Let's Encrypt ACME accounts management endpoints
+	"/api/v3/acme/acme-accounts",
+	"/api/v3/acme/acme-accounts/:account_id",
+	"/api/v3/acme/acme-accounts/:account_id/validate",
+	// CA Providers endpoints
+	"/api/v3/acme/ca-providers",
+	"/api/v3/acme/ca-providers/:provider/validate-eab",
 }

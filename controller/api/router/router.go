@@ -73,6 +73,7 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 	apiSearch := v3.Group("/search")
 	apiWAF := v3.Group("/waf")
 	apiMaintenance := apiSettings.Group("/maintenance") // Maintenance routes under settings
+	apiACME := v3.Group("/acme")
 
 	initAuthRoutes(apiAuth, h)
 	initSettingRoutes(apiSettings, h)
@@ -98,6 +99,7 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 	initWAFRoutes(apiWAF, h)
 	initMaintenanceRoutes(apiMaintenance, h) // Maintenance/cleanup routes
 	initOpenStackRoutes(apiClient, h)        // OpenStack routes under /api/op/clients
+	initACMERoutes(apiACME, h) // ACME routes under /api/v3/acme
 
 	// logRoutes(e)
 	return e

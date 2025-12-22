@@ -411,7 +411,13 @@ func (m *CertificateManager) VerifyCertificate(ctx context.Context, certID strin
 		}
 
 		// Set DNS provider on ACME client
-		err = acmeClient.GetClient().Challenge.SetDNS01Provider(dnsProvider)
+		// CRITICAL: Disable authoritative NS propagation check to avoid split-horizon DNS issues
+		// CRITICAL: Enable recursive NS propagation check to verify via public DNS (8.8.8.8, 1.1.1.1, etc. configured in main.go)
+		err = acmeClient.GetClient().Challenge.SetDNS01Provider(
+			dnsProvider,
+			dns01.DisableAuthoritativeNssPropagationRequirement(),
+			dns01.RecursiveNSsPropagationRequirement(),
+		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to set DNS provider: %w", err)
 		}
@@ -751,10 +757,12 @@ func (m *CertificateManager) VerifyCertificateWithDNSProviderAsync(
 	// DNS resolver options (public nameservers, timeouts) are configured globally in cmd/controller.go init()
 	// CRITICAL: Disable authoritative NS propagation check to avoid split-horizon DNS issues
 	// where authoritative NS (ns3.hepsi.io) resolves to internal IP (192.168.x.x) that pods can't reach.
+	// CRITICAL: Enable recursive NS propagation check to verify via public DNS (8.8.8.8, 1.1.1.1, etc.)
 	// Instead, only check recursive NS (public DNS: 8.8.8.8, 1.1.1.1) which always work.
 	if err := acmeClient.GetClient().Challenge.SetDNS01Provider(
 		dnsProvider,
 		dns01.DisableAuthoritativeNssPropagationRequirement(),
+		dns01.RecursiveNSsPropagationRequirement(),
 	); err != nil {
 		return nil, fmt.Errorf("failed to set DNS provider: %w", err)
 	}
@@ -969,9 +977,11 @@ func (m *CertificateManager) RenewCertificate(ctx context.Context, certID string
 	// Set DNS provider on ACME client
 	// DNS resolver options (public nameservers, timeouts) are configured globally in cmd/controller.go init()
 	// CRITICAL: Disable authoritative NS propagation check to avoid split-horizon DNS issues
+	// CRITICAL: Enable recursive NS propagation check to verify via public DNS (8.8.8.8, 1.1.1.1, etc.)
 	if err := acmeClient.GetClient().Challenge.SetDNS01Provider(
 		dnsProvider,
 		dns01.DisableAuthoritativeNssPropagationRequirement(),
+		dns01.RecursiveNSsPropagationRequirement(),
 	); err != nil {
 		_ = m.updateCertificateStatus(ctx, certObjID, project, "renewal_failed", err.Error())
 		return nil, fmt.Errorf("failed to set DNS provider: %w", err)

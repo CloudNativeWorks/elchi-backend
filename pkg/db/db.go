@@ -343,10 +343,10 @@ var ACMEIndices = map[string][]mongo.IndexModel{
 			Keys:    bson.M{"status": 1},
 			Options: options.Index().SetName("status_1"),
 		},
-		// TTL index for automatic cleanup of expired temp keys (also used for sorting)
+		// Regular index for sorting by expiration (not TTL - temp keys only deleted on success)
 		{
 			Keys:    bson.M{"expires_at": 1},
-			Options: options.Index().SetName("expires_at_ttl_1").SetExpireAfterSeconds(0),
+			Options: options.Index().SetName("expires_at_1"),
 		},
 	},
 }

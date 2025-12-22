@@ -9,6 +9,7 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/pkg/acme"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/async/job"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
@@ -123,7 +124,36 @@ func (w *Worker) processACMEVerificationJob(ctx context.Context, j *job.Job) {
 			err = fmt.Errorf("DNS verification timeout after %.0f minutes", totalTimeout.Minutes())
 		}
 
-		// Update certificate status to verification_failed
+		// Update certificate status to verification_failed in MongoDB
+		// IMPORTANT: Use background context if job context is cancelled to ensure DB update succeeds
+		updateCtx := ctx
+		if ctx.Err() != nil {
+			w.logger.Warnf("Job context cancelled, using background context for certificate status update")
+			updateCtx = context.Background()
+		}
+
+		certObjID, parseErr := primitive.ObjectIDFromHex(metadata.CertificateID)
+		if parseErr == nil {
+			collection := w.dbContext.Client.Collection("acme_certificates")
+			filter := bson.M{
+				"_id":     certObjID,
+				"project": metadata.Project,
+			}
+			update := bson.M{
+				"$set": bson.M{
+					"status":             "verification_failed",
+					"last_renewal_error": err.Error(),
+				},
+			}
+			_, dbErr := collection.UpdateOne(updateCtx, filter, update)
+			if dbErr != nil {
+				w.logger.Errorf("Failed to update certificate status in DB: %v", dbErr)
+			} else {
+				w.logger.Infof("✅ Updated certificate %s status to verification_failed in DB", metadata.CertificateID)
+			}
+		}
+
+		// Update job execution details
 		errMsg := err.Error()
 		executionDetails := &job.ExecutionDetails{
 			ACMEResult: &job.ACMEExecution{

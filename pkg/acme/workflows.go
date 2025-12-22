@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-acme/lego/v4/challenge/dns01"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -748,7 +749,13 @@ func (m *CertificateManager) VerifyCertificateWithDNSProviderAsync(
 
 	// Set DNS provider on ACME client
 	// DNS resolver options (public nameservers, timeouts) are configured globally in cmd/controller.go init()
-	if err := acmeClient.GetClient().Challenge.SetDNS01Provider(dnsProvider); err != nil {
+	// CRITICAL: Disable authoritative NS propagation check to avoid split-horizon DNS issues
+	// where authoritative NS (ns3.hepsi.io) resolves to internal IP (192.168.x.x) that pods can't reach.
+	// Instead, only check recursive NS (public DNS: 8.8.8.8, 1.1.1.1) which always work.
+	if err := acmeClient.GetClient().Challenge.SetDNS01Provider(
+		dnsProvider,
+		dns01.DisableAuthoritativeNssPropagationRequirement(),
+	); err != nil {
 		return nil, fmt.Errorf("failed to set DNS provider: %w", err)
 	}
 
@@ -961,7 +968,11 @@ func (m *CertificateManager) RenewCertificate(ctx context.Context, certID string
 
 	// Set DNS provider on ACME client
 	// DNS resolver options (public nameservers, timeouts) are configured globally in cmd/controller.go init()
-	if err := acmeClient.GetClient().Challenge.SetDNS01Provider(dnsProvider); err != nil {
+	// CRITICAL: Disable authoritative NS propagation check to avoid split-horizon DNS issues
+	if err := acmeClient.GetClient().Challenge.SetDNS01Provider(
+		dnsProvider,
+		dns01.DisableAuthoritativeNssPropagationRequirement(),
+	); err != nil {
 		_ = m.updateCertificateStatus(ctx, certObjID, project, "renewal_failed", err.Error())
 		return nil, fmt.Errorf("failed to set DNS provider: %w", err)
 	}

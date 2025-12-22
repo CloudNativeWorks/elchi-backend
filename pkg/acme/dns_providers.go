@@ -24,24 +24,27 @@ type DNSProvider interface {
 }
 
 // createDNSProviderOptions creates DNS provider options for DNS-01 challenge
-// Returns recursive nameserver configuration for split-horizon DNS environments.
-// - Adds public recursive DNS (8.8.8.8, 1.1.1.1) as additional resolvers
-// - Authoritative nameservers are still queried (fallback mechanism)
-// - If authoritative NS timeout (internal IP unreachable), public DNS provides fallback
+// Strategy for split-horizon DNS (internal authoritative NS, public domain):
+// 1. Try authoritative NS first (may timeout if internal/unreachable)
+// 2. Fallback to public recursive DNS (Google, Cloudflare) - FAST FAILOVER with 3s timeout
+// 3. Continue retrying for full PropagationTimeout duration (5 minutes)
+//
+// IMPORTANT: We use AddRecursiveNameservers as FALLBACK resolvers only.
+// The default behavior queries authoritative NS first, then falls back to these.
+// The 3-second DNS timeout ensures fast failover when authoritative NS is unreachable.
 func createDNSProviderOptions() []dns01.ChallengeOption {
-	// Add public recursive DNS servers (in addition to authoritative NS)
-	// This way both authoritative NS (ns3.hepsi.io) and public DNS (8.8.8.8) are checked
-	// If authoritative NS times out, public DNS provides fallback
 	return []dns01.ChallengeOption{
+		// Add public recursive DNS as fallback when authoritative NS fail/timeout
 		dns01.AddRecursiveNameservers([]string{
 			"8.8.8.8:53",  // Google Public DNS Primary
-			"8.8.4.4:53",  // Google Public DNS Secondary
 			"1.1.1.1:53",  // Cloudflare DNS Primary
+			"8.8.4.4:53",  // Google Public DNS Secondary
 			"1.0.0.1:53",  // Cloudflare DNS Secondary
 		}),
-		// NOTE: NOT using DisableAuthoritativeNssPropagationRequirement()
-		// We don't want to completely disable authoritative NS checks
-		// Both authoritative and recursive DNS checks should happen (fallback mechanism)
+		// CRITICAL: Reduce DNS query timeout from default 10s to 3s
+		// This makes authoritative NS (private IPs) fail fast in split-horizon DNS
+		// Then lego immediately tries recursive nameservers as fallback
+		dns01.AddDNSTimeout(3 * time.Second),
 	}
 }
 

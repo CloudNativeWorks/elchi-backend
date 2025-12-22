@@ -62,10 +62,10 @@ func (w *Worker) processACMEVerificationJob(ctx context.Context, j *job.Job) {
 	certManager.SetDependencyServices(w.dbContext, w.pokeService)
 
 	// 4. Create context with dynamic timeout based on domain count
-	// Base timeout: 5 minutes for first domain
+	// Base timeout: 6 minutes for first domain
 	// Additional: 3 minutes per additional domain
-	// Examples: 1 domain=5min, 2 domains=8min, 3 domains=11min, 5 domains=17min
-	baseTimeout := 5 * time.Minute
+	// Examples: 1 domain=6min, 2 domains=9min, 3 domains=12min, 5 domains=18min
+	baseTimeout := 6 * time.Minute
 	additionalTimeout := time.Duration(totalDomains-1) * 3 * time.Minute
 	totalTimeout := baseTimeout + additionalTimeout
 

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/go-acme/lego/v4/challenge/dns01"
 
 	"github.com/CloudNativeWorks/elchi-backend/controller/api/middleware"
 	"github.com/CloudNativeWorks/elchi-backend/controller/api/router"
@@ -26,40 +25,16 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/controller/handlers"
 	"github.com/CloudNativeWorks/elchi-backend/controller/routemap"
 	"github.com/CloudNativeWorks/elchi-backend/controller/service"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/acme"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/async"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/audit"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/config"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/helper"
 	server "github.com/CloudNativeWorks/elchi-backend/pkg/httpserver"
-	"github.com/CloudNativeWorks/elchi-backend/pkg/acme"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/registry"
 )
-
-func init() {
-	// CRITICAL: Configure ACME DNS resolvers before any ACME operations
-	// This MUST be called at package initialization to override lego's default
-	// which reads /etc/resolv.conf (internal Kubernetes DNS in K8s environments).
-	//
-	// In Kubernetes, /etc/resolv.conf points to cluster DNS (CoreDNS at 10.96.0.10)
-	// which cannot resolve external authoritative nameservers for public domains.
-	// This causes "could not find the start of authority" errors during ACME validation.
-	//
-	// By setting public DNS servers here, zone lookups (SOA queries) will succeed
-	// even when the domain has split-horizon DNS (internal + external zones).
-	dns01.AddRecursiveNameservers([]string{
-		"8.8.8.8:53",  // Google Public DNS Primary
-		"1.1.1.1:53",  // Cloudflare DNS Primary
-		"8.8.4.4:53",  // Google Public DNS Secondary
-		"1.0.0.1:53",  // Cloudflare DNS Secondary
-	})
-
-	// Fast failover for unreachable authoritative nameservers
-	dns01.AddDNSTimeout(3 * time.Second)
-
-	log.Println("Initialized ACME DNS resolvers with public nameservers for split-horizon DNS support")
-}
 
 // acmeJobAdapter adapts async.AsyncJobSystem to acme.AsyncJobCreator interface
 // This avoids circular dependency between pkg/async and pkg/acme

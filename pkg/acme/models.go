@@ -216,6 +216,7 @@ type ACMEAccount struct {
 type GoogleCloudDNSCredentials struct {
 	ProjectID          string `json:"project_id"`
 	ServiceAccountJSON string `json:"service_account_json"`
+	ZoneID             string `json:"zone_id,omitempty"` // Optional: GCP Managed Zone ID to bypass SOA lookup (fixes split-horizon DNS issues)
 }
 
 // GoDaddyCredentials represents GoDaddy DNS provider credentials

@@ -92,6 +92,12 @@ func (m *CertificateManager) createGoogleCloudProvider(ctx context.Context, cred
 	config.PollingInterval = DefaultPollingInterval
 	config.TTL = 300
 
+	// Optional: Set Zone ID to bypass SOA lookup (prevents split-horizon DNS issues)
+	if creds.ZoneID != "" {
+		config.ZoneID = creds.ZoneID
+		m.logger.Infof("Using explicit GCP Zone ID: %s (bypassing SOA lookup)", creds.ZoneID)
+	}
+
 	// Create HTTP client from service account
 	conf, err := google.JWTConfigFromJSON([]byte(creds.ServiceAccountJSON), gdns.NdevClouddnsReadwriteScope)
 	if err != nil {

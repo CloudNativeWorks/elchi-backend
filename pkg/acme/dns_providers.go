@@ -24,15 +24,25 @@ type DNSProvider interface {
 }
 
 // createDNSProviderOptions creates DNS provider options for DNS-01 challenge
-// Returns an empty slice to allow Lego to use default behavior:
-// - Queries authoritative nameservers directly for each domain
-// - Automatically discovers nameservers via NS record lookup
-// - Faster propagation detection since records appear on authoritative servers immediately
+// Returns recursive nameserver configuration for split-horizon DNS environments.
+// - Adds public recursive DNS (8.8.8.8, 1.1.1.1) as additional resolvers
+// - Authoritative nameservers are still queried (fallback mechanism)
+// - If authoritative NS timeout (internal IP unreachable), public DNS provides fallback
 func createDNSProviderOptions() []dns01.ChallengeOption {
-	// Return empty options - let Lego use authoritative nameservers
-	// This allows checking DNS records directly on ns71.domaincontrol.com (for GoDaddy domains)
-	// instead of waiting for propagation to recursive resolvers like 8.8.8.8
-	return []dns01.ChallengeOption{}
+	// Add public recursive DNS servers (in addition to authoritative NS)
+	// This way both authoritative NS (ns3.hepsi.io) and public DNS (8.8.8.8) are checked
+	// If authoritative NS times out, public DNS provides fallback
+	return []dns01.ChallengeOption{
+		dns01.AddRecursiveNameservers([]string{
+			"8.8.8.8:53",  // Google Public DNS Primary
+			"8.8.4.4:53",  // Google Public DNS Secondary
+			"1.1.1.1:53",  // Cloudflare DNS Primary
+			"1.0.0.1:53",  // Cloudflare DNS Secondary
+		}),
+		// NOTE: NOT using DisableAuthoritativeNssPropagationRequirement()
+		// We don't want to completely disable authoritative NS checks
+		// Both authoritative and recursive DNS checks should happen (fallback mechanism)
+	}
 }
 
 // SetupGoogleCloudDNSProvider creates a Google Cloud DNS provider

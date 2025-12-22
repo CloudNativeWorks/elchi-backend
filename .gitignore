@@ -52,3 +52,4 @@ sonar-project.properties
 # WAF CRS rules are committed to repo (needed for API)
 # pkg/waf/data/crs_rules_*.json
 ACME_API.md
+plan.md

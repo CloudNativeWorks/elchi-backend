@@ -185,7 +185,7 @@ func (w *Worker) processACMEVerificationJob(ctx context.Context, j *job.Job) {
 // createSnapshotUpdateJobs creates async snapshot update jobs for certificate renewal
 func (w *Worker) createSnapshotUpdateJobs(
 	ctx context.Context,
-	cert *acme.ACMECertificate,
+	_ *acme.ACMECertificate,
 	metadata *job.ACMEJobMetadata,
 	parentJob *job.Job,
 ) {
@@ -253,7 +253,7 @@ func (w *Worker) createSnapshotUpdateJobs(
 					Username: "letsencrypt-auto-renewal",
 					Role:     "owner",
 				},
-				AffectedListeners: affectedListeners,     // Populated by dependency analysis
+				AffectedListeners: affectedListeners,      // Populated by dependency analysis
 				TotalAffected:     len(affectedListeners), // Set from analysis
 				AnalysisDuration:  analysisDuration,       // Record how long analysis took
 			},

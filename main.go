@@ -4,9 +4,9 @@ import (
 	"log"
 	"time"
 
-	"github.com/go-acme/lego/v4/challenge/dns01"
 	"github.com/CloudNativeWorks/elchi-backend/cmd"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/version"
+	"github.com/go-acme/lego/v4/challenge/dns01"
 )
 
 func init() {
@@ -16,10 +16,10 @@ func init() {
 	// AddRecursiveNameservers and AddDNSTimeout return ChallengeOption functions
 	// We need to execute them with a nil Challenge to update global variables
 	nameserverOpt := dns01.AddRecursiveNameservers([]string{
-		"8.8.8.8:53",  // Google Public DNS Primary
-		"1.1.1.1:53",  // Cloudflare DNS Primary
-		"8.8.4.4:53",  // Google Public DNS Secondary
-		"1.0.0.1:53",  // Cloudflare DNS Secondary
+		"208.67.222.222:53", // Open DNS Primary
+		"1.1.1.1:53",        // Cloudflare DNS Primary
+		"208.67.220.220:53", // Open DNS Secondary
+		"1.0.0.1:53",        // Cloudflare DNS Secondary
 	})
 	_ = nameserverOpt(nil) // Execute option to set global recursiveNameservers
 

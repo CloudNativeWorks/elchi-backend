@@ -18,15 +18,17 @@ func init() {
 	nameserverOpt := dns01.AddRecursiveNameservers([]string{
 		"208.67.222.222:53", // Open DNS Primary
 		"1.1.1.1:53",        // Cloudflare DNS Primary
+		"8.8.8.8:53",        // Google DNS Primary
 		"208.67.220.220:53", // Open DNS Secondary
 		"1.0.0.1:53",        // Cloudflare DNS Secondary
+		"8.8.4.4:53",        // Google DNS Secondary
 	})
 	_ = nameserverOpt(nil) // Execute option to set global recursiveNameservers
 
-	timeoutOpt := dns01.AddDNSTimeout(3 * time.Second)
+	timeoutOpt := dns01.AddDNSTimeout(10 * time.Second)
 	_ = timeoutOpt(nil) // Execute option to set global dnsTimeout
 
-	log.Println("✅ Initialized ACME DNS resolvers with public nameservers [8.8.8.8:53, 1.1.1.1:53, 8.8.4.4:53, 1.0.0.1:53]")
+	log.Println("✅ Initialized ACME DNS resolvers with public nameservers [208.67.222.222:53, 1.1.1.1:53, 208.67.220.220:53, 1.0.0.1:53, 8.8.8.8:53, 8.8.4.4:53]")
 }
 
 func main() {

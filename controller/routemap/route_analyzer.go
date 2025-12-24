@@ -47,13 +47,13 @@ func (ra *RouteAnalyzer) AnalyzeRouteConfiguration(ctx context.Context, req Rout
 				ra.logger.Infof("Found %d VHDS virtual hosts: %v", len(vhdsNames), vhdsNames)
 
 				// Create VHDS node first (using the first VHDS name as the representative)
-				vhdsNodeID := ra.generateNodeID("vhds", vhdsNames[0], req.Project)
+				vhdsNodeID := ra.generateNodeID("virtual_host", vhdsNames[0], req.Project)
 				vhdsNode := RouteNode{
 					Data: RouteNodeData{
 						ID:       vhdsNodeID,
 						Label:    vhdsNames[0], // This will be the general.name
-						Type:     "vhds",
-						Category: "vhds",
+						Type:     "virtual_host",
+						Category: "virtual_host",
 						Properties: map[string]any{
 							"description": fmt.Sprintf("VHDS resource: %s", vhdsNames[0]),
 						},

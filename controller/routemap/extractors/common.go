@@ -451,7 +451,7 @@ func ExtractVHDSNamesFromConfigDiscovery(configDiscovery []any) []string {
 
 	for _, cd := range configDiscovery {
 		category := ExtractString(cd, "category")
-		if category == "vhds" {
+		if category == "virtual_host" {
 			name := ExtractString(cd, "name")
 			if name != "" {
 				vhdsNames = append(vhdsNames, name)

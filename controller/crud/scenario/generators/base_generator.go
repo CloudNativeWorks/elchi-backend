@@ -50,7 +50,10 @@ func NewBaseGeneratorWithManaged(project, version string, user models.UserDetail
 // GenerateRandomString generates a random string for naming
 func (bg *BaseGenerator) GenerateRandomString(length int) string {
 	bytes := make([]byte, length)
-	rand.Read(bytes)
+	if _, err := rand.Read(bytes); err != nil {
+		// Fallback to timestamp-based random on error
+		return hex.EncodeToString([]byte(fmt.Sprintf("%d", time.Now().UnixNano())))[:length]
+	}
 	return hex.EncodeToString(bytes)[:length]
 }
 

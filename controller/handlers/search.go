@@ -998,6 +998,9 @@ func getIntField(m bson.M, key string) int {
 	case uint32:
 		return int(v)
 	case uint64:
+		if v > uint64(^uint(0)>>1) {
+			return 0
+		}
 		return int(v)
 	case float64:
 		return int(v)

@@ -154,7 +154,7 @@ func (h *UpgradeHandler) analyzeUpgradeDependencies(ctx context.Context, j *job.
 	analysis, err := analyzer.AnalyzeDependencies(ctx, j)
 	if err != nil {
 		// Mark job as failed
-		jobManager.FailJob(ctx, j.ID, fmt.Errorf("dependency analysis failed: %w", err))
+		_ = jobManager.FailJob(ctx, j.ID, fmt.Errorf("dependency analysis failed: %w", err))
 		return
 	}
 
@@ -165,7 +165,7 @@ func (h *UpgradeHandler) analyzeUpgradeDependencies(ctx context.Context, j *job.
 			"metadata": j.Metadata,
 		},
 	}); err != nil {
-		jobManager.FailJob(ctx, j.ID, fmt.Errorf("failed to update job metadata: %w", err))
+		_ = jobManager.FailJob(ctx, j.ID, fmt.Errorf("failed to update job metadata: %w", err))
 		return
 	}
 
@@ -173,7 +173,7 @@ func (h *UpgradeHandler) analyzeUpgradeDependencies(ctx context.Context, j *job.
 	if j.Metadata.UpgradeConfig.DryRun {
 		// Update progress to reflect completed analysis
 		now := time.Now()
-		jobManager.UpdateJob(ctx, j.ID.Hex(), map[string]any{
+		_ = jobManager.UpdateJob(ctx, j.ID.Hex(), map[string]any{
 			"$set": map[string]any{
 				"started_at": now,
 				"progress": &job.JobProgress{
@@ -184,13 +184,13 @@ func (h *UpgradeHandler) analyzeUpgradeDependencies(ctx context.Context, j *job.
 				},
 			},
 		})
-		jobManager.CompleteJob(ctx, j.ID, &job.ExecutionDetails{})
+		_ = jobManager.CompleteJob(ctx, j.ID, &job.ExecutionDetails{})
 		return
 	}
 
 	// Always transition to PENDING for worker to claim
 	// Even if no dependencies need to be created, listener version must be updated
-	jobManager.UpdateJob(ctx, j.ID.Hex(), map[string]any{
+	_ = jobManager.UpdateJob(ctx, j.ID.Hex(), map[string]any{
 		"$set": map[string]any{
 			"status": job.JobStatusPending,
 		},

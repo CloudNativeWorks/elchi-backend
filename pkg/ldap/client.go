@@ -3,6 +3,7 @@ package ldap
 import (
 	"crypto/tls"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
@@ -149,8 +150,12 @@ func (c *Client) connect() error {
 
 	if c.config.TLSEnabled {
 		url := fmt.Sprintf("ldaps://%s:%d", c.config.Server, c.config.Port)
+		// G402: TLSSkipVerify is user-configurable via database (settings.ldap_config.tls_skip_verify)
+		// Administrators set this when configuring LDAP integration via API (/api/v3/setting/ldap)
+		// Allows connection to corporate LDAP servers with self-signed or internal CA certificates
+		// Security responsibility is delegated to the administrator managing LDAP configuration
 		conn, err = ldap.DialURL(url, ldap.DialWithTLSConfig(&tls.Config{
-			InsecureSkipVerify: c.config.TLSSkipVerify,
+			InsecureSkipVerify: c.config.TLSSkipVerify, // #nosec G402
 		}))
 	} else {
 		url := fmt.Sprintf("ldap://%s:%d", c.config.Server, c.config.Port)
@@ -168,7 +173,9 @@ func (c *Client) connect() error {
 // close closes the LDAP connection
 func (c *Client) close() {
 	if c.conn != nil {
-		c.conn.Close()
+		if err := c.conn.Close(); err != nil {
+			log.Printf("failed to close LDAP connection: %v", err)
+		}
 	}
 }
 

@@ -1,6 +1,9 @@
 package processor
 
 import (
+	"fmt"
+	"math"
+
 	"github.com/CloudNativeWorks/elchi-backend/controller/crud/xds"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
@@ -19,6 +22,12 @@ func (p *ServiceProcessor) ValidateAndTransform(op models.OperationClass, reques
 		return nil, err
 	}
 
+	// G115 fix: Check for overflow when converting uint32 to int32
+	logType := op.GetCommandLogType()
+	if logType > uint32(math.MaxInt32) {
+		return nil, fmt.Errorf("log type value %d exceeds int32 max value", logType)
+	}
+
 	service := &client.Command_Service{
 		Service: &client.RequestService{
 			Name:       op.GetCommandName(),
@@ -27,7 +36,7 @@ func (p *ServiceProcessor) ValidateAndTransform(op models.OperationClass, reques
 			Search:     op.GetCommandSearch(),
 			Components: op.GetCommandComponents(),
 			Levels:     op.GetCommandLevels(),
-			LogType:    client.LogType(op.GetCommandLogType()),
+			LogType:    client.LogType(int32(logType)),
 		},
 	}
 

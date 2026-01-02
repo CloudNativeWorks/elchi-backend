@@ -131,7 +131,9 @@ func (w *Worker) processNextJob(ctx context.Context) {
 		w.processACMEVerificationJob(ctx, claimedJob)
 	default:
 		w.logger.Errorf("Unknown job type: %s", claimedJob.Type)
-		w.jobManager.FailJob(ctx, claimedJob.ID, fmt.Errorf("unknown job type"))
+		if err := w.jobManager.FailJob(ctx, claimedJob.ID, fmt.Errorf("unknown job type")); err != nil {
+			w.logger.Errorf("Failed to mark job as failed: %v", err)
+		}
 	}
 }
 
@@ -142,7 +144,9 @@ func (w *Worker) processSnapshotUpdateJob(ctx context.Context, j *job.Job) {
 	if j.ParentJobID != nil {
 		if err := w.verifyParentJobCompleted(ctx, j); err != nil {
 			w.logger.Errorf("Parent job dependency check failed for job %s: %v", j.JobID, err)
-			w.jobManager.FailJob(ctx, j.ID, fmt.Errorf("parent job dependency check failed: %w", err))
+			if failErr := w.jobManager.FailJob(ctx, j.ID, fmt.Errorf("parent job dependency check failed: %w", err)); failErr != nil {
+				w.logger.Errorf("Failed to mark job as failed: %v", failErr)
+			}
 			return
 		}
 		w.logger.Infof("✅ Parent job dependency verified for job %s", j.JobID)
@@ -151,9 +155,11 @@ func (w *Worker) processSnapshotUpdateJob(ctx context.Context, j *job.Job) {
 	// Check if job has any work to do
 	if j.Status == job.JobStatusNoWorkNeeded || len(j.Metadata.AffectedListeners) == 0 {
 		w.logger.Infof("Job %s has no work needed", j.JobID)
-		w.jobManager.CompleteJob(ctx, j.ID, &job.ExecutionDetails{
+		if err := w.jobManager.CompleteJob(ctx, j.ID, &job.ExecutionDetails{
 			ProcessedSnapshots: []job.SnapshotExecution{},
-		})
+		}); err != nil {
+			w.logger.Errorf("Failed to complete job: %v", err)
+		}
 		return
 	}
 
@@ -206,9 +212,13 @@ func (w *Worker) processSnapshotUpdateJob(ctx context.Context, j *job.Job) {
 	}
 
 	if failed > 0 {
-		w.jobManager.FailJob(ctx, j.ID, fmt.Errorf("%d snapshots failed", failed))
+		if err := w.jobManager.FailJob(ctx, j.ID, fmt.Errorf("%d snapshots failed", failed)); err != nil {
+			w.logger.Errorf("Failed to mark job as failed: %v", err)
+		}
 	} else {
-		w.jobManager.CompleteJob(ctx, j.ID, executionDetails)
+		if err := w.jobManager.CompleteJob(ctx, j.ID, executionDetails); err != nil {
+			w.logger.Errorf("Failed to complete job: %v", err)
+		}
 	}
 
 	w.logger.Infof("Job %s completed: %d successful, %d failed", j.JobID, completed, failed)

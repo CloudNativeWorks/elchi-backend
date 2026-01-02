@@ -1,6 +1,8 @@
 package helper
 
 import (
+	"crypto/rand"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -350,4 +352,18 @@ func HandleCursorResults(ctx context.Context, cursor *mongo.Cursor, results inte
 
 	defer SafeCloseCursor(ctx, cursor)
 	return cursor.All(ctx, results)
+}
+
+// GenerateSecureRequestID generates a unique request ID using crypto/rand for security
+// Format: {timestamp_nanoseconds}_{secure_random_uint32}
+// This is suitable for request tracing and debugging while meeting security standards
+func GenerateSecureRequestID() string {
+	var randBytes [4]byte
+	if _, err := rand.Read(randBytes[:]); err != nil {
+		// Fallback to timestamp only if crypto/rand fails (extremely rare)
+		log.Printf("Warning: Failed to generate secure random bytes for request ID: %v", err)
+		return fmt.Sprintf("%d_0", time.Now().UnixNano())
+	}
+	randInt := binary.LittleEndian.Uint32(randBytes[:])
+	return fmt.Sprintf("%d_%d", time.Now().UnixNano(), randInt)
 }

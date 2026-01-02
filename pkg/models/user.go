@@ -22,7 +22,7 @@ type CombinedProjects struct {
 type User struct {
 	ID           primitive.ObjectID `bson:"_id"`
 	Username     *string            `json:"username" validate:"required,min=2,max=100"`
-	Password     *string            `json:"password" validate:"required,min=6"`
+	Password     *string            `json:"-" bson:"password" validate:"required,min=6"` // Never expose password hash in JSON
 	Email        *string            `json:"email" bson:"email" validate:"email,required"`
 	Role         *Role              `json:"role" bson:"role"`
 	Token        *string            `json:"token" bson:"token"`

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math/rand"
 	"net/http"
 	"os"
 	"strings"
@@ -183,8 +182,8 @@ func (h *Client) processClientsInParallel(ctx context.Context, clients []models.
 		go func(index int, client models.ServiceClients) {
 			// Acquire semaphore
 			semaphore <- struct{}{}
-			defer func() { 
-				<-semaphore 
+			defer func() {
+				<-semaphore
 				// Recover from any panics to prevent goroutine hanging
 				if r := recover(); r != nil {
 					h.logger.Errorf("Panic in client processing goroutine for client %s: %v", client.ClientID, r)
@@ -220,7 +219,7 @@ func (h *Client) processClientsInParallel(ctx context.Context, clients []models.
 	// Collect results in order with timeout protection and duplicate detection
 	collectedResults := 0
 	collectedClientIDs := make(map[string]bool) // Track which clients we've already collected
-	
+
 	for collectedResults < len(clients) {
 		select {
 		case result := <-resultChan:
@@ -292,7 +291,7 @@ func (h *Client) processClientsInParallel(ctx context.Context, clients []models.
 				"error":     result.Error,
 				"index":     i,
 			}).Warnf("Client %s failed in parallel processing, continuing with others", result.ClientID)
-			
+
 			failedClients = append(failedClients, result.ClientID)
 			continue
 		}
@@ -321,7 +320,7 @@ func (h *Client) processClientsInParallel(ctx context.Context, clients []models.
 
 	if len(failedClients) > 0 {
 		// Some clients failed, log warning but return partial results
-		h.logger.Warnf("PARTIAL SUCCESS (parallel): %d/%d clients succeeded, failed clients: %v", 
+		h.logger.Warnf("PARTIAL SUCCESS (parallel): %d/%d clients succeeded, failed clients: %v",
 			successCount, totalClients, failedClients)
 	} else {
 		// All clients succeeded
@@ -504,8 +503,8 @@ func (h *Client) executeForwardRequest(req *http.Request, targetURL string) ([]b
 }
 
 func (h *Client) HandleSendCommand(ctx context.Context, op models.OperationClass, requestDetails models.RequestDetails) (any, error) {
-	// Generate unique request ID for debugging with random component to prevent collisions
-	requestID := fmt.Sprintf("%d_%d", time.Now().UnixNano(), rand.Int31())
+	// Generate unique request ID for debugging with cryptographically secure random component
+	requestID := helper.GenerateSecureRequestID()
 
 	h.logger.Debugf("Processing command %s for %d clients", op.GetType(), len(op.GetClients()))
 
@@ -515,8 +514,8 @@ func (h *Client) HandleSendCommand(ctx context.Context, op models.OperationClass
 		duration := time.Since(startTime)
 		h.logger.WithFields(logger.Fields{
 			"request_id": requestID,
-			"duration": duration,
-		}).Infof("=== HandleSendCommand END [%s] took %v ===", requestID, duration)
+			"duration":   duration,
+		}).Debugf("=== HandleSendCommand END took %v ===", duration)
 	}()
 
 	// Check if this is a forwarded request to prevent infinite loops
@@ -682,26 +681,26 @@ func (h *Client) sendCommandWithLocationCheck(ctx context.Context, requestDetail
 	if !h.registryClient.IsConnected() {
 		return nil, fmt.Errorf("client %s not found and registry not connected", clientID)
 	}
-	
+
 	// Create timeout context for registry lookup
 	registryCtx, registryCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer registryCancel()
-	
+
 	// Use a channel to make the registry call interruptible
 	type registryResult struct {
 		location *pb.GetControllerClusterResponse
 		err      error
 	}
-	
+
 	resultChan := make(chan registryResult, 1)
 	go func() {
 		location, err := h.registryClient.GetClientLocation(clientID)
 		resultChan <- registryResult{location: location, err: err}
 	}()
-	
+
 	var clientLocation *pb.GetControllerClusterResponse
 	var err error
-	
+
 	select {
 	case result := <-resultChan:
 		clientLocation = result.location
@@ -710,7 +709,7 @@ func (h *Client) sendCommandWithLocationCheck(ctx context.Context, requestDetail
 		h.logger.Errorf("Registry lookup timeout for client %s after 10s", clientID)
 		return nil, fmt.Errorf("registry lookup timeout for client %s", clientID)
 	}
-	
+
 	if err != nil {
 		h.logger.Errorf("Failed to get client location from registry for client %s: %v", clientID, err)
 		return nil, fmt.Errorf("failed to find client %s: %v", clientID, err)

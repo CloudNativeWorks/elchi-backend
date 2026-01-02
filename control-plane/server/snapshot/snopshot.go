@@ -98,7 +98,9 @@ func GenerateSnapshot(r *xdsResource.AllResources) *cache.Snapshot {
 		return nil
 	}
 
-	snap.ConstructVersionMap()
+	if err := snap.ConstructVersionMap(); err != nil {
+		logger.Errorf("Failed to construct version map: %v", err)
+	}
 
 	return snap
 }

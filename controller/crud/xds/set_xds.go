@@ -55,7 +55,7 @@ func (xds *AppHandler) populateEndpointFromDiscovery(ctx context.Context, resour
 
 	// Preserve manual endpoints (those without locality.region) and only manage discovery endpoints
 	endpoints := []any{}
-	
+
 	// Extract existing manual endpoints (those without locality.region) to preserve them
 	if existingEndpoints, ok := resourceData["endpoints"].([]any); ok {
 		for _, ep := range existingEndpoints {
@@ -181,13 +181,11 @@ func parseDuplicateKeyError(err error, resourceName string) error {
 			}
 		}
 
-		return fmt.Errorf("A %s with the name \"%s\" already exists. Please choose a different name.", collection, resourceName)
+		return fmt.Errorf("a %s with the name \"%s\" already exists. Please choose a different name", collection, resourceName)
 	}
 
 	return err
 }
-
-
 
 // rollbackResource rolls back the main resource only
 func (r *ResourceRollback) rollbackResource() error {
@@ -209,7 +207,7 @@ func (r *ResourceRollback) rollbackResource() error {
 func (r *ResourceRollback) rollbackWithBootstrap(bootstrapID string) error {
 	general := r.resource.GetGeneral()
 	r.logger.Debugf("Rolling back bootstrap and resource for %s", general.Name)
-	
+
 	// Delete bootstrap first
 	if bootstrapID != "" {
 		bootstrapCollection := r.xds.Context.Client.Collection("bootstrap")
@@ -221,7 +219,7 @@ func (r *ResourceRollback) rollbackWithBootstrap(bootstrapID string) error {
 			}
 		}
 	}
-	
+
 	// Then delete main resource
 	return r.rollbackResource()
 }
@@ -262,9 +260,9 @@ func (xds *AppHandler) prepareResourceForInsertion(ctx context.Context, resource
 func (xds *AppHandler) insertResourceToMongoDB(ctx context.Context, resource models.ResourceClass) (*mongo.InsertOneResult, error) {
 	general := resource.GetGeneral()
 	collection := xds.Context.Client.Collection(general.Collection)
-	
+
 	xds.Logger.Debugf("Inserting %s to collection %s", general.Name, general.Collection)
-	
+
 	result, err := collection.InsertOne(ctx, resource)
 	if err != nil {
 		if er := new(mongo.WriteException); errors.As(err, &er) && er.WriteErrors[0].Code == 11000 {
@@ -272,7 +270,7 @@ func (xds *AppHandler) insertResourceToMongoDB(ctx context.Context, resource mod
 		}
 		return nil, err
 	}
-	
+
 	xds.Logger.Debugf("Resource %s inserted successfully (ID: %v)", general.Name, result.InsertedID)
 	return result, nil
 }
@@ -283,20 +281,20 @@ func (xds *AppHandler) processListenerSpecificResources(ctx context.Context, res
 	if general.GType != models.Listener {
 		return "", "", 0, nil // Not a listener, skip
 	}
-	
+
 	xds.Logger.Debugf("Processing listener-specific resources for %s", general.Name)
-	
+
 	// Create bootstrap
 	bootstrapID, adminPort, err := xds.createBootstrap(ctx, general, requestDetails)
 	if err != nil {
 		if rollbackErr := rollback.rollbackResource(); rollbackErr != nil {
 			xds.Logger.Debugf("Rollback failed during bootstrap creation: %v", rollbackErr)
 		}
-		return "", "", 0, fmt.Errorf("Bootstrap creation failed for %s: %w", general.Name, err)
+		return "", "", 0, fmt.Errorf("bootstrap creation failed for %s: %w", general.Name, err)
 	}
-	
+
 	xds.Logger.Debugf("Bootstrap created for %s (ID: %s, AdminPort: %d)", general.Name, bootstrapID, adminPort)
-	
+
 	// Create service if managed
 	var serviceID string
 	if general.Managed {
@@ -308,14 +306,14 @@ func (xds *AppHandler) processListenerSpecificResources(ctx context.Context, res
 			if rollbackErr := rollback.rollbackWithBootstrap(bootstrapID); rollbackErr != nil {
 				xds.Logger.Debugf("Rollback failed during service creation: %v", rollbackErr)
 			}
-			return "", "", 0, fmt.Errorf("Service creation failed for %s: %w", general.Name, err)
+			return "", "", 0, fmt.Errorf("service creation failed for %s: %w", general.Name, err)
 		}
-		
+
 		xds.Logger.Debugf("Service created for %s (ID: %s)", general.Name, serviceID)
 	} else {
 		xds.Logger.Debugf("Skipping service creation for unmanaged listener %s", general.Name)
 	}
-	
+
 	return bootstrapID, serviceID, adminPort, nil
 }
 
@@ -325,23 +323,23 @@ func (xds *AppHandler) SetResource(ctx context.Context, resource models.Resource
 	if err := xds.validateResourcePrerequisites(ctx, resource, requestDetails); err != nil {
 		return nil, err
 	}
-	
+
 	// Step 1.5: Handle GType validation separately (preserves validationResult)
 	if validationResult, err := validation.GlobalValidatorRegistry.ValidateByGType(resource, requestDetails, xds.Logger); err != nil {
 		return validationResult, err
 	}
-	
+
 	// Step 2: Prepare resource for insertion
 	if err := xds.prepareResourceForInsertion(ctx, resource, requestDetails); err != nil {
 		return nil, err
 	}
-	
+
 	// Step 3: Insert resource to MongoDB
 	inserResult, err := xds.insertResourceToMongoDB(ctx, resource)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Step 4: Setup rollback mechanism
 	general := resource.GetGeneral()
 	insertedID := inserResult.InsertedID.(primitive.ObjectID)
@@ -363,13 +361,13 @@ func (xds *AppHandler) SetResource(ctx context.Context, resource models.Resource
 	// Step 6: Finalize and return result
 	resource.SetID(insertedID)
 	resourceID := insertedID.Hex()
-	
+
 	result := SetResourceResult{
 		BootstrapID: bootstrapID,
 		ResourceID:  resourceID,
 		ServiceID:   serviceID,
 	}
-	
+
 	xds.Logger.Debugf("Resource creation completed successfully for %s", general.Name)
 	return map[string]any{"message": "Success", "data": result}, nil
 }
@@ -407,7 +405,7 @@ func (xds *AppHandler) createService(ctx context.Context, serviceName string, pr
 		xds.Logger.Debugf("⚠️ Service permissions empty - no base_group or user_id")
 	}
 
-	xds.Logger.Debugf("💾 Attempting to insert service into MongoDB...")  
+	xds.Logger.Debugf("💾 attempting to insert service into MongoDB...")
 	inserResult, err := collection.InsertOne(ctx, service)
 	if err != nil {
 		xds.Logger.Debugf("❌ Service MongoDB insert failed: %v", err)

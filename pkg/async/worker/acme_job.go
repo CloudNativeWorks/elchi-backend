@@ -30,7 +30,9 @@ func (w *Worker) processACMEVerificationJob(ctx context.Context, j *job.Job) {
 	// 1. Validate job metadata
 	if j.Metadata == nil || j.Metadata.ACMEMetadata == nil {
 		w.logger.Errorf("Job %s has invalid metadata", j.JobID)
-		w.jobManager.FailJob(ctx, j.ID, fmt.Errorf("invalid job metadata"))
+		if err := w.jobManager.FailJob(ctx, j.ID, fmt.Errorf("invalid job metadata")); err != nil {
+			w.logger.Errorf("Failed to mark job as failed: %v", err)
+		}
 		return
 	}
 
@@ -38,11 +40,13 @@ func (w *Worker) processACMEVerificationJob(ctx context.Context, j *job.Job) {
 
 	// 2. Initialize progress tracking
 	totalDomains := len(metadata.Domains)
-	w.jobManager.UpdateJobProgress(ctx, j.ID, &job.JobProgress{
+	if err := w.jobManager.UpdateJobProgress(ctx, j.ID, &job.JobProgress{
 		Total:      totalDomains,
 		Completed:  0,
 		Percentage: 5, // Starting
-	})
+	}); err != nil {
+		w.logger.Errorf("Failed to update job progress: %v", err)
+	}
 
 	// 3. Get certificate manager from dbContext
 	// Note: We need MongoDB database, not AppContext
@@ -54,7 +58,9 @@ func (w *Worker) processACMEVerificationJob(ctx context.Context, j *job.Job) {
 	certManager, err := acme.NewCertificateManager(db, jwtSecret, acmeCfg, caProviders, w.logger)
 	if err != nil {
 		w.logger.Errorf("Failed to create certificate manager: %v", err)
-		w.jobManager.FailJob(ctx, j.ID, fmt.Errorf("failed to initialize certificate manager: %w", err))
+		if failErr := w.jobManager.FailJob(ctx, j.ID, fmt.Errorf("failed to initialize certificate manager: %w", err)); failErr != nil {
+			w.logger.Errorf("Failed to mark job as failed: %v", failErr)
+		}
 		return
 	}
 
@@ -95,11 +101,13 @@ func (w *Worker) processACMEVerificationJob(ctx context.Context, j *job.Job) {
 		}
 
 		// Update job progress
-		w.jobManager.UpdateJobProgress(ctx, j.ID, &job.JobProgress{
+		if err := w.jobManager.UpdateJobProgress(ctx, j.ID, &job.JobProgress{
 			Total:      total,
 			Completed:  completed,
 			Percentage: basePercentage,
-		})
+		}); err != nil {
+			w.logger.Errorf("Failed to update job progress: %v", err)
+		}
 
 		w.logger.Infof("📊 Job %s: %s - Domain %s (%d/%d) %.1f%%",
 			j.JobID, phase, domain, completed, total, basePercentage)
@@ -166,15 +174,19 @@ func (w *Worker) processACMEVerificationJob(ctx context.Context, j *job.Job) {
 		}
 
 		// Fail the job with execution details
-		w.jobManager.FailJob(ctx, j.ID, err)
+		if failErr := w.jobManager.FailJob(ctx, j.ID, err); failErr != nil {
+			w.logger.Errorf("Failed to mark job as failed: %v", failErr)
+		}
 
 		// Store execution details even on failure
 		objID, _ := primitive.ObjectIDFromHex(j.ID.Hex())
-		w.jobManager.UpdateJob(ctx, objID.Hex(), map[string]interface{}{
+		if err := w.jobManager.UpdateJob(ctx, objID.Hex(), map[string]interface{}{
 			"$set": map[string]interface{}{
 				"execution_details": executionDetails,
 			},
-		})
+		}); err != nil {
+			w.logger.Errorf("Failed to update job execution details: %v", err)
+		}
 
 		return
 	}
@@ -195,14 +207,18 @@ func (w *Worker) processACMEVerificationJob(ctx context.Context, j *job.Job) {
 	}
 
 	// Update progress to 100%
-	w.jobManager.UpdateJobProgress(ctx, j.ID, &job.JobProgress{
+	if err := w.jobManager.UpdateJobProgress(ctx, j.ID, &job.JobProgress{
 		Total:      totalDomains,
 		Completed:  totalDomains,
 		Percentage: 100,
-	})
+	}); err != nil {
+		w.logger.Errorf("Failed to update job progress: %v", err)
+	}
 
 	// Complete the job
-	w.jobManager.CompleteJob(ctx, j.ID, executionDetails)
+	if err := w.jobManager.CompleteJob(ctx, j.ID, executionDetails); err != nil {
+		w.logger.Errorf("Failed to complete job: %v", err)
+	}
 
 	w.logger.Infof("🎉 ACME job %s completed successfully for certificate %s",
 		j.JobID, metadata.CertificateName)

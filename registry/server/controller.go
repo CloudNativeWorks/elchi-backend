@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/config"
@@ -173,10 +174,22 @@ func (s *ControllerGRPCServer) UpdateClientList(ctx context.Context, req *pb.Upd
 	}
 
 	s.logger.Infof("Client list updated for controller %s: %d clients", req.ControllerId, len(clients))
+
+	// G115 fix: Safe conversion from int to int32 with overflow check
+	clientCount := len(clients)
+	var updatedCount int32
+	if clientCount > math.MaxInt32 {
+		// This is extremely unlikely (would need > 2 billion clients)
+		s.logger.Warnf("Client count %d exceeds int32 max, capping at MaxInt32", clientCount)
+		updatedCount = math.MaxInt32
+	} else {
+		updatedCount = int32(clientCount) // #nosec G115 - overflow checked above
+	}
+
 	return &pb.UpdateClientListResponse{
 		Success:      true,
 		Message:      "client list updated successfully",
-		UpdatedCount: int32(len(clients)),
+		UpdatedCount: updatedCount,
 	}, nil
 }
 

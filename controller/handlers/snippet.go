@@ -560,7 +560,10 @@ func (sh *SnippetHandler) GetSnippetStats(c *gin.Context) {
 					stats.SnippetsByProject[result.ID] = result.Count
 				}
 			}
-			cursor.Close(ctx)
+			if err := cursor.Close(ctx); err != nil {
+				// Log but don't fail - this is cleanup
+				sh.handler.XDS.Context.Logger.Warnf("Failed to close cursor: %v", err)
+			}
 		}
 	}
 

@@ -61,11 +61,14 @@ func (c *ResourceCreator) CreateMissingDependencies(ctx context.Context, j *job.
 
 			// Still add to refs for tracking, but mark as skipped
 			var existingDoc models.DBResource
-			collection.FindOne(ctx, bson.M{
+			if err := collection.FindOne(ctx, bson.M{
 				"general.name":    missing.Name,
 				"general.project": project,
 				"general.version": toVersion,
-			}).Decode(&existingDoc)
+			}).Decode(&existingDoc); err != nil {
+				// Resource not found or decode error - continue with empty ID
+				c.logger.Warnf("Could not find existing resource %s in %s: %v", missing.Name, missing.Collection, err)
+			}
 
 			createdRefs = append(createdRefs, job.ResourceRef{
 				Collection: missing.Collection,

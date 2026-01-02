@@ -79,7 +79,7 @@ func (s *RenewalScheduler) Start(ctx context.Context) error {
 	s.running = true
 	s.mu.Unlock()
 
-	s.logger.Info("Starting Let's Encrypt renewal scheduler")
+	s.logger.Info("Starting Acme renewal scheduler")
 
 	// Start the renewal check loop
 	s.wg.Add(1)

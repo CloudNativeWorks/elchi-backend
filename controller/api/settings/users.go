@@ -863,7 +863,7 @@ func (handler *AppHandler) checkOTPRequirementsWithCode(c *gin.Context, user *mo
 					updatedCodes := otpHelper.RemoveBackupCode(user.OTPBackupCodes, usedIndex)
 
 					// Update user's backup codes in database
-					handler.Context.Client.Collection("users").UpdateOne(
+					if _, err := handler.Context.Client.Collection("users").UpdateOne(
 						ctx,
 						bson.M{"user_id": user.UserID},
 						bson.M{
@@ -872,7 +872,9 @@ func (handler *AppHandler) checkOTPRequirementsWithCode(c *gin.Context, user *mo
 								"updated_at":       primitive.NewDateTimeFromTime(time.Now()),
 							},
 						},
-					)
+					); err != nil {
+						handler.Logger.Errorf("Failed to update backup codes for user %s: %v", user.UserID, err)
+					}
 
 					handler.Logger.Infof("User %s used backup code for login", user.UserID)
 					return "ok"

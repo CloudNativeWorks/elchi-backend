@@ -31,7 +31,9 @@ func (w *Worker) processResourceUpgradeJob(ctx context.Context, j *job.Job) {
 	// Step 1: Validate job metadata
 	meta, analysis, listenerNames, err := w.validateJobMetadata(j)
 	if err != nil {
-		w.jobManager.FailJob(ctx, j.ID, err)
+		if failErr := w.jobManager.FailJob(ctx, j.ID, err); failErr != nil {
+			w.logger.Errorf("Failed to mark job as failed: %v", failErr)
+		}
 		return
 	}
 
@@ -44,7 +46,9 @@ func (w *Worker) processResourceUpgradeJob(ctx context.Context, j *job.Job) {
 	createdResources, err := w.createMissingDependencies(ctx, j, creator, analysis)
 	if err != nil {
 		w.rollbackCreatedResources(ctx, createdResources)
-		w.jobManager.FailJob(ctx, j.ID, err)
+		if failErr := w.jobManager.FailJob(ctx, j.ID, err); failErr != nil {
+			w.logger.Errorf("Failed to mark job as failed: %v", failErr)
+		}
 		return
 	}
 
@@ -52,7 +56,9 @@ func (w *Worker) processResourceUpgradeJob(ctx context.Context, j *job.Job) {
 	allCreatedResources, err := w.createListenersInTargetVersion(ctx, j, creator, meta, listenerNames, createdResources)
 	if err != nil {
 		w.rollbackCreatedResources(ctx, allCreatedResources)
-		w.jobManager.FailJob(ctx, j.ID, err)
+		if failErr := w.jobManager.FailJob(ctx, j.ID, err); failErr != nil {
+			w.logger.Errorf("Failed to mark job as failed: %v", failErr)
+		}
 		return
 	}
 
@@ -66,7 +72,9 @@ func (w *Worker) processResourceUpgradeJob(ctx context.Context, j *job.Job) {
 	w.storeCreatedResources(ctx, j, allCreatedResources)
 
 	executionDetails := &job.ExecutionDetails{}
-	w.jobManager.CompleteJob(ctx, j.ID, executionDetails)
+	if err := w.jobManager.CompleteJob(ctx, j.ID, executionDetails); err != nil {
+		w.logger.Errorf("Failed to complete job: %v", err)
+	}
 	w.logger.Infof("Resource upgrade job %s completed: created %d resources (%d skipped)",
 		j.JobID, countNonSkipped(allCreatedResources), countSkipped(allCreatedResources))
 }
@@ -169,7 +177,9 @@ func (w *Worker) updateListenerProgress(ctx context.Context, j *job.Job, complet
 		Failed:     0,
 		Percentage: percentage,
 	}
-	w.jobManager.UpdateJobProgress(ctx, j.ID, progress)
+	if err := w.jobManager.UpdateJobProgress(ctx, j.ID, progress); err != nil {
+		w.logger.Errorf("Failed to update job progress: %v", err)
+	}
 }
 
 // updateBootstrapsAndNotifyClients updates bootstraps and notifies clients (Phase 3)

@@ -2,7 +2,7 @@ package routemap
 
 import (
 	"context"
-	"crypto/md5"
+	"crypto/sha256"
 	"fmt"
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
@@ -80,8 +80,8 @@ func (ra *RouteAnalyzer) generateNodeID(nodeType, name string, properties ...str
 		return id
 	}
 
-	// Generate new ID
-	hash := md5.Sum([]byte(key))
+	// Generate new ID using SHA256 for cryptographic strength
+	hash := sha256.Sum256([]byte(key))
 	id := fmt.Sprintf("%s_%x", nodeType, hash[:6])
 	ra.nodeIDMap[key] = id
 	return id

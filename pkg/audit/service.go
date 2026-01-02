@@ -22,7 +22,6 @@ type Service struct {
 	logger        *logger.Logger
 	wg            sync.WaitGroup          // Track goroutines for graceful shutdown
 	shutdown      chan struct{}           // Signal for shutdown
-	mu            sync.RWMutex            // Protect concurrent access
 	batch         chan *models.AuditEntry // Batch processing channel
 	batchSize     int                     // Number of entries to batch
 	batchInterval time.Duration           // Max time to wait before flushing batch

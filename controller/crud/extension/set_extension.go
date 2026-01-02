@@ -32,7 +32,7 @@ func parseDuplicateKeyError(err error, resourceName string) error {
 			}
 		}
 
-		return fmt.Errorf("an %s with the name \"%s\" already exists. Please choose a different name.", collection, resourceName)
+		return fmt.Errorf("an %s with the name \"%s\" already exists; please choose a different name", collection, resourceName)
 	}
 
 	return err

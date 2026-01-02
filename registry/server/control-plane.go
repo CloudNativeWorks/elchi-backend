@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"math"
 	"strings"
 	"time"
 
@@ -130,10 +131,22 @@ func (s *ControlPlaneGRPCServer) UpdateNodeList(ctx context.Context, req *pb.Upd
 	}
 
 	s.logger.Infof("Node list updated for control plane %s: %d nodes", req.ControlPlaneId, len(nodes))
+
+	// G115 fix: Safe conversion from int to int32 with overflow check
+	nodeCount := len(nodes)
+	var updatedCount int32
+	if nodeCount > math.MaxInt32 {
+		// This is extremely unlikely (would need > 2 billion nodes)
+		s.logger.Warnf("Node count %d exceeds int32 max, capping at MaxInt32", nodeCount)
+		updatedCount = math.MaxInt32
+	} else {
+		updatedCount = int32(nodeCount) // #nosec G115 - overflow checked above
+	}
+
 	return &pb.UpdateNodeListResponse{
 		Success:      true,
 		Message:      "node list updated successfully",
-		UpdatedCount: int32(len(nodes)),
+		UpdatedCount: updatedCount,
 	}, nil
 }
 

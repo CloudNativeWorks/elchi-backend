@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-acme/lego/v4/challenge/dns01"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
+	"github.com/go-acme/lego/v4/challenge/dns01"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -1154,15 +1154,15 @@ func (m *CertificateManager) renewCertificateManual(ctx context.Context, cert *A
 
 	// Store temporary key for renewal (fix: csrPEM is string)
 	tempKey := &TempKey{
-		ID:              primitive.NewObjectID(),
-		Project:         project,
-		CertRequestID:   certObjID,
-		SecretName:      cert.SecretName,
-		PrivateKeyPEM:   privateKeyPEM,
-		CSRPEM:          csrPEM,
-		CreatedAt:       now,
-		ExpiresAt:       now.Add(1 * time.Hour),
-		Status:          "pending",
+		ID:            primitive.NewObjectID(),
+		Project:       project,
+		CertRequestID: certObjID,
+		SecretName:    cert.SecretName,
+		PrivateKeyPEM: privateKeyPEM,
+		CSRPEM:        csrPEM,
+		CreatedAt:     now,
+		ExpiresAt:     now.Add(1 * time.Hour),
+		Status:        "pending",
 	}
 
 	if err := m.CreateTempKey(ctx, tempKey); err != nil {

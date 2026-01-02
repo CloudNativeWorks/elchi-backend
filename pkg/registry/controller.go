@@ -576,7 +576,9 @@ func (r *RegistryClient) Stop() {
 	r.setReconnectEnabled(false)
 	r.cancel()
 	r.wg.Wait()
-	r.Disconnect()
+	if err := r.Disconnect(); err != nil {
+		r.logger.Errorf("Failed to disconnect from registry: %v", err)
+	}
 	r.logger.Infof("Controller registry client stopped")
 }
 

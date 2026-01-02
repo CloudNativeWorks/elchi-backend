@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"time"
 
@@ -237,9 +238,15 @@ func (m *CertificateManager) createLightsailProvider(ctx context.Context, credsJ
 		restoreEnv("AWS_REGION", originalRegion)
 	}()
 
-	os.Setenv("AWS_ACCESS_KEY_ID", creds.AccessKeyID)
-	os.Setenv("AWS_SECRET_ACCESS_KEY", creds.SecretAccessKey)
-	os.Setenv("AWS_REGION", creds.Region)
+	if err := os.Setenv("AWS_ACCESS_KEY_ID", creds.AccessKeyID); err != nil {
+		return nil, fmt.Errorf("failed to set AWS_ACCESS_KEY_ID: %w", err)
+	}
+	if err := os.Setenv("AWS_SECRET_ACCESS_KEY", creds.SecretAccessKey); err != nil {
+		return nil, fmt.Errorf("failed to set AWS_SECRET_ACCESS_KEY: %w", err)
+	}
+	if err := os.Setenv("AWS_REGION", creds.Region); err != nil {
+		return nil, fmt.Errorf("failed to set AWS_REGION: %w", err)
+	}
 
 	config := lightsail.NewDefaultConfig()
 	config.DNSZone = creds.DNSZone // CRITICAL: Set the DNS zone for Lightsail
@@ -252,9 +259,14 @@ func (m *CertificateManager) createLightsailProvider(ctx context.Context, credsJ
 // Helper: restore environment variable
 func restoreEnv(key, value string) {
 	if value != "" {
-		os.Setenv(key, value)
+		if err := os.Setenv(key, value); err != nil {
+			// Log error but don't fail - this is cleanup operation
+			log.Printf("failed to restore env var %s: %v", key, err)
+		}
 	} else {
-		os.Unsetenv(key)
+		if err := os.Unsetenv(key); err != nil {
+			log.Printf("failed to unset env var %s: %v", key, err)
+		}
 	}
 }
 

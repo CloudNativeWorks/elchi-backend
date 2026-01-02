@@ -2,6 +2,7 @@ package generators
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 )
@@ -91,16 +92,28 @@ func (eg *EndpointGenerator) Generate(instance models.ComponentInstance) (any, e
 			clusterNameStr = fmt.Sprint(discoveryClusterName)
 		}
 
-		// Convert port to int32
+		// Convert port to int32 with overflow check
 		var portInt32 int32
 		switch p := port.(type) {
 		case int:
+			// G115 fix: Check for overflow when converting int to int32
+			if p < math.MinInt32 || p > math.MaxInt32 {
+				return nil, fmt.Errorf("port value %d exceeds int32 range", p)
+			}
 			portInt32 = int32(p)
 		case int32:
 			portInt32 = p
 		case int64:
+			// G115 fix: Check for overflow when converting int64 to int32
+			if p < math.MinInt32 || p > math.MaxInt32 {
+				return nil, fmt.Errorf("port value %d exceeds int32 range", p)
+			}
 			portInt32 = int32(p)
 		case float64:
+			// Check port range (1-65535 for valid ports)
+			if p < 1 || p > 65535 {
+				return nil, fmt.Errorf("invalid port value %.0f: must be between 1 and 65535", p)
+			}
 			portInt32 = int32(p)
 		default:
 			return nil, fmt.Errorf("invalid port type: %T", port)

@@ -219,7 +219,8 @@ func (h *JobHandler) GetJob(c *gin.Context) {
 	var jobData *async.Job
 	var err error
 
-	if jobID[:3] == "EC-" {
+	// Check if jobID starts with "EC-" prefix (safe length check)
+	if len(jobID) >= 3 && jobID[:3] == "EC-" {
 		jobData, err = h.asyncSystem.GetJobByHumanID(ctx, jobID)
 	} else {
 		jobData, err = h.asyncSystem.GetJob(ctx, jobID)
@@ -292,7 +293,8 @@ func (h *JobHandler) RetryJob(c *gin.Context) {
 	var originalJob *async.Job
 	var err error
 
-	if jobID[:3] == "EC-" {
+	// Check if jobID starts with "EC-" prefix (safe length check)
+	if len(jobID) >= 3 && jobID[:3] == "EC-" {
 		originalJob, err = h.asyncSystem.GetJobByHumanID(ctx, jobID)
 	} else {
 		originalJob, err = h.asyncSystem.GetJob(ctx, jobID)

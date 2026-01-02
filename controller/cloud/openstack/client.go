@@ -253,7 +253,12 @@ func (c *OpenStackClient) authenticate(ctx context.Context) error {
 		return fmt.Errorf("no token returned in response header")
 	}
 
-	c.Logger.Debugf("OpenStack Auth - Token ID received: %s...", tokenID[:10])
+	// Safe token preview (handle short tokens)
+	tokenPreview := tokenID
+	if len(tokenID) > 10 {
+		tokenPreview = tokenID[:10] + "..."
+	}
+	c.Logger.Debugf("OpenStack Auth - Token ID received: %s", tokenPreview)
 
 	var authResp AuthResponse
 	if err := json.NewDecoder(resp.Body).Decode(&authResp); err != nil {
@@ -497,7 +502,12 @@ func (c *OpenStackClient) getPort(ctx context.Context, endpoint, portID string) 
 	req.Header.Set("X-Auth-Token", c.cachedToken.tokenID)
 	req.Header.Set("Content-Type", "application/json")
 
-	c.Logger.Debugf("OpenStack Port Get - Sending request with token: %s", c.cachedToken.tokenID[:20]+"...")
+	// Safe token preview (handle short tokens)
+	tokenPreview := c.cachedToken.tokenID
+	if len(c.cachedToken.tokenID) > 20 {
+		tokenPreview = c.cachedToken.tokenID[:20] + "..."
+	}
+	c.Logger.Debugf("OpenStack Port Get - Sending request with token: %s", tokenPreview)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {

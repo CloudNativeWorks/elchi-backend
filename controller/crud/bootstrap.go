@@ -285,7 +285,10 @@ func generateBootstrapFromTemplate(ctx context.Context, db *mongo.Database, temp
 func deepCopyMap(original map[string]any) map[string]any {
 	jsonBytes, _ := json.Marshal(original)
 	var copied map[string]any
-	json.Unmarshal(jsonBytes, &copied)
+	if err := json.Unmarshal(jsonBytes, &copied); err != nil {
+		// Return empty map on error
+		return make(map[string]any)
+	}
 	return copied
 }
 

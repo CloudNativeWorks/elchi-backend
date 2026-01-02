@@ -92,13 +92,16 @@ func Init(config Config) error {
 
 	// Set output based on config
 	if config.OutputPath != "stdout" {
-		// Ensure the directory exists
+		// Ensure the directory exists with secure permissions
+		// 0750 = rwxr-x--- (owner: rwx, group: r-x, others: no access)
 		dir := filepath.Dir(config.OutputPath)
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir, 0750); err != nil {
 			return fmt.Errorf("failed to create log directory: %v", err)
 		}
 
-		file, err := os.OpenFile(config.OutputPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+		// 0600 = rw------- (owner: rw, group: no access, others: no access)
+		// Only the owner can read/write log files for security
+		file, err := os.OpenFile(config.OutputPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 		if err != nil {
 			return fmt.Errorf("failed to open log file: %v", err)
 		}

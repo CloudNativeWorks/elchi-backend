@@ -22,7 +22,9 @@ func (w *Worker) processWAFPropagationJob(ctx context.Context, j *job.Job) {
 	// Validate job metadata
 	if j.Metadata == nil || j.Metadata.WAFConfig == nil {
 		w.logger.Errorf("Job %s has invalid metadata", j.JobID)
-		w.jobManager.FailJob(ctx, j.ID, fmt.Errorf("invalid job metadata"))
+		if err := w.jobManager.FailJob(ctx, j.ID, fmt.Errorf("invalid job metadata")); err != nil {
+			w.logger.Errorf("Failed to mark job as failed: %v", err)
+		}
 		return
 	}
 
@@ -33,7 +35,9 @@ func (w *Worker) processWAFPropagationJob(ctx context.Context, j *job.Job) {
 	triggerUser := j.Metadata.TriggerUser
 	if triggerUser == nil {
 		w.logger.Errorf("Job %s has no trigger user information", j.JobID)
-		w.jobManager.FailJob(ctx, j.ID, fmt.Errorf("missing trigger user information"))
+		if err := w.jobManager.FailJob(ctx, j.ID, fmt.Errorf("missing trigger user information")); err != nil {
+			w.logger.Errorf("Failed to mark job as failed: %v", err)
+		}
 		return
 	}
 
@@ -41,7 +45,9 @@ func (w *Worker) processWAFPropagationJob(ctx context.Context, j *job.Job) {
 	processor := w.getWAFProcessor()
 	if processor == nil {
 		w.logger.Errorf("WAF processor not available for job %s", j.JobID)
-		w.jobManager.FailJob(ctx, j.ID, fmt.Errorf("WAF processor not configured"))
+		if err := w.jobManager.FailJob(ctx, j.ID, fmt.Errorf("WAF processor not configured")); err != nil {
+			w.logger.Errorf("Failed to mark job as failed: %v", err)
+		}
 		return
 	}
 
@@ -57,7 +63,9 @@ func (w *Worker) processWAFPropagationJob(ctx context.Context, j *job.Job) {
 	affectedListeners, failedWASM, err := processor.ProcessWAFPropagationJob(ctx, wafMeta.Name, wafMeta.Project, wasmNames, userDetails)
 	if err != nil {
 		w.logger.Errorf("WAF propagation job %s failed: %v", j.JobID, err)
-		w.jobManager.FailJob(ctx, j.ID, err)
+		if failErr := w.jobManager.FailJob(ctx, j.ID, err); failErr != nil {
+			w.logger.Errorf("Failed to mark job as failed: %v", failErr)
+		}
 		return
 	}
 
@@ -77,7 +85,9 @@ func (w *Worker) processWAFPropagationJob(ctx context.Context, j *job.Job) {
 		Failed:     len(failedWASM),
 		Percentage: float64(len(wasmNames)-len(failedWASM)) / float64(len(wasmNames)) * 100.0,
 	}
-	w.jobManager.UpdateJobProgress(ctx, j.ID, progress)
+	if err := w.jobManager.UpdateJobProgress(ctx, j.ID, progress); err != nil {
+		w.logger.Errorf("Failed to update job progress: %v", err)
+	}
 
 	// Create SnapshotExecution records for each affected listener
 	// Note: Snapshots were already triggered by dependency analysis in processor
@@ -93,12 +103,16 @@ func (w *Worker) processWAFPropagationJob(ctx context.Context, j *job.Job) {
 		w.logger.Warnf("WAF propagation job %s completed with %d failures", j.JobID, len(failedWASM))
 		if len(failedWASM) == len(wasmNames) {
 			// All failed
-			w.jobManager.FailJob(ctx, j.ID, fmt.Errorf("all WASM extensions failed to process"))
+			if err := w.jobManager.FailJob(ctx, j.ID, fmt.Errorf("all WASM extensions failed to process")); err != nil {
+				w.logger.Errorf("Failed to mark job as failed: %v", err)
+			}
 			return
 		}
 	}
 
-	w.jobManager.CompleteJob(ctx, j.ID, executionDetails)
+	if err := w.jobManager.CompleteJob(ctx, j.ID, executionDetails); err != nil {
+		w.logger.Errorf("Failed to complete job: %v", err)
+	}
 	w.logger.Infof("WAF propagation job %s completed: %d listeners affected, %d WASM failed",
 		j.JobID, len(affectedListeners), len(failedWASM))
 }

@@ -53,7 +53,10 @@ func (h *AppHandler) SetRegistryClient(client *registry.RegistryClient) {
 
 func (h *AppHandler) Start(appConfig *config.AppConfig) {
 	// Start gRPC server
-	lis, err := net.Listen("tcp", grpcPort)
+	// G102: Binding to all interfaces (0.0.0.0) is intentional for containerized environments
+	// In Kubernetes/Docker, the application runs in an isolated network namespace
+	// and needs to accept connections from the pod network
+	lis, err := net.Listen("tcp", grpcPort) // #nosec G102
 	if err != nil {
 		h.Logger.Fatalf("Failed to listen on gRPC port: %v", err)
 	}

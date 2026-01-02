@@ -552,11 +552,13 @@ func checkProjectDependencies(ctx context.Context, appCtx *db.AppContext, projec
 
 		if err = cursor.All(ctx, &resources); err != nil {
 			appCtx.Logger.Errorf("Error getting %s resources: %v", collectionName, err)
-			cursor.Close(ctx)
+			_ = cursor.Close(ctx)
 			continue
 		}
 
-		cursor.Close(ctx)
+		if err := cursor.Close(ctx); err != nil {
+			appCtx.Logger.Warnf("Failed to close cursor for %s: %v", collectionName, err)
+		}
 
 		for _, resource := range resources {
 			projectResource := ProjectResource{

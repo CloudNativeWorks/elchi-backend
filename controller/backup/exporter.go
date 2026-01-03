@@ -33,9 +33,12 @@ func NewExporter(context *db.AppContext, logger *logger.Logger) *Exporter {
 func (e *Exporter) Export(ctx context.Context, req ExportRequest, username string) (*BackupData, error) {
 	e.Logger.Infof("📦 Starting backup export - type=%s, project=%s, user=%s", req.BackupType, req.ProjectID, username)
 
-	// Validate request
-	if req.BackupType == "project" && req.ProjectID == "" {
-		return nil, fmt.Errorf("project_id is required for project backup")
+	// Validate request - ONLY allow project backups
+	if req.BackupType != "project" {
+		return nil, fmt.Errorf("only project-based backups are supported (backup_type must be 'project')")
+	}
+	if req.ProjectID == "" {
+		return nil, fmt.Errorf("project_id is required for backup")
 	}
 
 	// Initialize backup data
@@ -62,14 +65,12 @@ func (e *Exporter) Export(ctx context.Context, req ExportRequest, username strin
 		ACME:         ACMEBackup{},
 	}
 
-	// Get project name if project backup
-	if req.BackupType == "project" {
-		projectName, err := e.getProjectName(ctx, req.ProjectID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get project name: %w", err)
-		}
-		backup.Metadata.ProjectName = projectName
+	// Get project name (always required since only project backups are supported)
+	projectName, err := e.getProjectName(ctx, req.ProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get project name: %w", err)
 	}
+	backup.Metadata.ProjectName = projectName
 
 	// Export each category
 	if err := e.exportSettings(ctx, backup, req); err != nil {
@@ -332,10 +333,7 @@ func (e *Exporter) exportCollection(ctx context.Context, collectionName string, 
 
 // buildProjectIDFilter builds filter for projects collection (_id match)
 func (e *Exporter) buildProjectIDFilter(req ExportRequest) bson.M {
-	if req.BackupType == "global" {
-		return bson.M{} // All projects
-	}
-	// For project backup, only export the specific project by _id
+	// Only project backups are supported - export the specific project by _id
 	objectID, err := primitive.ObjectIDFromHex(req.ProjectID)
 	if err != nil {
 		e.Logger.Errorf("Invalid project ID format: %s", req.ProjectID)
@@ -346,47 +344,29 @@ func (e *Exporter) buildProjectIDFilter(req ExportRequest) bson.M {
 
 // buildProjectFilter builds filter for project-scoped collections (project field match)
 func (e *Exporter) buildProjectFilter(req ExportRequest) bson.M {
-	if req.BackupType == "global" {
-		return bson.M{} // All documents
-	}
+	// Only project backups are supported - filter by project ID
 	return bson.M{"project": req.ProjectID}
 }
 
 // buildUserFilter builds filter for users collection (base_project match)
 func (e *Exporter) buildUserFilter(req ExportRequest) bson.M {
-	if req.BackupType == "global" {
-		return bson.M{}
-	}
-	// Only include users with base_project matching the project
+	// Only project backups are supported - filter by base_project
 	return bson.M{"base_project": req.ProjectID}
 }
 
 // buildXDSFilter builds filter for XDS resource collections
 func (e *Exporter) buildXDSFilter(req ExportRequest) bson.M {
-	filter := bson.M{}
-
-	// Project filter
-	if req.BackupType == "project" {
-		filter = bson.M{
-			"$or": []bson.M{
-				{"general.project": req.ProjectID},
-				{"general.project": bson.M{"$exists": false}}, // Global resources
-				{"general.project": nil},
-			},
-		}
-	}
+	// Only project backups are supported - filter by project
+	// Global resources (project: null or not exists) are NOT included
+	filter := bson.M{"general.project": req.ProjectID}
 
 	// Exclude default resources unless requested
 	if !req.IncludeDefaults {
-		if len(filter) > 0 {
-			filter = bson.M{
-				"$and": []bson.M{
-					filter,
-					{"general.metadata.is_default": bson.M{"$ne": true}},
-				},
-			}
-		} else {
-			filter = bson.M{"general.metadata.is_default": bson.M{"$ne": true}}
+		filter = bson.M{
+			"$and": []bson.M{
+				filter,
+				{"general.metadata.is_default": bson.M{"$ne": true}},
+			},
 		}
 	}
 

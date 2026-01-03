@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,6 +15,98 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
+
+// indexFieldMappings maps collection names and index names to human-readable field descriptions
+var indexFieldMappings = map[string]map[string]string{
+	"users": {
+		"username_1": "username",
+	},
+	"groups": {
+		"groupname_project_1": "group name",
+	},
+	"services": {
+		"name_project_1": "service name",
+	},
+	"clusters": {
+		"general_name_version_project_1": "cluster name",
+	},
+	"listeners": {
+		"general_name_project_1": "listener name",
+	},
+	"routes": {
+		"general_name_version_project_1": "route name",
+	},
+	"endpoints": {
+		"general_name_version_project_1": "endpoint name",
+	},
+	"filters": {
+		"general_name_version_project_1": "filter name",
+	},
+	"extensions": {
+		"general_name_version_project_1": "extension name",
+	},
+	"secrets": {
+		"general_name_version_project_1": "secret name",
+	},
+	"bootstrap": {
+		"general_name_version_project_1": "bootstrap config name",
+	},
+	"tls": {
+		"general_name_version_project_1": "TLS config name",
+	},
+	"virtual_hosts": {
+		"general_name_version_project_1": "virtual host name",
+	},
+	"scenarios": {
+		"scenario_id_1": "scenario ID",
+	},
+	"clients": {
+		"client_id_1": "client ID",
+	},
+	"resource_templates": {
+		"gtype_version_project_1": "template type",
+	},
+	"snippets": {
+		"name_project_gtype_1": "snippet name",
+	},
+	"acme_accounts": {
+		"email_ca_provider_environment_project_1": "account email/provider/environment",
+	},
+	"acme_certificates": {
+		"secret_name_project_1": "certificate secret name",
+	},
+	"acme_dns_credentials": {
+		"name_project_1": "DNS credential name",
+	},
+	"acme_temp_keys": {
+		"cert_request_id_1": "certificate request ID",
+	},
+}
+
+// duplicateKeyMessages provides collection-specific error messages for duplicate key conflicts
+var duplicateKeyMessages = map[string]string{
+	"users":               "Username already exists in database (case-insensitive). The existing user was preserved. To import this user, please rename in the backup or remove the existing user.",
+	"groups":              "Group name already exists in target project (case-insensitive). The existing group was preserved. To import this group, please rename in the backup or remove the existing group.",
+	"services":            "Service name already exists in target project (case-insensitive). The existing service was preserved.",
+	"clusters":            "Cluster already exists in target project with same name and version (case-insensitive). The existing cluster was preserved.",
+	"listeners":           "Listener name already exists in target project (case-insensitive, no version). The existing listener was preserved. Note: Listeners don't use version in unique constraint.",
+	"routes":              "Route already exists in target project with same name and version (case-insensitive). The existing route was preserved.",
+	"endpoints":           "Endpoint already exists in target project with same name and version (case-insensitive). The existing endpoint was preserved.",
+	"filters":             "Filter already exists in target project with same name and version (case-insensitive). The existing filter was preserved.",
+	"extensions":          "Extension already exists in target project with same name and version (case-insensitive). The existing extension was preserved.",
+	"secrets":             "Secret already exists in target project with same name and version (case-insensitive). The existing secret was preserved.",
+	"bootstrap":           "Bootstrap config already exists in target project with same name and version (case-insensitive). The existing config was preserved.",
+	"tls":                 "TLS config already exists in target project with same name and version (case-insensitive). The existing config was preserved.",
+	"virtual_hosts":       "Virtual host already exists in target project with same name and version (case-insensitive). The existing virtual host was preserved.",
+	"scenarios":           "Scenario ID already exists. The existing scenario was preserved.",
+	"clients":             "Client ID already exists (case-insensitive). The existing client was preserved.",
+	"resource_templates":  "Template already exists in target project with same type and version (case-insensitive). The existing template was preserved.",
+	"snippets":            "Snippet name already exists in target project for this resource type (case-insensitive). The existing snippet was preserved.",
+	"acme_accounts":       "ACME account already exists with same email/provider/environment in target project. The existing account was preserved.",
+	"acme_certificates":   "ACME certificate already exists with same secret name in target project. The existing certificate was preserved.",
+	"acme_dns_credentials": "ACME DNS credential already exists with same name in target project. The existing credential was preserved.",
+	"acme_temp_keys":      "ACME temporary key already exists with same certificate request ID. The existing key was preserved.",
+}
 
 // Importer handles backup import/restore operations
 type Importer struct {
@@ -30,9 +123,25 @@ func NewImporter(context *db.AppContext, logger *logger.Logger) *Importer {
 }
 
 // Import restores data from backup
-func (i *Importer) Import(ctx context.Context, backup *BackupData, username string, dryRun bool) (*ImportResponse, error) {
-	i.Logger.Infof("📥 Starting backup import - backup_id=%s, dry_run=%v, user=%s",
-		backup.Metadata.BackupID, dryRun, username)
+func (i *Importer) Import(ctx context.Context, backup *BackupData, username string, dryRun bool, targetProjectID string) (*ImportResponse, error) {
+	// STEP 1: Validate target project (REQUIRED)
+	if targetProjectID == "" {
+		return nil, fmt.Errorf("target_project is required for import")
+	}
+
+	if err := i.validateTargetProject(ctx, targetProjectID); err != nil {
+		return nil, fmt.Errorf("target project validation failed: %w", err)
+	}
+
+	i.Logger.Infof("📥 Starting backup import - backup_id=%s, dry_run=%v, user=%s, target_project=%s",
+		backup.Metadata.BackupID, dryRun, username, targetProjectID)
+
+	// STEP 2: Skip projects collection (we don't import projects, only resources)
+	if len(backup.Settings.Projects) > 0 {
+		projectCount := len(backup.Settings.Projects)
+		backup.Settings.Projects = nil
+		i.Logger.Infof("⏭️  Skipped projects collection (%d projects) - only importing resources to target project", projectCount)
+	}
 
 	response := &ImportResponse{
 		Success:    true,
@@ -59,16 +168,16 @@ func (i *Importer) Import(ctx context.Context, backup *BackupData, username stri
 
 		i.Logger.Infof("📦 Processing phase: %s (%d collections)", phaseName, len(collections))
 
-		// Process collections in this phase in parallel
-		i.importPhaseParallel(ctx, backup, collections, dryRun, response)
+		// Process collections in this phase in parallel (pass targetProjectID)
+		i.importPhaseParallel(ctx, backup, collections, dryRun, targetProjectID, response)
 	}
 
 	if response.Success {
-		i.Logger.Infof("✅ Backup import completed - total=%d, created=%d, updated=%d, failed=%d",
-			response.Summary.TotalResources, response.Summary.Created, response.Summary.Updated, response.Summary.Failed)
+		i.Logger.Infof("✅ Backup import completed - total=%d, created=%d, updated=%d, skipped=%d, failed=%d",
+			response.Summary.TotalResources, response.Summary.Created, response.Summary.Updated, response.Summary.Skipped, response.Summary.Failed)
 	} else {
-		i.Logger.Warnf("⚠️ Backup import completed with errors - total=%d, created=%d, updated=%d, failed=%d, errors=%d",
-			response.Summary.TotalResources, response.Summary.Created, response.Summary.Updated, response.Summary.Failed, len(response.Errors))
+		i.Logger.Warnf("⚠️ Backup import completed with errors - total=%d, created=%d, updated=%d, skipped=%d, failed=%d, errors=%d",
+			response.Summary.TotalResources, response.Summary.Created, response.Summary.Updated, response.Summary.Skipped, response.Summary.Failed, len(response.Errors))
 	}
 
 	return response, nil
@@ -86,7 +195,7 @@ func (i *Importer) groupCollectionsByPhase(collections []CollectionMetadata) map
 }
 
 // importPhaseParallel imports all collections in a phase in parallel with thread-safe response updates
-func (i *Importer) importPhaseParallel(ctx context.Context, backup *BackupData, collections []CollectionMetadata, dryRun bool, response *ImportResponse) {
+func (i *Importer) importPhaseParallel(ctx context.Context, backup *BackupData, collections []CollectionMetadata, dryRun bool, targetProjectID string, response *ImportResponse) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex // Protect response object from concurrent writes
 
@@ -102,7 +211,7 @@ func (i *Importer) importPhaseParallel(ctx context.Context, backup *BackupData, 
 
 			i.Logger.Infof("Restoring %s (%d documents)...", collName, len(documents))
 
-			detail, err := i.importCollection(ctx, collName, documents, dryRun)
+			detail, err := i.importCollection(ctx, collName, documents, dryRun, targetProjectID)
 
 			// Thread-safe response update
 			mu.Lock()
@@ -120,6 +229,7 @@ func (i *Importer) importPhaseParallel(ctx context.Context, backup *BackupData, 
 			response.Summary.Created += detail.Created
 			response.Summary.Updated += detail.Updated
 			response.Summary.Failed += detail.Failed
+			response.Summary.Skipped += detail.Skipped
 		}(collMeta.Name, docs)
 	}
 
@@ -127,7 +237,7 @@ func (i *Importer) importPhaseParallel(ctx context.Context, backup *BackupData, 
 }
 
 // importCollection imports a single collection with ID-based overwrite
-func (i *Importer) importCollection(ctx context.Context, collectionName string, docs []primitive.M, dryRun bool) (CollectionImportDetail, error) {
+func (i *Importer) importCollection(ctx context.Context, collectionName string, docs []primitive.M, dryRun bool, targetProjectID string) (CollectionImportDetail, error) {
 	detail := CollectionImportDetail{
 		Total:    len(docs),
 		Created:  0,
@@ -145,6 +255,12 @@ func (i *Importer) importCollection(ctx context.Context, collectionName string, 
 		idToIndex := make(map[primitive.ObjectID]int)
 
 		for idx, doc := range docs {
+			// Skip default/system resources in dry-run as well
+			if i.isDefaultResource(doc) {
+				detail.Skipped++
+				continue
+			}
+
 			id, ok := doc["_id"]
 			if !ok {
 				detail.Failed++
@@ -247,6 +363,28 @@ func (i *Importer) importCollection(ctx context.Context, collectionName string, 
 			continue
 		}
 
+		// STEP 0: Skip default/system resources (they already exist in target system)
+		if i.isDefaultResource(doc) {
+			i.Logger.Debugf("⏭️  Skipping default resource %s in %s (system resource)", objectID.Hex(), collectionName)
+			detail.Skipped++
+			continue
+		}
+
+		// STEP 1: Remap project IDs to target project
+		if err := i.remapProjectIDs(doc, targetProjectID, collectionName); err != nil {
+			i.Logger.Warnf("Failed to remap project IDs for document %s in %s: %v",
+				objectID.Hex(), collectionName, err)
+			detail.Failed++
+			detail.Warnings = append(detail.Warnings, fmt.Sprintf("Project remapping failed for %s: %v", objectID.Hex(), err))
+			continue
+		}
+
+		// STEP 2: Clear permissions (always, for security)
+		if err := i.clearPermissions(doc); err != nil {
+			i.Logger.Warnf("Failed to clear permissions for document %s: %v", objectID.Hex(), err)
+			// Non-fatal, continue with import
+		}
+
 		// Fix date fields that might be stored as strings
 		i.fixDateFields(doc)
 
@@ -277,7 +415,28 @@ func (i *Importer) importCollection(ctx context.Context, collectionName string, 
 			// Partial success - some operations succeeded, some failed
 			detail.Failed += len(bulkErr.WriteErrors)
 			for _, writeErr := range bulkErr.WriteErrors {
-				detail.Warnings = append(detail.Warnings, fmt.Sprintf("BulkWrite error at index %d: %v", writeErr.Index, writeErr.Message))
+				// Check if this is a duplicate key error
+				if mongo.IsDuplicateKeyError(writeErr) {
+					// Extract index name and generate user-friendly message
+					indexName := i.parseDuplicateKeyError(writeErr)
+					if indexName != "" {
+						conflictMsg := i.formatDuplicateKeyMessage(collectionName, indexName, writeErr.Index)
+						detail.Warnings = append(detail.Warnings, conflictMsg)
+
+						// Log for debugging (includes raw error)
+						i.Logger.Debugf("Duplicate key conflict in %s at index %d: index=%s, raw_error=%v",
+							collectionName, writeErr.Index, indexName, writeErr.Message)
+					} else {
+						// Fallback if index name extraction failed
+						detail.Warnings = append(detail.Warnings,
+							fmt.Sprintf("Document %d: Duplicate key error. The existing resource was preserved. Raw error: %v",
+								writeErr.Index, writeErr.Message))
+					}
+				} else {
+					// Non-duplicate error - use generic handling
+					detail.Warnings = append(detail.Warnings,
+						fmt.Sprintf("BulkWrite error at index %d: %v", writeErr.Index, writeErr.Message))
+				}
 			}
 
 			// Count successes from result
@@ -510,4 +669,204 @@ func (i *Importer) fixDateFields(doc primitive.M) {
 			}
 		}
 	}
+}
+
+// validateTargetProject validates that the target project exists in the database
+func (i *Importer) validateTargetProject(ctx context.Context, projectID string) error {
+	projectsCollection := i.Context.Client.Collection("projects")
+
+	// Convert string ID to ObjectID
+	objectID, err := primitive.ObjectIDFromHex(projectID)
+	if err != nil {
+		return fmt.Errorf("invalid project ID format: %w", err)
+	}
+
+	// Check if project exists
+	filter := bson.M{"_id": objectID}
+	count, err := projectsCollection.CountDocuments(ctx, filter)
+	if err != nil {
+		return fmt.Errorf("failed to query projects collection: %w", err)
+	}
+
+	if count == 0 {
+		return fmt.Errorf("target project %s does not exist - please create the project first", projectID)
+	}
+
+	i.Logger.Infof("✅ Target project validation successful: %s", projectID)
+	return nil
+}
+
+// remapProjectIDs remaps project IDs in a document to the target project
+func (i *Importer) remapProjectIDs(doc bson.M, targetProjectID string, collectionName string) error {
+	// Find collection category from RestoreOrder
+	var category string
+	for _, coll := range RestoreOrder {
+		if coll.Name == collectionName {
+			category = coll.Category
+			break
+		}
+	}
+
+	// If category not found, log warning and skip (might be a new collection)
+	if category == "" {
+		i.Logger.Debugf("Collection %s not found in RestoreOrder, skipping project remapping", collectionName)
+		return nil
+	}
+
+	remapped := false
+
+	// Handle project remapping based on collection category
+	switch category {
+	case "xds":
+		// XDS resources have general.project field
+		if generalAny, exists := doc["general"]; exists {
+			if general, ok := generalAny.(primitive.M); ok {
+				if _, hasProject := general["project"]; hasProject {
+					general["project"] = targetProjectID
+					remapped = true
+				}
+			} else if general, ok := generalAny.(map[string]interface{}); ok {
+				if _, hasProject := general["project"]; hasProject {
+					general["project"] = targetProjectID
+					remapped = true
+				}
+			}
+		}
+
+	case "settings":
+		// Settings resources (except users) have root-level project field
+		if collectionName == "users" {
+			// Users have base_project field
+			if _, exists := doc["base_project"]; exists {
+				doc["base_project"] = targetProjectID
+				remapped = true
+			}
+		} else {
+			// Other settings resources (groups, settings)
+			if _, exists := doc["project"]; exists {
+				doc["project"] = targetProjectID
+				remapped = true
+			}
+		}
+
+	case "templates", "services", "acme":
+		// Templates, services, and ACME resources have root-level project field
+		if _, exists := doc["project"]; exists {
+			doc["project"] = targetProjectID
+			remapped = true
+		}
+	}
+
+	if remapped {
+		i.Logger.Debugf("🔄 Remapped project ID for %s document (category: %s) to target project: %s",
+			collectionName, category, targetProjectID)
+	}
+
+	return nil
+}
+
+// clearPermissions clears all permissions from a document for security
+func (i *Importer) clearPermissions(doc bson.M) error {
+	// Check if document has general.permissions field
+	if generalAny, exists := doc["general"]; exists {
+		if general, ok := generalAny.(primitive.M); ok {
+			if _, hasPermissions := general["permissions"]; hasPermissions {
+				// Clear permissions - set empty arrays
+				general["permissions"] = primitive.M{
+					"users":  []string{},
+					"groups": []string{},
+				}
+				i.Logger.Debugf("🔒 Cleared permissions for document (security best practice)")
+				return nil
+			}
+		} else if general, ok := generalAny.(map[string]interface{}); ok {
+			if _, hasPermissions := general["permissions"]; hasPermissions {
+				// Clear permissions - set empty arrays
+				general["permissions"] = map[string]interface{}{
+					"users":  []string{},
+					"groups": []string{},
+				}
+				i.Logger.Debugf("🔒 Cleared permissions for document (security best practice)")
+				return nil
+			}
+		}
+	}
+
+	// No permissions field found - this is normal for most resources
+	return nil
+}
+
+// parseDuplicateKeyError extracts index name from MongoDB duplicate key error
+func (i *Importer) parseDuplicateKeyError(writeErr mongo.BulkWriteError) string {
+	// MongoDB error format: "E11000 duplicate key error collection: elchi.<collection> index: <index_name> dup key: { ... }"
+	errMsg := writeErr.Message
+
+	// Extract index name from error message
+	indexStart := strings.Index(errMsg, "index: ")
+	if indexStart == -1 {
+		i.Logger.Debugf("Could not find 'index:' in error message: %s", errMsg)
+		return ""
+	}
+
+	indexStart += len("index: ")
+	indexEnd := strings.Index(errMsg[indexStart:], " ")
+	if indexEnd == -1 {
+		// Index name is at the end of the message
+		return errMsg[indexStart:]
+	}
+
+	return errMsg[indexStart : indexStart+indexEnd]
+}
+
+// getIndexFieldMapping returns human-readable field description for an index
+func getIndexFieldMapping(collectionName, indexName string) string {
+	if collectionMappings, exists := indexFieldMappings[collectionName]; exists {
+		if fieldDesc, exists := collectionMappings[indexName]; exists {
+			return fieldDesc
+		}
+	}
+
+	// Fallback: try to extract field name from index name (e.g., "username_1" -> "username")
+	// Remove trailing _1, _-1, etc.
+	if idx := strings.LastIndex(indexName, "_"); idx > 0 {
+		suffix := indexName[idx+1:]
+		if suffix == "1" || suffix == "-1" {
+			return strings.ReplaceAll(indexName[:idx], "_", " ")
+		}
+	}
+
+	return indexName
+}
+
+// isDefaultResource checks if a document is a default/system resource
+func (i *Importer) isDefaultResource(doc primitive.M) bool {
+	// Check general.metadata.is_default for XDS resources
+	if generalAny, exists := doc["general"]; exists {
+		if general, ok := generalAny.(map[string]any); ok {
+			if metadataAny, exists := general["metadata"]; exists {
+				if metadata, ok := metadataAny.(map[string]any); ok {
+					if isDefault, exists := metadata["is_default"]; exists {
+						if defaultBool, ok := isDefault.(bool); ok && defaultBool {
+							return true
+						}
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
+// formatDuplicateKeyMessage generates user-friendly error message for duplicate key conflicts
+func (i *Importer) formatDuplicateKeyMessage(collectionName, indexName string, docIndex int) string {
+	// Get collection-specific message template
+	if msg, exists := duplicateKeyMessages[collectionName]; exists {
+		fieldDesc := getIndexFieldMapping(collectionName, indexName)
+		return fmt.Sprintf("Document %d: %s (Field: %s, Index: %s)", docIndex, msg, fieldDesc, indexName)
+	}
+
+	// Fallback: Generic message
+	fieldDesc := getIndexFieldMapping(collectionName, indexName)
+	return fmt.Sprintf("Document %d: Duplicate %s in %s collection. The existing resource was preserved. To import, please modify the conflicting value in the backup.",
+		docIndex, fieldDesc, collectionName)
 }

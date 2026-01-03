@@ -88,8 +88,17 @@ func (h *BackupHandler) ImportBackup(c *gin.Context) {
 		}
 	}
 
-	h.Logger.Infof("📥 Backup import request - backup_id=%s, dry_run=%v, user=%s",
-		req.BackupData.Metadata.BackupID, req.DryRun, username)
+	// Validate target_project is provided
+	if req.TargetProject == "" {
+		h.Logger.Errorf("target_project is required for import")
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "target_project is required for import",
+		})
+		return
+	}
+
+	h.Logger.Infof("📥 Backup import request - backup_id=%s, dry_run=%v, user=%s, target_project=%s",
+		req.BackupData.Metadata.BackupID, req.DryRun, username, req.TargetProject)
 
 	// Validate backup first
 	validator := backup.NewValidator()
@@ -115,9 +124,9 @@ func (h *BackupHandler) ImportBackup(c *gin.Context) {
 
 	ctx := context.Background()
 
-	// Create importer and import
+	// Create importer and import (pass targetProject)
 	importer := backup.NewImporter(h.Context, h.Logger)
-	response, err := importer.Import(ctx, &req.BackupData, username, req.DryRun)
+	response, err := importer.Import(ctx, &req.BackupData, username, req.DryRun, req.TargetProject)
 
 	// Set audit context after import completes
 	backupType := req.BackupData.Metadata.BackupType

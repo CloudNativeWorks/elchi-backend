@@ -8,16 +8,16 @@ import (
 
 // BackupMetadata contains information about the backup
 type BackupMetadata struct {
-	BackupID         string            `json:"backup_id"`
-	BackupType       string            `json:"backup_type"` // "project" or "global"
-	ProjectID        string            `json:"project_id,omitempty"`
-	ProjectName      string            `json:"project_name,omitempty"`
-	ElchiVersion     string            `json:"elchi_version"`
-	CreatedBy        string            `json:"created_by"`
-	CreatedAt        time.Time         `json:"created_at"`
-	Description      string            `json:"description,omitempty"`
-	Filters          BackupFilters     `json:"filters"`
-	Statistics       BackupStatistics  `json:"statistics"`
+	BackupID     string           `json:"backup_id"`
+	BackupType   string           `json:"backup_type"` // "project" or "global"
+	ProjectID    string           `json:"project_id,omitempty"`
+	ProjectName  string           `json:"project_name,omitempty"`
+	ElchiVersion string           `json:"elchi_version"`
+	CreatedBy    string           `json:"created_by"`
+	CreatedAt    time.Time        `json:"created_at"`
+	Description  string           `json:"description,omitempty"`
+	Filters      BackupFilters    `json:"filters"`
+	Statistics   BackupStatistics `json:"statistics"`
 }
 
 // BackupFilters defines what was included in the backup
@@ -27,19 +27,19 @@ type BackupFilters struct {
 
 // BackupStatistics contains counts of backed up resources
 type BackupStatistics struct {
-	TotalResources int                `json:"total_resources"`
-	TotalSizeBytes int64              `json:"total_size_bytes"`
-	Collections    map[string]int     `json:"collections"`
+	TotalResources int            `json:"total_resources"`
+	TotalSizeBytes int64          `json:"total_size_bytes"`
+	Collections    map[string]int `json:"collections"`
 }
 
 // BackupData represents the complete backup file structure
 type BackupData struct {
-	Metadata     BackupMetadata         `json:"metadata"`
-	Settings     SettingsBackup         `json:"settings"`
-	XDSResources XDSResourcesBackup     `json:"xds_resources"`
-	Templates    TemplatesBackup        `json:"templates"`
-	Services     ServicesBackup         `json:"services"`
-	ACME         ACMEBackup             `json:"acme"`
+	Metadata     BackupMetadata     `json:"metadata"`
+	Settings     SettingsBackup     `json:"settings"`
+	XDSResources XDSResourcesBackup `json:"xds_resources"`
+	Templates    TemplatesBackup    `json:"templates"`
+	Services     ServicesBackup     `json:"services"`
+	ACME         ACMEBackup         `json:"acme"`
 }
 
 // SettingsBackup contains settings and authorization data
@@ -97,21 +97,20 @@ type ExportRequest struct {
 
 // ImportRequest represents the request to import a backup
 type ImportRequest struct {
-	BackupData         BackupData `json:"backup_data" binding:"required"`
-	TargetProject      string     `json:"target_project"`
-	PermissionStrategy string     `json:"permission_strategy" binding:"omitempty,oneof=preserve reassign clear"`
-	DryRun             bool       `json:"dry_run"`
+	BackupData    BackupData `json:"backup_data" binding:"required"`
+	TargetProject string     `json:"target_project" binding:"required"` // REQUIRED: Target project ID for all imported resources
+	DryRun        bool       `json:"dry_run"`
 }
 
 // ImportResponse represents the result of an import operation
 type ImportResponse struct {
-	Success     bool                   `json:"success"`
-	DryRun      bool                   `json:"dry_run"`
-	Summary     ImportSummary          `json:"summary"`
-	Details     map[string]CollectionImportDetail `json:"details"`
-	Errors      []string               `json:"errors,omitempty"`
-	ImportedBy  string                 `json:"imported_by,omitempty"`
-	ImportedAt  time.Time              `json:"imported_at,omitempty"`
+	Success    bool                              `json:"success"`
+	DryRun     bool                              `json:"dry_run"`
+	Summary    ImportSummary                     `json:"summary"`
+	Details    map[string]CollectionImportDetail `json:"details"`
+	Errors     []string                          `json:"errors,omitempty"`
+	ImportedBy string                            `json:"imported_by,omitempty"`
+	ImportedAt time.Time                         `json:"imported_at,omitempty"`
 }
 
 // ImportSummary provides high-level statistics
@@ -120,6 +119,7 @@ type ImportSummary struct {
 	Created        int `json:"created"`
 	Updated        int `json:"updated"`
 	Failed         int `json:"failed"`
+	Skipped        int `json:"skipped"` // Default resources and global resources skipped
 }
 
 // CollectionImportDetail provides per-collection statistics
@@ -128,13 +128,14 @@ type CollectionImportDetail struct {
 	Created  int      `json:"created"`
 	Updated  int      `json:"updated"`
 	Failed   int      `json:"failed"`
+	Skipped  int      `json:"skipped"` // Default resources and global resources skipped
 	Warnings []string `json:"warnings,omitempty"`
 }
 
 // ValidationResult represents backup validation results
 type ValidationResult struct {
-	Valid              bool     `json:"valid"`
-	VersionCompatible  bool     `json:"version_compatible"`
-	Warnings           []string `json:"warnings,omitempty"`
-	Errors             []string `json:"errors,omitempty"`
+	Valid             bool     `json:"valid"`
+	VersionCompatible bool     `json:"version_compatible"`
+	Warnings          []string `json:"warnings,omitempty"`
+	Errors            []string `json:"errors,omitempty"`
 }

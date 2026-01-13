@@ -47,7 +47,7 @@ const (
 func NewControlPlaneManager(config *ControlPlaneConfig, logger *logger.Logger, snapshotContext *snapshot.Context) (*ControlPlaneManager, error) {
 	client, err := NewControlPlaneRegistryClient(config, logger)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create registry client: %v", err)
+		return nil, fmt.Errorf("failed to create registry client: %w", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -96,7 +96,7 @@ func (m *ControlPlaneManager) Stop() error {
 	m.wg.Wait()
 
 	if err := m.client.Disconnect(); err != nil {
-		return fmt.Errorf("failed to disconnect from registry: %v", err)
+		return fmt.Errorf("failed to disconnect from registry: %w", err)
 	}
 
 	m.logger.Info("Registry manager stopped")
@@ -171,14 +171,14 @@ func (m *ControlPlaneManager) connectAndRegister() error {
 	// Connect with retry - now includes real connectivity test
 	if err := m.client.ConnectWithRetry(ctx); err != nil {
 		m.logger.Errorf("❌ Registry connection failed: %v", err)
-		return fmt.Errorf("failed to connect to registry: %v", err)
+		return fmt.Errorf("failed to connect to registry: %w", err)
 	}
 
 	// CRITICAL: Explicit registration with version BEFORE any node list operations
 	m.logger.Infof("📝 Explicitly registering control-plane %s with version %s", m.Config.ControlPlaneID, m.Config.Version)
 	if err := m.client.RegisterControlPlaneWithRetry(ctx, m.Config); err != nil {
 		m.logger.Errorf("❌ Control-plane registration failed: %v", err)
-		return fmt.Errorf("failed to register control-plane: %v", err)
+		return fmt.Errorf("failed to register control-plane: %w", err)
 	}
 	m.logger.Infof("✅ Control-plane explicitly registered with version")
 

@@ -126,7 +126,7 @@ func (xds *AppHandler) UpdateResource(ctx context.Context, resource models.Resou
 	// Get existing resource to check elchi_discovery changes
 	var existingResource models.DBResource
 	if err := result.Decode(&existingResource); err != nil {
-		return nil, fmt.Errorf("failed to decode existing resource: %v", err)
+		return nil, fmt.Errorf("failed to decode existing resource: %w", err)
 	}
 
 	// Check if elchi_discovery changed for endpoints
@@ -150,7 +150,7 @@ func (xds *AppHandler) UpdateResource(ctx context.Context, resource models.Resou
 	// Populate endpoint from discovery if needed
 	if needsPopulate {
 		if err := xds.populateEndpointFromDiscovery(ctx, resource); err != nil {
-			return nil, fmt.Errorf("failed to populate endpoint from discovery: %v", err)
+			return nil, fmt.Errorf("failed to populate endpoint from discovery: %w", err)
 		}
 	}
 
@@ -158,7 +158,7 @@ func (xds *AppHandler) UpdateResource(ctx context.Context, resource models.Resou
 	nodeid := fmt.Sprintf("%s::%s", requestDetails.Name, requestDetails.Project)
 
 	if err := resources.ValidateResourceWithClient(context.Background(), resource.GetGeneral().GType, resource.GetGeneral().Version, nodeid, newResource, xds.ResourceService); err != nil {
-		return nil, fmt.Errorf("%v", err)
+		return nil, fmt.Errorf("%w", err)
 	}
 
 	// Version increment moved to control-plane GenerateSnapshot for centralized control

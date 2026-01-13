@@ -2,6 +2,7 @@ package acme
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -24,7 +25,7 @@ func (m *CertificateManager) GetACMEAccount(ctx context.Context, accountID primi
 	var account ACMEAccount
 	err := collection.FindOne(ctx, filter).Decode(&account)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, fmt.Errorf("ACME account not found")
 		}
 		return nil, fmt.Errorf("failed to get ACME account: %w", err)
@@ -47,7 +48,7 @@ func (m *CertificateManager) getACMEAccountByEmailAndProvider(ctx context.Contex
 	var account ACMEAccount
 	err := collection.FindOne(ctx, filter).Decode(&account)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, nil // Not found is not an error
 		}
 		return nil, fmt.Errorf("failed to query ACME account: %w", err)

@@ -2,6 +2,7 @@ package bridge
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -170,7 +171,7 @@ func getLastSnapshotHash(ctx context.Context, dbClient *mongo.Database, nodeID s
 	}
 
 	err := collection.FindOne(ctx, filter).Decode(&result)
-	if err == mongo.ErrNoDocuments {
+	if errors.Is(err, mongo.ErrNoDocuments) {
 		// No previous hash stored
 		return "", nil
 	}

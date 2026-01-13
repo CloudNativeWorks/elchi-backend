@@ -32,7 +32,7 @@ func (xds *AppHandler) DelExtension(ctx context.Context, _ models.ResourceClass,
 	// Get resource to check if it's default and for permission check
 	var resourceDoc models.DBResource
 	if err := collection.FindOne(ctx, filter).Decode(&resourceDoc); err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, errors.New("resource not found")
 		}
 		return nil, err

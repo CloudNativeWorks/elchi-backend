@@ -2,6 +2,7 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -411,7 +412,8 @@ func (i *Importer) importCollection(ctx context.Context, collectionName string, 
 
 	if err != nil {
 		// Handle bulk write errors
-		if bulkErr, ok := err.(mongo.BulkWriteException); ok {
+		var bulkErr mongo.BulkWriteException
+		if errors.As(err, &bulkErr) {
 			// Partial success - some operations succeeded, some failed
 			detail.Failed += len(bulkErr.WriteErrors)
 			for _, writeErr := range bulkErr.WriteErrors {

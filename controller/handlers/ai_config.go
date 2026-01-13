@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -147,7 +148,7 @@ func (h *Handler) getOpenRouterTokenFromSettings(project string) (string, error)
 	var settings bson.M
 	err := settingsCollection.FindOne(ctx, filter).Decode(&settings)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return "", fmt.Errorf("no settings found for project: %s", project)
 		}
 		return "", fmt.Errorf("could not get settings: %w", err)
@@ -170,7 +171,7 @@ func (h *Handler) getAIModelFromSettings(project string) (string, error) {
 	var settings bson.M
 	err := settingsCollection.FindOne(ctx, filter).Decode(&settings)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return ai.DefaultModel, nil // Return default model if no settings
 		}
 		return ai.DefaultModel, nil

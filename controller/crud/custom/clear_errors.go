@@ -103,7 +103,7 @@ func (custom *AppHandler) ClearErrorsByID(ctx context.Context, _ models.Resource
 
 	if err != nil {
 		custom.Logger.Errorf("Failed to %s enhanced errors: %v", mode, err)
-		return ClearErrorsResponse{Success: false}, fmt.Errorf("failed to %s errors: %v", mode, err)
+		return ClearErrorsResponse{Success: false}, fmt.Errorf("failed to %s errors: %w", mode, err)
 	}
 
 	custom.Logger.Infof("🧹 CLEAR-ERRORS: Successfully %s %d errors from %d services",

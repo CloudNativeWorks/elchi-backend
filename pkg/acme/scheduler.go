@@ -98,10 +98,10 @@ func (s *RenewalScheduler) Stop() error {
 	s.running = false
 	s.mu.Unlock()
 
-	s.logger.Info("Stopping Let's Encrypt renewal scheduler")
+	s.logger.Info("Stopping Acme renewal scheduler")
 	close(s.stopCh)
 	s.wg.Wait()
-	s.logger.Info("Let's Encrypt renewal scheduler stopped")
+	s.logger.Info("Acme renewal scheduler stopped")
 
 	return nil
 }

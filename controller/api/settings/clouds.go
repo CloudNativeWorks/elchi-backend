@@ -2,6 +2,7 @@ package settings
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -28,7 +29,7 @@ func (handler *AppHandler) GetClouds(c *gin.Context) {
 	var settings bson.M
 	err := settingsCollection.FindOne(ctx, filter).Decode(&settings)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			c.JSON(http.StatusOK, gin.H{"clouds": map[string]interface{}{}, "message": "no clouds configured for this project"})
 			return
 		}
@@ -76,7 +77,7 @@ func (handler *AppHandler) GetCloud(c *gin.Context) {
 	var settings bson.M
 	err := settingsCollection.FindOne(ctx, filter).Decode(&settings)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			c.JSON(http.StatusNotFound, gin.H{"message": "project not found"})
 			return
 		}
@@ -164,7 +165,7 @@ func (handler *AppHandler) SetCloud(c *gin.Context) {
 				return
 			}
 		}
-	} else if err != mongo.ErrNoDocuments {
+	} else if !errors.Is(err, mongo.ErrNoDocuments) {
 		c.JSON(http.StatusInternalServerError, gin.H{"message": "could not check existing cloud configurations"})
 		return
 	}
@@ -276,7 +277,7 @@ func (handler *AppHandler) UpdateCloud(c *gin.Context) {
 	var existingSettings bson.M
 	err := settingsCollection.FindOne(ctx, filter).Decode(&existingSettings)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			c.JSON(http.StatusNotFound, gin.H{"message": "project not found"})
 			return
 		}

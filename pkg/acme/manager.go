@@ -2,6 +2,7 @@ package acme
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -141,7 +142,7 @@ func (m *CertificateManager) GetCertificate(ctx context.Context, certID primitiv
 	var cert ACMECertificate
 	err := collection.FindOne(ctx, filter).Decode(&cert)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, fmt.Errorf("certificate not found")
 		}
 		return nil, fmt.Errorf("failed to get certificate: %w", err)
@@ -170,7 +171,7 @@ func (m *CertificateManager) getCertificateByName(ctx context.Context, secretNam
 	var cert ACMECertificate
 	err := collection.FindOne(ctx, filter).Decode(&cert)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, nil // Not an error - certificate just doesn't exist yet
 		}
 		return nil, fmt.Errorf("failed to get certificate by name: %w", err)
@@ -507,7 +508,7 @@ func (m *CertificateManager) GetDNSCredential(ctx context.Context, credID primit
 	var cred DNSCredential
 	err := collection.FindOne(ctx, filter).Decode(&cred)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, "", fmt.Errorf("credential not found")
 		}
 		return nil, "", fmt.Errorf("failed to get credential: %w", err)
@@ -756,7 +757,7 @@ func (m *CertificateManager) GetTempKey(ctx context.Context, certRequestID primi
 	var tempKey TempKey
 	err := collection.FindOne(ctx, filter).Decode(&tempKey)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, fmt.Errorf("temp key not found")
 		}
 		return nil, fmt.Errorf("failed to get temp key: %w", err)

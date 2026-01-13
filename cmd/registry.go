@@ -11,6 +11,7 @@ import (
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/config"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
+	"github.com/CloudNativeWorks/elchi-backend/registry/metrics"
 	"github.com/CloudNativeWorks/elchi-backend/registry/server"
 	"github.com/CloudNativeWorks/elchi-backend/registry/service"
 	"github.com/CloudNativeWorks/elchi-backend/registry/storage"
@@ -65,7 +66,20 @@ var registryCmd = &cobra.Command{
 		rootLogger.Info("Initializing control-plane routing service...")
 		controlPlaneRoutingService := service.NewRoutingService(controlPlaneStorage, rootLogger)
 
-		// Start cleanup goroutine for stale data (every 10 minutes)
+		// Initialize metrics aggregator
+		rootLogger.Info("Initializing metrics aggregator...")
+		metricsLogger := logger.NewLogger("registry/metrics")
+		metricsAggregator := metrics.NewAggregator(metricsLogger)
+
+		// Start HTTP metrics server (port 9091)
+		httpMetricsServer := server.NewHTTPMetricsServer(metricsAggregator, 9091, metricsLogger)
+		go func() {
+			if err := httpMetricsServer.Start(); err != nil {
+				metricsLogger.Errorf("HTTP metrics server failed: %v", err)
+			}
+		}()
+
+		// Start cleanup goroutine for stale data (every 5 minutes)
 		go func() {
 			ticker := time.NewTicker(5 * time.Minute)
 			defer ticker.Stop()
@@ -84,12 +98,15 @@ var registryCmd = &cobra.Command{
 				} else {
 					rootLogger.Debug("Controller stale data cleanup completed")
 				}
+
+				// Clean up stale metrics
+				metricsAggregator.CleanupStaleMetrics(2 * time.Minute)
 			}
 		}()
 
 		// Start gRPC server
 		rootLogger.WithField("address", fullAddress).Info("Starting gRPC server")
-		if err := server.StartGRPCServer(fullAddress, controllerRoutingService, controlPlaneRoutingService, rootLogger, appConfig); err != nil {
+		if err := server.StartGRPCServer(fullAddress, controllerRoutingService, controlPlaneRoutingService, metricsAggregator, rootLogger, appConfig); err != nil {
 			rootLogger.WithError(err).Fatal("gRPC server error")
 		}
 	},

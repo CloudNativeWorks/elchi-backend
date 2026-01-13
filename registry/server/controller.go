@@ -6,12 +6,12 @@ import (
 	"math"
 	"time"
 
+	"github.com/CloudNativeWorks/elchi-backend/pkg/bridge"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/config"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/helper"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/registry/models"
 	"github.com/CloudNativeWorks/elchi-backend/registry/service"
-	pb "github.com/CloudNativeWorks/elchi-proto/client"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -19,7 +19,7 @@ import (
 
 // ControllerGRPCServer implements the gRPC controller routing service
 type ControllerGRPCServer struct {
-	pb.UnimplementedControllerRoutingServiceServer
+	bridge.UnimplementedControllerRoutingServiceServer
 	controllerRoutingService *service.ControllerRoutingService
 	extProcessorServer       *ExternalProcessorServer
 	logger                   *logger.Logger
@@ -37,7 +37,7 @@ func NewControllerGRPCServer(controllerRoutingService *service.ControllerRouting
 }
 
 // RegisterController handles controller registration
-func (s *ControllerGRPCServer) RegisterController(ctx context.Context, req *pb.RegisterControllerRequest) (*pb.RegisterControllerResponse, error) {
+func (s *ControllerGRPCServer) RegisterController(ctx context.Context, req *bridge.RegisterControllerRequest) (*bridge.RegisterControllerResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request cannot be nil")
 	}
@@ -54,21 +54,21 @@ func (s *ControllerGRPCServer) RegisterController(ctx context.Context, req *pb.R
 
 	if err := s.controllerRoutingService.RegisterController(ctx, controllerInfo); err != nil {
 		s.logger.Errorf("Failed to register controller %s: %v", req.ControllerId, err)
-		return &pb.RegisterControllerResponse{
+		return &bridge.RegisterControllerResponse{
 			Success: false,
 			Message: "failed: " + err.Error(),
 		}, nil
 	}
 
 	s.logger.Infof("Controller registered successfully: %s version %s", req.ControllerId, req.Version)
-	return &pb.RegisterControllerResponse{
+	return &bridge.RegisterControllerResponse{
 		Success: true,
 		Message: "controller registered successfully",
 	}, nil
 }
 
 // GetControllerCluster handles controller cluster routing requests
-func (s *ControllerGRPCServer) GetControllerCluster(ctx context.Context, req *pb.GetControllerClusterRequest) (*pb.GetControllerClusterResponse, error) {
+func (s *ControllerGRPCServer) GetControllerCluster(ctx context.Context, req *bridge.GetControllerClusterRequest) (*bridge.GetControllerClusterResponse, error) {
 	if req == nil || req.ClientId == "" {
 		return nil, status.Error(codes.InvalidArgument, "client ID cannot be empty")
 	}
@@ -87,7 +87,7 @@ func (s *ControllerGRPCServer) GetControllerCluster(ctx context.Context, req *pb
 		} else {
 			s.logger.Errorf("Failed to find controller for client %s version %s: %v", req.ClientId, req.Version, err)
 		}
-		return &pb.GetControllerClusterResponse{
+		return &bridge.GetControllerClusterResponse{
 			Found: false,
 		}, nil
 	}
@@ -98,21 +98,21 @@ func (s *ControllerGRPCServer) GetControllerCluster(ctx context.Context, req *pb
 		s.logger.Infof("Controller routing decision: %s:%s -> %s", req.ClientId, req.Version, controller.ID)
 	}
 
-	return &pb.GetControllerClusterResponse{
+	return &bridge.GetControllerClusterResponse{
 		Found:        true,
 		ControllerId: controller.ID,
 	}, nil
 }
 
 // NotifyClientConnected handles client connection notifications
-func (s *ControllerGRPCServer) NotifyClientConnected(ctx context.Context, req *pb.NotifyClientConnectedRequest) (*pb.NotifyClientConnectedResponse, error) {
+func (s *ControllerGRPCServer) NotifyClientConnected(ctx context.Context, req *bridge.NotifyClientConnectedRequest) (*bridge.NotifyClientConnectedResponse, error) {
 	if req == nil || req.ControllerId == "" || req.ClientId == "" || req.Version == "" {
 		return nil, status.Error(codes.InvalidArgument, "controller ID, client ID and version cannot be empty")
 	}
 
 	if err := s.controllerRoutingService.NotifyClientConnected(ctx, req.ControllerId, req.ClientId, req.Version, s.appConfig.ElchiNamespace); err != nil {
 		s.logger.Errorf("Failed to notify client connected: %v", err)
-		return &pb.NotifyClientConnectedResponse{
+		return &bridge.NotifyClientConnectedResponse{
 			Success: false,
 			Message: "failed: " + err.Error(),
 		}, nil
@@ -121,35 +121,35 @@ func (s *ControllerGRPCServer) NotifyClientConnected(ctx context.Context, req *p
 	// Note: Pending assignment will be cleared automatically when real mapping is found
 	s.logger.Infof("Client connected notification processed: %s -> %s (version: %s)", req.ControllerId, req.ClientId, req.Version)
 
-	return &pb.NotifyClientConnectedResponse{
+	return &bridge.NotifyClientConnectedResponse{
 		Success: true,
 		Message: "client connected notification processed",
 	}, nil
 }
 
 // NotifyClientDisconnected handles client disconnection notifications
-func (s *ControllerGRPCServer) NotifyClientDisconnected(ctx context.Context, req *pb.NotifyClientDisconnectedRequest) (*pb.NotifyClientDisconnectedResponse, error) {
+func (s *ControllerGRPCServer) NotifyClientDisconnected(ctx context.Context, req *bridge.NotifyClientDisconnectedRequest) (*bridge.NotifyClientDisconnectedResponse, error) {
 	if req == nil || req.ControllerId == "" || req.ClientId == "" || req.Version == "" {
 		return nil, status.Error(codes.InvalidArgument, "controller ID, client ID and version cannot be empty")
 	}
 
 	if err := s.controllerRoutingService.NotifyClientDisconnected(ctx, req.ControllerId, req.ClientId, req.Version); err != nil {
 		s.logger.Errorf("Failed to notify client disconnected: %v", err)
-		return &pb.NotifyClientDisconnectedResponse{
+		return &bridge.NotifyClientDisconnectedResponse{
 			Success: false,
 			Message: "failed: " + err.Error(),
 		}, nil
 	}
 
 	s.logger.Infof("Client disconnected notification processed: %s -> %s (version: %s)", req.ControllerId, req.ClientId, req.Version)
-	return &pb.NotifyClientDisconnectedResponse{
+	return &bridge.NotifyClientDisconnectedResponse{
 		Success: true,
 		Message: "client disconnected notification processed",
 	}, nil
 }
 
 // UpdateClientList handles bulk client list updates
-func (s *ControllerGRPCServer) UpdateClientList(ctx context.Context, req *pb.UpdateClientListRequest) (*pb.UpdateClientListResponse, error) {
+func (s *ControllerGRPCServer) UpdateClientList(ctx context.Context, req *bridge.UpdateClientListRequest) (*bridge.UpdateClientListResponse, error) {
 	if req == nil || req.ControllerId == "" {
 		return nil, status.Error(codes.InvalidArgument, "controller ID cannot be empty")
 	}
@@ -166,7 +166,7 @@ func (s *ControllerGRPCServer) UpdateClientList(ctx context.Context, req *pb.Upd
 
 	if err := s.controllerRoutingService.UpdateClientList(ctx, req.ControllerId, clients, s.appConfig.ElchiNamespace); err != nil {
 		s.logger.Errorf("Failed to update client list for controller %s: %v", req.ControllerId, err)
-		return &pb.UpdateClientListResponse{
+		return &bridge.UpdateClientListResponse{
 			Success:      false,
 			Message:      "failed: " + err.Error(),
 			UpdatedCount: 0,
@@ -186,7 +186,7 @@ func (s *ControllerGRPCServer) UpdateClientList(ctx context.Context, req *pb.Upd
 		updatedCount = int32(clientCount) // #nosec G115 - overflow checked above
 	}
 
-	return &pb.UpdateClientListResponse{
+	return &bridge.UpdateClientListResponse{
 		Success:      true,
 		Message:      "client list updated successfully",
 		UpdatedCount: updatedCount,
@@ -194,14 +194,14 @@ func (s *ControllerGRPCServer) UpdateClientList(ctx context.Context, req *pb.Upd
 }
 
 // HealthCheck handles health check requests
-func (s *ControllerGRPCServer) HealthCheck(ctx context.Context, req *pb.ControllerHealthCheckRequest) (*pb.ControllerHealthCheckResponse, error) {
+func (s *ControllerGRPCServer) HealthCheck(ctx context.Context, req *bridge.ControllerHealthCheckRequest) (*bridge.ControllerHealthCheckResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request cannot be nil")
 	}
 
 	s.logger.Debugf("Controller health check request from: %s", req.Service)
 
-	return &pb.ControllerHealthCheckResponse{
+	return &bridge.ControllerHealthCheckResponse{
 		Healthy:   true,
 		Message:   "controller routing service is healthy",
 		Timestamp: timestamppb.New(time.Now()),
@@ -209,7 +209,7 @@ func (s *ControllerGRPCServer) HealthCheck(ctx context.Context, req *pb.Controll
 }
 
 // ListControllers handles list controllers requests
-func (s *ControllerGRPCServer) ListControllers(ctx context.Context, req *pb.ListControllersRequest) (*pb.ListControllersResponse, error) {
+func (s *ControllerGRPCServer) ListControllers(ctx context.Context, req *bridge.ListControllersRequest) (*bridge.ListControllersResponse, error) {
 	s.logger.Infof("Listing all controllers")
 
 	controllers, err := s.controllerRoutingService.ListControllers(ctx)
@@ -218,9 +218,9 @@ func (s *ControllerGRPCServer) ListControllers(ctx context.Context, req *pb.List
 		return nil, status.Errorf(codes.Internal, "failed to list controllers: %v", err)
 	}
 
-	var protoControllers []*pb.ControllerInfo
+	var protoControllers []*bridge.ControllerInfo
 	for _, ctrl := range controllers {
-		protoControllers = append(protoControllers, &pb.ControllerInfo{
+		protoControllers = append(protoControllers, &bridge.ControllerInfo{
 			ControllerId: ctrl.ID,
 			Version:      ctrl.Version,
 			HttpAddress:  ctrl.HttpAddress,
@@ -229,13 +229,13 @@ func (s *ControllerGRPCServer) ListControllers(ctx context.Context, req *pb.List
 	}
 
 	s.logger.Infof("Found %d controllers", len(protoControllers))
-	return &pb.ListControllersResponse{
+	return &bridge.ListControllersResponse{
 		Controllers: protoControllers,
 	}, nil
 }
 
 // ListClientsByController handles list clients by controller requests
-func (s *ControllerGRPCServer) ListClientsByController(ctx context.Context, req *pb.ListClientsByControllerRequest) (*pb.ListClientsByControllerResponse, error) {
+func (s *ControllerGRPCServer) ListClientsByController(ctx context.Context, req *bridge.ListClientsByControllerRequest) (*bridge.ListClientsByControllerResponse, error) {
 	if req == nil || req.ControllerId == "" {
 		return nil, status.Error(codes.InvalidArgument, "controller ID cannot be empty")
 	}
@@ -248,9 +248,9 @@ func (s *ControllerGRPCServer) ListClientsByController(ctx context.Context, req 
 		return nil, status.Errorf(codes.Internal, "failed to get clients: %v", err)
 	}
 
-	var protoClients []*pb.ClientInfo
+	var protoClients []*bridge.ClientInfo
 	for _, client := range clients {
-		protoClients = append(protoClients, &pb.ClientInfo{
+		protoClients = append(protoClients, &bridge.ClientInfo{
 			ClientId: client.ClientID,
 			Version:  client.Version,
 			LastSeen: timestamppb.New(client.LastSeen),
@@ -258,13 +258,13 @@ func (s *ControllerGRPCServer) ListClientsByController(ctx context.Context, req 
 	}
 
 	s.logger.Infof("Found %d clients for controller %s", len(protoClients), req.ControllerId)
-	return &pb.ListClientsByControllerResponse{
+	return &bridge.ListClientsByControllerResponse{
 		Clients: protoClients,
 	}, nil
 }
 
 // GetAllRegistryData handles get all controller registry data requests
-func (s *ControllerGRPCServer) GetAllRegistryData(ctx context.Context, req *pb.GetAllControllerRegistryDataRequest) (*pb.GetAllControllerRegistryDataResponse, error) {
+func (s *ControllerGRPCServer) GetAllRegistryData(ctx context.Context, req *bridge.GetAllControllerRegistryDataRequest) (*bridge.GetAllControllerRegistryDataResponse, error) {
 	s.logger.Infof("Getting all controller registry data")
 
 	data, err := s.controllerRoutingService.ListAllData(ctx)
@@ -274,9 +274,9 @@ func (s *ControllerGRPCServer) GetAllRegistryData(ctx context.Context, req *pb.G
 	}
 
 	// Convert to proto
-	var protoControllers []*pb.ControllerInfo
+	var protoControllers []*bridge.ControllerInfo
 	for _, ctrl := range data.Controllers {
-		protoControllers = append(protoControllers, &pb.ControllerInfo{
+		protoControllers = append(protoControllers, &bridge.ControllerInfo{
 			ControllerId: ctrl.ID,
 			Version:      ctrl.Version,
 			HttpAddress:  ctrl.HttpAddress,
@@ -284,24 +284,24 @@ func (s *ControllerGRPCServer) GetAllRegistryData(ctx context.Context, req *pb.G
 		})
 	}
 
-	clientsByController := make(map[string]*pb.ClientsData)
+	clientsByController := make(map[string]*bridge.ClientsData)
 	for controllerID, clients := range data.ClientsByController {
-		var protoClients []*pb.ClientInfo
+		var protoClients []*bridge.ClientInfo
 		for _, client := range clients {
-			protoClients = append(protoClients, &pb.ClientInfo{
+			protoClients = append(protoClients, &bridge.ClientInfo{
 				ClientId: client.ClientID,
 				Version:  client.Version,
 				LastSeen: timestamppb.New(client.LastSeen),
 			})
 		}
-		clientsByController[controllerID] = &pb.ClientsData{
+		clientsByController[controllerID] = &bridge.ClientsData{
 			Clients: protoClients,
 		}
 	}
 
 	s.logger.Infof("Returning registry data: %d controllers, %d controller-client mappings", len(protoControllers), len(clientsByController))
-	return &pb.GetAllControllerRegistryDataResponse{
-		Data: &pb.ControllerRegistryData{
+	return &bridge.GetAllControllerRegistryDataResponse{
+		Data: &bridge.ControllerRegistryData{
 			Controllers:         protoControllers,
 			ClientsByController: clientsByController,
 		},
@@ -309,7 +309,7 @@ func (s *ControllerGRPCServer) GetAllRegistryData(ctx context.Context, req *pb.G
 }
 
 // DeleteController handles controller deletion requests
-func (s *ControllerGRPCServer) DeleteController(ctx context.Context, req *pb.DeleteControllerRequest) (*pb.DeleteControllerResponse, error) {
+func (s *ControllerGRPCServer) DeleteController(ctx context.Context, req *bridge.DeleteControllerRequest) (*bridge.DeleteControllerResponse, error) {
 	if req == nil || req.ControllerId == "" {
 		return nil, status.Error(codes.InvalidArgument, "controller ID cannot be empty")
 	}
@@ -318,14 +318,14 @@ func (s *ControllerGRPCServer) DeleteController(ctx context.Context, req *pb.Del
 
 	if err := s.controllerRoutingService.DeleteController(ctx, req.ControllerId); err != nil {
 		s.logger.Errorf("Failed to delete controller %s: %v", req.ControllerId, err)
-		return &pb.DeleteControllerResponse{
+		return &bridge.DeleteControllerResponse{
 			Success: false,
 			Message: "failed: " + err.Error(),
 		}, nil
 	}
 
 	s.logger.Infof("Controller deleted successfully: %s", req.ControllerId)
-	return &pb.DeleteControllerResponse{
+	return &bridge.DeleteControllerResponse{
 		Success: true,
 		Message: "controller deleted successfully",
 	}, nil

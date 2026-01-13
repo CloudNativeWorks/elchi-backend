@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto"
 	"crypto/ecdsa"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -234,7 +235,7 @@ func (m *CertificateManager) GetDNSChallengesFromLetsEncrypt(ctx context.Context
 	if err != nil {
 		// Check if it's a rate limit error
 		if strings.Contains(err.Error(), "rateLimited") || strings.Contains(err.Error(), "429") {
-			return nil, fmt.Errorf("let's Encrypt rate limit exceeded: too many failed authorizations for this domain in the last hour. Please wait 1 hour or use a different subdomain. Original error: %v", err)
+			return nil, fmt.Errorf("let's Encrypt rate limit exceeded: too many failed authorizations for this domain in the last hour. Please wait 1 hour or use a different subdomain. Original error: %w", err)
 		}
 		return nil, fmt.Errorf("failed to create ACME order and capture challenges: %w", err)
 	}
@@ -1250,7 +1251,7 @@ func (m *CertificateManager) storeCertificateInSecrets(
 		var existing models.DBResource
 		err = collection.FindOne(ctx, filter).Decode(&existing)
 
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			// Insert new secret for this version
 			_, err = collection.InsertOne(ctx, resource)
 			if err != nil {

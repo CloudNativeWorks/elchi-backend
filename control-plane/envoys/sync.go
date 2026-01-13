@@ -2,6 +2,7 @@ package envoys
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -73,7 +74,7 @@ func (e *EnvoyConnTracker) AddOrUpdateEnvoy(ctx context.Context, dbClient *mongo
 
 	var existing bson.M
 	err := collection.FindOne(ctx, filter).Decode(&existing)
-	if err != nil && err != mongo.ErrNoDocuments {
+	if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
 		logger.Errorf("Error reading envoys stream: %v", err)
 		return
 	}

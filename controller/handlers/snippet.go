@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -45,7 +46,7 @@ func (sh *SnippetHandler) validateSnippetData(data any) error {
 	// Size limit check (100KB)
 	jsonBytes, err := json.Marshal(data)
 	if err != nil {
-		return fmt.Errorf("invalid JSON data: %v", err)
+		return fmt.Errorf("invalid JSON data: %w", err)
 	}
 	if len(jsonBytes) > 100*1024 {
 		return fmt.Errorf("snippet data too large (max 100KB)")
@@ -172,7 +173,7 @@ func (sh *SnippetHandler) GetSnippet(c *gin.Context) {
 	var snippet models.ResourceSnippet
 	err = collection.FindOne(ctx, bson.M{"_id": objID}).Decode(&snippet)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Snippet not found"})
 			return
 		}
@@ -286,7 +287,7 @@ func (sh *SnippetHandler) UpdateSnippet(c *gin.Context) {
 	var existingSnippet models.ResourceSnippet
 	err = collection.FindOne(ctx, bson.M{"_id": objID}).Decode(&existingSnippet)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Snippet not found"})
 			return
 		}

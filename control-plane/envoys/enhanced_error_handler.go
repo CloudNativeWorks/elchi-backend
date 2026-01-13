@@ -2,6 +2,7 @@ package envoys
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -94,7 +95,7 @@ func InsertEnhancedError(ctx context.Context, dbClient *mongo.Database, nodeID, 
 
 	now := time.Now()
 
-	if err == mongo.ErrNoDocuments {
+	if errors.Is(err, mongo.ErrNoDocuments) {
 		// New error - create entry
 		newError := EnhancedErrorEntry{
 			ID:               errorID,

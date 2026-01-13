@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/CloudNativeWorks/elchi-backend/controller/client/authorization"
 	"github.com/CloudNativeWorks/elchi-backend/controller/client/processor"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/bridge"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/helper"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
@@ -102,7 +104,7 @@ func (h *Client) handleForwardedResponse(forwardedResp *ForwardedResponse, resul
 	if err := json.Unmarshal(forwardedResp.RawJSON, &forwardedResults); err != nil {
 		h.logger.Errorf("Failed to parse forwarded response JSON for client %s: %v", forwardedResp.ClientID, err)
 		h.logger.Errorf("Problematic JSON: %s", string(forwardedResp.RawJSON))
-		return fmt.Errorf("failed to parse forwarded response for client %s: %v", forwardedResp.ClientID, err)
+		return fmt.Errorf("failed to parse forwarded response for client %s: %w", forwardedResp.ClientID, err)
 	}
 
 	h.logger.Infof("Parsed %d forwarded results for client %s", len(forwardedResults), forwardedResp.ClientID)
@@ -275,7 +277,8 @@ func (h *Client) processClientsInParallel(ctx context.Context, clients []models.
 
 		if result.Error != nil {
 			// Handle forwarded response
-			if forwardedResp, ok := result.Error.(*ForwardedResponse); ok {
+			var forwardedResp *ForwardedResponse
+			if errors.As(result.Error, &forwardedResp) {
 				if err := h.handleForwardedResponse(forwardedResp, &finalResults); err != nil {
 					h.logger.Errorf("Failed to handle forwarded response for client %s: %v", result.ClientID, err)
 					failedClients = append(failedClients, result.ClientID)
@@ -344,7 +347,8 @@ func (h *Client) processClientSequential(ctx context.Context, clients []models.S
 		response, err := h.processClientWithSafeguards(ctx, requestDetails, client, op, processor)
 		if err != nil {
 			// Check if this is a forwarded response with raw JSON
-			if forwardedResp, ok := err.(*ForwardedResponse); ok {
+			var forwardedResp *ForwardedResponse
+			if errors.As(err, &forwardedResp) {
 				if err := h.handleForwardedResponse(forwardedResp, &result); err != nil {
 					h.logger.Errorf("Failed to handle forwarded response for client %s: %v", client.ClientID, err)
 					failedClients[client.ClientID] = err.Error()
@@ -431,7 +435,7 @@ func (h *Client) buildTargetURL(targetControllerID string, requestDetails models
 func (h *Client) prepareForwardRequest(ctx context.Context, targetURL string, requestBody []byte, requestDetails models.RequestDetails, clientID string) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, "POST", targetURL, bytes.NewBuffer(requestBody))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create HTTP request: %v", err)
+		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
 	}
 
 	// Set headers
@@ -479,7 +483,7 @@ func (h *Client) executeForwardRequest(req *http.Request, targetURL string) ([]b
 	resp, err := sharedHTTPClient.Do(req)
 	if err != nil {
 		h.logger.Errorf("HTTP forward request failed: %v", err)
-		return nil, fmt.Errorf("failed to forward HTTP request to %s: %v", targetURL, err)
+		return nil, fmt.Errorf("failed to forward HTTP request to %s: %w", targetURL, err)
 	}
 	defer resp.Body.Close()
 
@@ -489,7 +493,7 @@ func (h *Client) executeForwardRequest(req *http.Request, targetURL string) ([]b
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		h.logger.Errorf("Failed to read HTTP forward response: %v", err)
-		return nil, fmt.Errorf("failed to read forward response: %v", err)
+		return nil, fmt.Errorf("failed to read forward response: %w", err)
 	}
 
 	h.logger.Infof("HTTP forward response body size: %d bytes", len(responseBody))
@@ -622,7 +626,7 @@ func (h *Client) executeDirectCommand(_ context.Context, op models.OperationClas
 		var err error
 		clients, err = h.FetchClients(op, requestDetails.Version)
 		if err != nil {
-			return nil, fmt.Errorf("failed to fetch clients: %v", err)
+			return nil, fmt.Errorf("failed to fetch clients: %w", err)
 		}
 
 		// Check if any clients were found after fetching from database - only for UPDATE_BOOTSTRAP
@@ -636,14 +640,14 @@ func (h *Client) executeDirectCommand(_ context.Context, op models.OperationClas
 		processedPayload, err := processor.ValidateAndTransform(op, requestDetails, client)
 		if err != nil {
 			h.logger.Errorf("Validation failed for client %s: %v", client.ClientID, err)
-			return nil, fmt.Errorf("command validation error for client %s: %v", client.ClientID, err)
+			return nil, fmt.Errorf("command validation error for client %s: %w", client.ClientID, err)
 		}
 
 		// Direct send only (no routing)
 		response, err := h.tryDirectSend(client.ClientID, op.GetTypeNum(), op.GetSubTypeNum(), processedPayload)
 		if err != nil {
 			h.logger.Errorf("Direct send failed for client %s: %v", client.ClientID, err)
-			return nil, fmt.Errorf("client %s not found on this controller: %v", client.ClientID, err)
+			return nil, fmt.Errorf("client %s not found on this controller: %w", client.ClientID, err)
 		}
 
 		responser, exists := h.responser.GetResponser(op.GetType())
@@ -667,7 +671,7 @@ func (h *Client) sendCommandWithLocationCheck(ctx context.Context, requestDetail
 	if h.Service.IsClientConnected(clientID) {
 		processedPayload, err := processor.ValidateAndTransform(op, requestDetails, client)
 		if err != nil {
-			return nil, fmt.Errorf("command validation error for client %s: %v", clientID, err)
+			return nil, fmt.Errorf("command validation error for client %s: %w", clientID, err)
 		}
 
 		return h.Service.SendCommand(clientID, op.GetTypeNum(), op.GetSubTypeNum(), processedPayload)
@@ -688,7 +692,7 @@ func (h *Client) sendCommandWithLocationCheck(ctx context.Context, requestDetail
 
 	// Use a channel to make the registry call interruptible
 	type registryResult struct {
-		location *pb.GetControllerClusterResponse
+		location *bridge.GetControllerClusterResponse
 		err      error
 	}
 
@@ -698,7 +702,7 @@ func (h *Client) sendCommandWithLocationCheck(ctx context.Context, requestDetail
 		resultChan <- registryResult{location: location, err: err}
 	}()
 
-	var clientLocation *pb.GetControllerClusterResponse
+	var clientLocation *bridge.GetControllerClusterResponse
 	var err error
 
 	select {
@@ -712,7 +716,7 @@ func (h *Client) sendCommandWithLocationCheck(ctx context.Context, requestDetail
 
 	if err != nil {
 		h.logger.Errorf("Failed to get client location from registry for client %s: %v", clientID, err)
-		return nil, fmt.Errorf("failed to find client %s: %v", clientID, err)
+		return nil, fmt.Errorf("failed to find client %s: %w", clientID, err)
 	}
 
 	h.logger.Infof("Registry returned location for client %s: controller=%s, found=%v", clientID, clientLocation.ControllerId, clientLocation.Found)
@@ -726,7 +730,7 @@ func (h *Client) sendCommandWithLocationCheck(ctx context.Context, requestDetail
 
 		processedPayload, err := processor.ValidateAndTransform(op, requestDetails, client)
 		if err != nil {
-			return nil, fmt.Errorf("command validation error for supposedly local client %s: %v", clientID, err)
+			return nil, fmt.Errorf("command validation error for supposedly local client %s: %w", clientID, err)
 		}
 
 		return h.Service.SendCommand(clientID, op.GetTypeNum(), op.GetSubTypeNum(), processedPayload)
@@ -778,7 +782,7 @@ func (h *Client) forwardCommandViaHTTP(ctx context.Context, requestDetails model
 		filteredBody, err := h.filterRequestBodyForClient(requestDetails.OriginalBody, clientID, clientInfo)
 		if err != nil {
 			h.logger.Errorf("Failed to filter request body for client %s: %v", clientID, err)
-			return nil, fmt.Errorf("failed to filter request body for client %s: %v", clientID, err)
+			return nil, fmt.Errorf("failed to filter request body for client %s: %w", clientID, err)
 		}
 		requestBody = filteredBody
 		h.logger.Debugf("Successfully filtered request body for client %s: original=%d bytes, filtered=%d bytes", clientID, len(requestDetails.OriginalBody), len(requestBody))
@@ -820,7 +824,7 @@ func (h *Client) filterRequestBodyForClient(originalBody []byte, targetClientID 
 	var jsonData map[string]any
 	if err := json.Unmarshal(originalBody, &jsonData); err != nil {
 		h.logger.Errorf("Failed to parse original request body as JSON: %v", err)
-		return nil, fmt.Errorf("failed to parse original request body as JSON: %v", err)
+		return nil, fmt.Errorf("failed to parse original request body as JSON: %w", err)
 	}
 
 	// Check if clients array exists
@@ -871,7 +875,7 @@ func (h *Client) filterRequestBodyForClient(originalBody []byte, targetClientID 
 		updatedBody, err := json.Marshal(jsonData)
 		if err != nil {
 			h.logger.Errorf("Failed to marshal updated request body: %v", err)
-			return nil, fmt.Errorf("failed to marshal updated request body: %v", err)
+			return nil, fmt.Errorf("failed to marshal updated request body: %w", err)
 		}
 
 		h.logger.Debugf("Created filtered body with target client: %d bytes", len(updatedBody))
@@ -916,7 +920,7 @@ func (h *Client) filterRequestBodyForClient(originalBody []byte, targetClientID 
 	filteredBody, err := json.Marshal(jsonData)
 	if err != nil {
 		h.logger.Errorf("Failed to marshal filtered request: %v", err)
-		return nil, fmt.Errorf("failed to marshal filtered request: %v", err)
+		return nil, fmt.Errorf("failed to marshal filtered request: %w", err)
 	}
 
 	h.logger.Debugf("Filtered Body Size: %d bytes", len(filteredBody))

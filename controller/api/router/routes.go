@@ -112,6 +112,13 @@ func initSettingRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		{"POST", "/ldap-config/test", h.TestLDAPConfigWithAudit},
 		{"POST", "/ldap-config/test-auth", h.TestLDAPAuthWithAudit},
 
+		// GSLB configuration endpoints
+		{"GET", "/gslb", h.Settings.GetGSLBConfig},
+		{"PUT", "/gslb", h.SetGSLBConfigWithAudit},
+		{"POST", "/gslb", h.UpdateGSLBConfigWithAudit},
+		{"DELETE", "/gslb", h.DeleteGSLBConfigWithAudit},
+		{"GET", "/gslb/failover-zones", h.Settings.GetGSLBFailoverZones},
+
 		// OTP configuration endpoints (Admin/Owner only)
 		{"GET", "/otp-config", h.Settings.GetOTPConfig()},
 		{"PUT", "/otp-config", h.Settings.UpdateOTPConfig()},
@@ -533,6 +540,52 @@ func initACMERoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		// CA Providers
 		{"GET", "/ca-providers", h.CAProviders.ListSupportedProviders},                      // GET /api/v3/acme/ca-providers
 		{"POST", "/ca-providers/:provider/validate-eab", h.CAProviders.ValidateEABCredentials}, // POST /api/v3/acme/ca-providers/:provider/validate-eab
+	}
+
+	initRoutes(rg, routes)
+}
+
+// initDNSRoutes initializes GSLB DNS API routes
+// These endpoints are used by CoreDNS plugin for DNS record retrieval
+// Authentication: DNSAuthMiddleware validates zone-based X-Elchi-DNS-Secret header
+func initDNSRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
+	routes := []struct {
+		method  string
+		path    string
+		handler gin.HandlerFunc
+	}{
+		// DNS Snapshot API (used by CoreDNS plugin)
+		{"GET", "/snapshot", h.DNS.GetDNSSnapshot}, // GET /dns/snapshot?zone=X
+		{"GET", "/changes", h.DNS.GetDNSChanges},   // GET /dns/changes?zone=X&since=VERSION
+	}
+
+	initRoutes(rg, routes)
+}
+
+// initGSLBRoutes initializes GSLB CRUD API routes
+// These endpoints are for manual GSLB record management (Admin/Owner only for write operations)
+func initGSLBRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
+	routes := []struct {
+		method  string
+		path    string
+		handler gin.HandlerFunc
+	}{
+		// GSLB Record CRUD
+		{"GET", "", h.GSLB.ListGSLBRecords},         // GET /api/v3/gslb?project=X
+		{"GET", "/:id", h.GSLB.GetGSLBRecord},       // GET /api/v3/gslb/:id?project=X
+		{"POST", "", h.GSLB.CreateGSLBRecord},       // POST /api/v3/gslb (Admin/Owner only)
+		{"PUT", "/:id", h.GSLB.UpdateGSLBRecord},    // PUT /api/v3/gslb/:id (Admin/Owner only)
+		{"DELETE", "/:id", h.GSLB.DeleteGSLBRecord}, // DELETE /api/v3/gslb/:id?project=X (Admin/Owner only)
+
+		// Bulk Operations
+		{"PUT", "/batch", h.GSLB.BulkUpdateGSLBRecords}, // PUT /api/v3/gslb/batch (Admin/Owner only) - Bulk enable/disable
+
+		// IP Management (NEW)
+		{"GET", "/:id/ips", h.GSLB.ListIPsForRecord},           // GET /api/v3/gslb/:id/ips - List all IPs for a GSLB record
+		{"POST", "/:id/ips", h.GSLB.AddIPToRecord},             // POST /api/v3/gslb/:id/ips (Admin/Owner only)
+		{"PUT", "/:id/ips/:ip", h.GSLB.UpdateIPHealthState},    // PUT /api/v3/gslb/:id/ips/:ip (Admin/Owner only) - Manual health state control
+		{"DELETE", "/:id/ips/:ip", h.GSLB.RemoveIPFromRecord},  // DELETE /api/v3/gslb/:id/ips/:ip (Admin/Owner only)
+		{"DELETE", "/ip/:id/history", h.GSLB.ClearIPHistory},   // DELETE /api/v3/gslb/ip/:id/history (Admin/Owner only) - Clear status history for specific IP health document
 	}
 
 	initRoutes(rg, routes)

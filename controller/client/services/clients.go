@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -29,7 +30,7 @@ type ClientService struct {
 	pendingMux       sync.RWMutex
 	logger           *logger.Logger
 	registryClient   *registry.RegistryClient
-	
+
 	// Callback for client disconnect events
 	onClientDisconnected func(clientID string)
 }
@@ -72,7 +73,7 @@ func (s *ClientService) getDefaultProjectID(ctx context.Context) (string, error)
 	).Decode(&defaultProject)
 
 	if err != nil {
-		return "", fmt.Errorf("default project not found: %v", err)
+		return "", fmt.Errorf("default project not found: %w", err)
 	}
 
 	return defaultProject.ID.Hex(), nil
@@ -86,13 +87,13 @@ func (s *ClientService) validateClientProjectRegistration(ctx context.Context, c
 		bson.M{"client_id": clientID},
 	).Decode(&existingClient)
 
-	if err == mongo.ErrNoDocuments {
+	if errors.Is(err, mongo.ErrNoDocuments) {
 		// Client doesn't exist, registration allowed
 		return nil
 	}
 
 	if err != nil {
-		return fmt.Errorf("failed to check existing client: %v", err)
+		return fmt.Errorf("failed to check existing client: %w", err)
 	}
 
 	// Client exists, check if it's trying to register for a different project
@@ -140,12 +141,12 @@ func (s *ClientService) validateCloudKeyExists(ctx context.Context, projectID st
 		bson.M{"project": projectID},
 	).Decode(&settings)
 
-	if err == mongo.ErrNoDocuments {
+	if errors.Is(err, mongo.ErrNoDocuments) {
 		return fmt.Errorf("no cloud configurations found for this project")
 	}
 
 	if err != nil {
-		return fmt.Errorf("failed to check cloud configurations: %v", err)
+		return fmt.Errorf("failed to check cloud configurations: %w", err)
 	}
 
 	if settings.Clouds == nil {
@@ -203,25 +204,25 @@ func (s *ClientService) UpsertClientToDB(ctx context.Context, clientInfo *client
 	filter := bson.M{"client_id": clientInfo.ClientID}
 	update := bson.M{
 		"$set": bson.M{
-			"client_id":        clientInfo.ClientID,
-			"version":          clientInfo.Version,
-			"hostname":         clientInfo.Hostname,
-			"name":             clientInfo.Name,
-			"os":               clientInfo.OS,
-			"arch":             clientInfo.Arch,
-			"kernel":           clientInfo.Kernel,
-			"connected":        clientInfo.Connected,
-			"last_seen":        clientInfo.LastSeen,
-			"session_token":    clientInfo.SessionToken,
-			"metadata":         clientInfo.Metadata,
-			"access_token":     clientInfo.AccessTokens,
-			"project":          clientInfo.Project,
-			"bgp":              clientInfo.BGP,
-			"cloud":            clientInfo.Cloud,
-			"provider":         clientInfo.Provider,
-			"connect_time":     clientInfo.ConnectTime,
-			"connect_reason":   clientInfo.ConnectReason,
-			"disconnect_time":  clientInfo.DisconnectTime,
+			"client_id":         clientInfo.ClientID,
+			"version":           clientInfo.Version,
+			"hostname":          clientInfo.Hostname,
+			"name":              clientInfo.Name,
+			"os":                clientInfo.OS,
+			"arch":              clientInfo.Arch,
+			"kernel":            clientInfo.Kernel,
+			"connected":         clientInfo.Connected,
+			"last_seen":         clientInfo.LastSeen,
+			"session_token":     clientInfo.SessionToken,
+			"metadata":          clientInfo.Metadata,
+			"access_token":      clientInfo.AccessTokens,
+			"project":           clientInfo.Project,
+			"bgp":               clientInfo.BGP,
+			"cloud":             clientInfo.Cloud,
+			"provider":          clientInfo.Provider,
+			"connect_time":      clientInfo.ConnectTime,
+			"connect_reason":    clientInfo.ConnectReason,
+			"disconnect_time":   clientInfo.DisconnectTime,
 			"disconnect_reason": clientInfo.DisconnectReason,
 		},
 		"$setOnInsert": bson.M{
@@ -244,7 +245,7 @@ func (s *ClientService) RegisterClient(req *pb.RegisterRequest) (*client.ClientI
 	var settings models.Settings
 	err := s.Context.Client.Collection("settings").FindOne(ctx, bson.M{}).Decode(&settings)
 	if err != nil {
-		return nil, "", fmt.Errorf("settings token could not be retrieved: %v", err)
+		return nil, "", fmt.Errorf("settings token could not be retrieved: %w", err)
 	}
 
 	tokenValid := false
@@ -435,7 +436,7 @@ func (s *ClientService) GetAllClientsWithFilter(filter bson.M) ([]*client.Client
 	cursor, err := s.Context.Client.Collection("clients").Find(context.Background(), filter)
 	if err != nil {
 		s.logger.Errorf("🔍 DEBUG: MongoDB query failed: %v", err)
-		return nil, fmt.Errorf("failed to get clients: %v", err)
+		return nil, fmt.Errorf("failed to get clients: %w", err)
 	}
 	defer cursor.Close(context.Background())
 
@@ -567,7 +568,7 @@ func (s *ClientService) UpdateClientStream(clientID string, stream pb.CommandSer
 		if err != nil {
 			s.logger.Errorf("Failed to update client connected status in DB: %v", err)
 		} else {
-			s.logger.Infof("✅ Client connected status updated in DB: %s (connect_time: %v, reason: %s)", 
+			s.logger.Infof("✅ Client connected status updated in DB: %s (connect_time: %v, reason: %s)",
 				clientID, client.ConnectTime.Format("15:04:05"), client.ConnectReason)
 		}
 	}()
@@ -581,22 +582,22 @@ func (s *ClientService) MarkClientDisconnectedInDBWithReason(ctx context.Context
 	currentClient, err := s.GetClientByClientID(ctx, clientID)
 	wasConnected := false
 	var lastSeen time.Time
-	
+
 	if err == nil && currentClient != nil {
 		wasConnected = currentClient.Connected
 		lastSeen = currentClient.LastSeen
 	}
-	
+
 	// Log detailed disconnection info
 	s.logger.WithFields(logger.Fields{
-		"client_id":            clientID,
+		"client_id":           clientID,
 		"reason":              reason,
 		"was_connected_in_db": wasConnected,
 		"last_seen":           lastSeen,
 		"last_seen_age":       time.Since(lastSeen),
 		"caller_context":      "db_disconnection",
 	}).Warnf("🔴 MARKING CLIENT DISCONNECTED IN DB: %s (reason: %s)", clientID, reason)
-	
+
 	// Check if client is locally connected
 	isLocallyConnected := s.IsClientConnected(clientID)
 	if isLocallyConnected {
@@ -605,31 +606,31 @@ func (s *ClientService) MarkClientDisconnectedInDBWithReason(ctx context.Context
 			"reason":    reason,
 		}).Errorf("⚠️ WARNING: Marking locally connected client as disconnected in DB! This may be a bug!")
 	}
-	
+
 	filter := bson.M{"client_id": clientID}
 	update := bson.M{
 		"$set": bson.M{
-			"connected":        false,
-			"disconnect_time":  time.Now(),
+			"connected":         false,
+			"disconnect_time":   time.Now(),
 			"disconnect_reason": reason,
 		},
 	}
-	
+
 	result, err := s.Context.Client.Collection("clients").UpdateOne(ctx, filter, update)
 	if err != nil {
 		s.logger.Errorf("Failed to update client %s disconnection in DB: %v", clientID, err)
 		return err
 	}
-	
+
 	s.logger.WithFields(logger.Fields{
-		"client_id":        clientID,
-		"reason":          reason,
-		"matched_count":   result.MatchedCount,
-		"modified_count":  result.ModifiedCount,
-		"was_connected":   wasConnected,
+		"client_id":         clientID,
+		"reason":            reason,
+		"matched_count":     result.MatchedCount,
+		"modified_count":    result.ModifiedCount,
+		"was_connected":     wasConnected,
 		"locally_connected": isLocallyConnected,
 	}).Infof("✅ Client disconnection updated in DB: %s", clientID)
-	
+
 	return nil
 }
 
@@ -637,17 +638,17 @@ func (s *ClientService) MarkClientDisconnectedInDBWithReason(ctx context.Context
 func (s *ClientService) DisconnectClient(clientID string) {
 	// CRITICAL FIX: Minimize write lock time to prevent deadlock
 	// Only hold lock for memory operations, do slow operations (DB, registry, callback) outside lock
-	
+
 	var clientToCleanup *client.ClientInfo
 	var wasConnected bool
 	var callbackFunc func(string)
-	
+
 	// PHASE 1: Quick memory cleanup under write lock (minimize lock time)
 	s.clientsMux.Lock()
 	if client, exists := s.clients[clientID]; exists {
 		wasConnected = client.Connected
 		clientToCleanup = client
-		
+
 		s.logger.Infof("Disconnecting client: %s (was connected: %v)", clientID, wasConnected)
 
 		// Clean up client resources quickly and set disconnect info
@@ -663,14 +664,14 @@ func (s *ClientService) DisconnectClient(clientID string) {
 		// Remove from in-memory map immediately to prevent restart conflicts
 		delete(s.clients, clientID)
 		s.logger.Debugf("Client disconnected and removed from memory: %s", clientID)
-		
+
 		// Copy callback reference
 		callbackFunc = s.onClientDisconnected
 	} else {
 		s.logger.Warnf("Attempted to disconnect non-existent client: %s", clientID)
 	}
 	s.clientsMux.Unlock() // RELEASE WRITE LOCK IMMEDIATELY
-	
+
 	// PHASE 2: Slow operations outside of lock (no blocking for other operations)
 	if clientToCleanup != nil {
 		// Update database asynchronously to prevent blocking
@@ -685,7 +686,7 @@ func (s *ClientService) DisconnectClient(clientID string) {
 		go func() {
 			s.notifyRegistryClientDisconnect(clientID)
 		}()
-		
+
 		// Call disconnect callback immediately (this might be needed for active requests)
 		if callbackFunc != nil {
 			s.logger.Debugf("Calling disconnect callback for client: %s", clientID)
@@ -867,15 +868,15 @@ func (s *ClientService) CleanupUnhealthyConnections() {
 			s.DisconnectClient(clientID)
 		} else {
 			s.logger.Debugf("Client %s passed health check (inactive for %v)", clientID, timeSinceLastSeen)
-			
+
 			// Update DB to reflect connected status when health check passes
 			go func(id string) {
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
-				
+
 				filter := bson.M{"client_id": id}
 				update := bson.M{"$set": bson.M{"connected": true}}
-				
+
 				_, err := s.Context.Client.Collection("clients").UpdateOne(ctx, filter, update)
 				if err != nil {
 					s.logger.Errorf("Failed to update client connected status in DB (health check): %v", err)

@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -119,7 +120,7 @@ func (s *Server) Ping(ctx context.Context, req *pb.PingRequest) (*pb.PingRespons
 
 	// Update client's last seen time (in-memory)
 	client.UpdateLastSeen()
-	
+
 	// Mark client as connected if it wasn't already (ping means client is alive)
 	wasConnected := client.Connected
 	if !client.Connected {
@@ -139,7 +140,7 @@ func (s *Server) Ping(ctx context.Context, req *pb.PingRequest) (*pb.PingRespons
 		// Update client in memory first to get consistent data
 		var connectTime time.Time
 		var connectReason string
-		
+
 		if clientInfo, err := s.clientService.GetClient(clientID); err == nil {
 			clientInfo.UpdateLastSeen()
 			if !clientInfo.Connected {
@@ -159,21 +160,21 @@ func (s *Server) Ping(ctx context.Context, req *pb.PingRequest) (*pb.PingRespons
 		filter := bson.M{"client_id": clientID}
 		update := bson.M{"$set": bson.M{
 			"last_seen":      lastSeen,
-			"connected":      true,  // Ping means client is connected
+			"connected":      true, // Ping means client is connected
 			"connect_time":   connectTime,
 			"connect_reason": connectReason,
 		}}
-		
+
 		result, err := s.clientService.Context.Client.Collection("clients").UpdateOne(ctx, filter, update)
 		if err != nil {
 			s.logger.Errorf("Failed to update client status in DB for client %s: %v", clientID, err)
 		} else {
 			s.logger.WithFields(logger.Fields{
-				"client_id":        clientID,
-				"was_connected":    wasConnectedBefore,
-				"matched_count":    result.MatchedCount,
-				"modified_count":   result.ModifiedCount,
-				"source":          "ping_handler_db",
+				"client_id":      clientID,
+				"was_connected":  wasConnectedBefore,
+				"matched_count":  result.MatchedCount,
+				"modified_count": result.ModifiedCount,
+				"source":         "ping_handler_db",
 			}).Debugf("✅ Client %s connection status updated in DB via ping", clientID)
 		}
 	}(req.ClientId, client.LastSeen, wasConnected)
@@ -206,7 +207,7 @@ func (s *Server) CommandStream(stream pb.CommandService_CommandStreamServer) err
 	// Wait for the initial message
 	initialResp, err := stream.Recv()
 	if err != nil {
-		return fmt.Errorf("failed to receive initial message: %v", err)
+		return fmt.Errorf("failed to receive initial message: %w", err)
 	}
 
 	clientID := initialResp.GetIdentity().GetClientId()
@@ -217,12 +218,12 @@ func (s *Server) CommandStream(stream pb.CommandService_CommandStreamServer) err
 
 	if err := s.clientService.ValidateSession(clientID, sessionToken); err != nil {
 		s.logger.Errorf("Session validation error (Client ID: %s, Session Token: %s): %v", clientID, sessionToken, err)
-		return fmt.Errorf("session validation error: %v", err)
+		return fmt.Errorf("session validation error: %w", err)
 	}
 
 	if err := s.clientService.UpdateClientStream(clientID, stream); err != nil {
 		s.logger.Errorf("Stream update error (Client ID: %s): %v", clientID, err)
-		return fmt.Errorf("stream update error: %v", err)
+		return fmt.Errorf("stream update error: %w", err)
 	}
 
 	s.logger.Infof("Client stream connection successful (Client ID: %s)", clientID)
@@ -230,7 +231,7 @@ func (s *Server) CommandStream(stream pb.CommandService_CommandStreamServer) err
 	client, err := s.clientService.GetClient(clientID)
 	if err != nil {
 		s.logger.Errorf("Failed to get client after stream update (Client ID: %s): %v", clientID, err)
-		return fmt.Errorf("client not found after stream update: %v", err)
+		return fmt.Errorf("client not found after stream update: %w", err)
 	}
 
 	// Keepalive ticker removed - client will send pings via separate connection
@@ -263,7 +264,7 @@ func (s *Server) CommandStream(stream pb.CommandService_CommandStreamServer) err
 
 				s.clientService.DisconnectClient(clientID)
 				s.logger.Warnf("Stream closed (Client ID: %s): %v", clientID, err)
-				return fmt.Errorf("stream error: %v", err)
+				return fmt.Errorf("stream error: %w", err)
 			}
 
 			// Message validation
@@ -303,15 +304,16 @@ func isTemporaryError(err error) bool {
 		return false
 	}
 	// Context timeout is temporary, but cancellation might not be
-	if err == context.DeadlineExceeded {
+	if errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
 	// Only treat context.Canceled as temporary in specific cases
-	if err == context.Canceled {
+	if errors.Is(err, context.Canceled) {
 		return false // Let the upper level handle this
 	}
 	// net.Error is temporary if Timeout is true
-	if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
+	var nerr net.Error
+	if errors.As(err, &nerr) && nerr.Timeout() {
 		return true
 	}
 	// String check for some gRPC errors (example)

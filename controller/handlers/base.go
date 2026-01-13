@@ -66,6 +66,8 @@ type Handler struct {
 	Maintenance  *MaintenanceHandler
 	ACME         *ACMEHandler
 	CAProviders  *CAProvidersHandler
+	DNS          *DNSHandler
+	GSLB         *GSLBHandler
 }
 
 // getDatabaseConnection returns the first available database connection from handlers
@@ -89,7 +91,7 @@ func (h *Handler) getDatabaseConnection() *mongo.Database {
 	return nil
 }
 
-func NewHandler(xds *xds.AppHandler, extension *extension.AppHandler, custom *custom.AppHandler, settings *settings.AppHandler, dependency *dependency.AppHandler, stats *bridge.AppHandler, scenario *scenario.AppHandler, client *client.AppHandler, service *service.AppHandler, discovery *discovery.DiscoveryHandler, jobs *JobHandler, registry *RegistryHandler, openstack *openstack.Handler, auditService *audit.Service, template *ResourceTemplateHandler, routeMap *routemap.RouteMapHandler, maintenance *MaintenanceHandler, upgrade *UpgradeHandler, acme *ACMEHandler, caProviders *CAProvidersHandler) *Handler {
+func NewHandler(xds *xds.AppHandler, extension *extension.AppHandler, custom *custom.AppHandler, settings *settings.AppHandler, dependency *dependency.AppHandler, stats *bridge.AppHandler, scenario *scenario.AppHandler, client *client.AppHandler, service *service.AppHandler, discovery *discovery.DiscoveryHandler, jobs *JobHandler, registry *RegistryHandler, openstack *openstack.Handler, auditService *audit.Service, template *ResourceTemplateHandler, routeMap *routemap.RouteMapHandler, maintenance *MaintenanceHandler, upgrade *UpgradeHandler, acme *ACMEHandler, caProviders *CAProvidersHandler, dnsHandler *DNSHandler, gslbHandler *GSLBHandler) *Handler {
 	handler := &Handler{
 		XDS:          xds,
 		Extension:    extension,
@@ -111,6 +113,8 @@ func NewHandler(xds *xds.AppHandler, extension *extension.AppHandler, custom *cu
 		Upgrade:      upgrade,
 		ACME:         acme,
 		CAProviders:  caProviders,
+		DNS:          dnsHandler,
+		GSLB:         gslbHandler,
 	}
 
 	// Initialize profile handler
@@ -874,6 +878,44 @@ func (h *Handler) TestLDAPConfigWithAudit(c *gin.Context) {
 // TestLDAPAuthWithAudit wraps TestLDAPAuth (no audit for test endpoints)
 func (h *Handler) TestLDAPAuthWithAudit(c *gin.Context) {
 	h.Settings.TestLDAPAuth(c)
+}
+
+// ================== GSLB CONFIGURATION AUDIT WRAPPERS ==================
+
+// SetGSLBConfigWithAudit wraps SetGSLBConfig with audit logging
+func (h *Handler) SetGSLBConfigWithAudit(c *gin.Context) {
+	requestDetails, _ := h.getRequestDetails(c)
+	h.setGSLBAuditContext(c, requestDetails)
+	h.Settings.SetGSLBConfig(c)
+	if c.Writer.Status() >= 400 {
+		h.setAuditResult(c, fmt.Errorf("GSLB config creation failed"))
+	} else {
+		h.setAuditResult(c, nil)
+	}
+}
+
+// UpdateGSLBConfigWithAudit wraps UpdateGSLBConfig with audit logging
+func (h *Handler) UpdateGSLBConfigWithAudit(c *gin.Context) {
+	requestDetails, _ := h.getRequestDetails(c)
+	h.setGSLBAuditContext(c, requestDetails)
+	h.Settings.UpdateGSLBConfig(c)
+	if c.Writer.Status() >= 400 {
+		h.setAuditResult(c, fmt.Errorf("GSLB config update failed"))
+	} else {
+		h.setAuditResult(c, nil)
+	}
+}
+
+// DeleteGSLBConfigWithAudit wraps DeleteGSLBConfig with audit logging
+func (h *Handler) DeleteGSLBConfigWithAudit(c *gin.Context) {
+	requestDetails, _ := h.getRequestDetails(c)
+	h.setGSLBAuditContext(c, requestDetails)
+	h.Settings.DeleteGSLBConfig(c)
+	if c.Writer.Status() >= 400 {
+		h.setAuditResult(c, fmt.Errorf("GSLB config deletion failed"))
+	} else {
+		h.setAuditResult(c, nil)
+	}
 }
 
 // updateScenarioAuditFromResponse extracts scenario ID and name from CREATE response

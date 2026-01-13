@@ -3,6 +3,7 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -157,7 +158,8 @@ func (ca *ConfigAnalyzer) AnalyzeResourceConfig(ctx context.Context, req ConfigA
 		errorMessage := err.Error()
 
 		// Check if it's an OpenRouter error and extract relevant info
-		if openRouterErr, ok := err.(*OpenRouterError); ok {
+		var openRouterErr *OpenRouterError
+		if errors.As(err, &openRouterErr) {
 			ca.logger.Errorf("OpenRouter API error - Status: %d, Model: %s, Message: %s",
 				openRouterErr.StatusCode, openRouterErr.Model, openRouterErr.Message)
 
@@ -243,13 +245,14 @@ func (ca *ConfigAnalyzer) AnalyzeLogsWithConfig(ctx context.Context, req LogAnal
 	}
 
 	// 4. Analyze logs with AI
-	analysis, suggestions, errors, logSummary, inputTokens, outputTokens, err := ca.analyzeLogsWithAI(req, result)
+	analysis, suggestions, errorss, logSummary, inputTokens, outputTokens, err := ca.analyzeLogsWithAI(req, result)
 	if err != nil {
 		// Enhanced error handling for OpenRouter errors
 		errorMessage := err.Error()
 
 		// Check if it's an OpenRouter error and extract relevant info
-		if openRouterErr, ok := err.(*OpenRouterError); ok {
+		var openRouterErr *OpenRouterError
+		if errors.As(err, &openRouterErr) {
 			ca.logger.Errorf("OpenRouter API error - Status: %d, Model: %s, Message: %s",
 				openRouterErr.StatusCode, openRouterErr.Model, openRouterErr.Message)
 
@@ -275,7 +278,7 @@ func (ca *ConfigAnalyzer) AnalyzeLogsWithConfig(ctx context.Context, req LogAnal
 
 	result.Analysis = analysis
 	result.Suggestions = suggestions
-	result.ErrorsDetected = errors
+	result.ErrorsDetected = errorss
 	result.LogSummary = logSummary
 	result.TokenUsage = TokenUsage{
 		InputTokens:  inputTokens,

@@ -11,6 +11,9 @@ type Settings struct {
 
 	// OTP/2FA enforcement
 	OTPEnforced bool `json:"otp_enforced" bson:"otp_enforced"` // Project-level OTP requirement
+
+	// GSLB Configuration
+	GSLBConfig *GSLBConfig `bson:"gslb_config,omitempty" json:"gslb_config,omitempty"`
 }
 
 type Token struct {
@@ -55,4 +58,13 @@ type LDAPConfig struct {
 	BindPassword  string `json:"bind_password" bson:"bind_password"`
 	TLSEnabled    bool   `json:"tls_enabled" bson:"tls_enabled"`
 	TLSSkipVerify bool   `json:"tls_skip_verify" bson:"tls_skip_verify"`
+}
+
+// GSLBConfig represents GSLB (Global Server Load Balancing) configuration
+type GSLBConfig struct {
+	Enabled       bool     `bson:"enabled" json:"enabled"`
+	Zone          string   `bson:"zone" json:"zone"`                                         // DNS zone (e.g., "avrupa-gslb.elchi")
+	FailoverZones []string `bson:"failover_zones,omitempty" json:"failover_zones,omitempty"` // Optional failover zones array (e.g., ["asya-gslb.elchi", "us-gslb.elchi"]) - first one is default
+	DNSSecret     string   `bson:"dns_secret" json:"dns_secret"`                             // CoreDNS plugin authentication secret
+	DefaultTTL    uint32   `bson:"default_ttl" json:"default_ttl"`                           // Default TTL for auto-created records (e.g., 60 seconds)
 }

@@ -223,10 +223,10 @@ func GetDBResource(db *mongo.Database, collectionName string, filter bson.M) (*m
 	var resource models.DBResource
 	err := db.Collection(collectionName).FindOne(context.Background(), filter).Decode(&resource)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, fmt.Errorf("resource not found")
 		}
-		return nil, fmt.Errorf("error fetching resource: %v", err)
+		return nil, fmt.Errorf("error fetching resource: %w", err)
 	}
 	return &resource, nil
 }

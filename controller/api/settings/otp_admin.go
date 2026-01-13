@@ -2,6 +2,7 @@ package settings
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
@@ -35,7 +36,7 @@ func (handler *AppHandler) GetOTPConfig() gin.HandlerFunc {
 			Decode(&settings)
 
 		if err != nil {
-			if err == mongo.ErrNoDocuments {
+			if errors.Is(err, mongo.ErrNoDocuments) {
 				// No settings yet, return default
 				c.JSON(http.StatusOK, gin.H{
 					"project":      project,

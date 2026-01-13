@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -227,7 +228,7 @@ func (h *JobHandler) GetJob(c *gin.Context) {
 	}
 
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Job not found"})
 			return
 		}
@@ -301,7 +302,7 @@ func (h *JobHandler) RetryJob(c *gin.Context) {
 	}
 
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Job not found"})
 			return
 		}

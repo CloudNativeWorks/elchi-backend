@@ -203,11 +203,7 @@ func (h *Handler) GlobalSearch(c *gin.Context) {
 	}
 
 	// Perform search
-	results, err := performGlobalSearch(ctx, db, requestDetails, query)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": fmt.Sprintf("search failed: %v", err)})
-		return
-	}
+	results := performGlobalSearch(ctx, db, requestDetails, query)
 
 	response := SearchResponse{
 		Query:        query,
@@ -219,13 +215,13 @@ func (h *Handler) GlobalSearch(c *gin.Context) {
 }
 
 // performGlobalSearch executes the search across all relevant collections using configurations
-func performGlobalSearch(ctx context.Context, db *mongo.Database, requestDetails models.RequestDetails, query string) ([]SearchResult, error) {
+func performGlobalSearch(ctx context.Context, db *mongo.Database, requestDetails models.RequestDetails, query string) []SearchResult {
 	var allResults []SearchResult
 
 	// Sanitize input first
 	sanitizedQuery, valid := security.SanitizeSearchInput(query)
 	if !valid || sanitizedQuery == "" {
-		return []SearchResult{}, nil
+		return []SearchResult{}
 	}
 
 	// Determine search type (IP or domain)
@@ -258,7 +254,7 @@ func performGlobalSearch(ctx context.Context, db *mongo.Database, requestDetails
 		allResults = append(allResults, results...)
 	}
 
-	return allResults, nil
+	return allResults
 }
 
 // searchCollection performs a generic search on a MongoDB collection

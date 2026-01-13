@@ -54,3 +54,17 @@ sonar-project.properties
 ACME_API.md
 plan.md
 sec_err.txt
+cleanup_test_gslb.sh
+check_orphan_records.sh
+.gitignore
+create_test_gslb_v2.sh
+
+# pprof profiling outputs
+*.prof
+*.pprof
+cpu.prof
+heap.prof
+goroutine.prof
+block.prof
+mutex.prof
+trace.out

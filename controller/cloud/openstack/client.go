@@ -201,7 +201,7 @@ func (c *OpenStackClient) authenticate(ctx context.Context) error {
 
 	jsonData, err := json.Marshal(authPayload)
 	if err != nil {
-		return fmt.Errorf("failed to marshal auth payload: %v", err)
+		return fmt.Errorf("failed to marshal auth payload: %w", err)
 	}
 
 	authURL := c.AuthURL + "/v3/auth/tokens"
@@ -216,7 +216,7 @@ func (c *OpenStackClient) authenticate(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, "POST", authURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		c.Logger.Errorf("OpenStack Auth - Failed to create auth request: %v", err)
-		return fmt.Errorf("failed to create auth request: %v", err)
+		return fmt.Errorf("failed to create auth request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -229,7 +229,7 @@ func (c *OpenStackClient) authenticate(ctx context.Context) error {
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		c.Logger.Errorf("OpenStack Auth - Authentication request failed: %v", err)
-		return fmt.Errorf("authentication request failed: %v", err)
+		return fmt.Errorf("authentication request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -263,7 +263,7 @@ func (c *OpenStackClient) authenticate(ctx context.Context) error {
 	var authResp AuthResponse
 	if err := json.NewDecoder(resp.Body).Decode(&authResp); err != nil {
 		c.Logger.Errorf("OpenStack Auth - Failed to decode auth response: %v", err)
-		return fmt.Errorf("failed to decode auth response: %v", err)
+		return fmt.Errorf("failed to decode auth response: %w", err)
 	}
 
 	c.Logger.Debugf("OpenStack Auth - Auth response decoded, expires_at: %s", authResp.Token.ExpiresAt)
@@ -277,7 +277,7 @@ func (c *OpenStackClient) authenticate(ctx context.Context) error {
 		expiresAt, err = time.Parse("2006-01-02T15:04:05Z", authResp.Token.ExpiresAt)
 		if err != nil {
 			c.Logger.Errorf("OpenStack Auth - Failed to parse expires_at timestamp: %v", err)
-			return fmt.Errorf("failed to parse expires_at timestamp: %v", err)
+			return fmt.Errorf("failed to parse expires_at timestamp: %w", err)
 		}
 	}
 
@@ -335,14 +335,14 @@ func (c *OpenStackClient) ListServerPorts(ctx context.Context, serverID string) 
 	// Authenticate first
 	if err := c.authenticate(ctx); err != nil {
 		c.Logger.Errorf("OpenStack Ports - Authentication failed: %v", err)
-		return nil, fmt.Errorf("authentication failed: %v", err)
+		return nil, fmt.Errorf("authentication failed: %w", err)
 	}
 
 	// Get network endpoint
 	endpoint, err := c.getNetworkEndpoint()
 	if err != nil {
 		c.Logger.Errorf("OpenStack Ports - Failed to get network endpoint: %v", err)
-		return nil, fmt.Errorf("failed to get network endpoint: %v", err)
+		return nil, fmt.Errorf("failed to get network endpoint: %w", err)
 	}
 
 	// Build request URL with server filter
@@ -352,7 +352,7 @@ func (c *OpenStackClient) ListServerPorts(ctx context.Context, serverID string) 
 	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
 		c.Logger.Errorf("OpenStack Ports - Failed to create request: %v", err)
-		return nil, fmt.Errorf("failed to create request: %v", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	// Add authentication token
@@ -364,7 +364,7 @@ func (c *OpenStackClient) ListServerPorts(ctx context.Context, serverID string) 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		c.Logger.Errorf("OpenStack Ports - Request failed: %v", err)
-		return nil, fmt.Errorf("request failed: %v", err)
+		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -389,7 +389,7 @@ func (c *OpenStackClient) ListServerPorts(ctx context.Context, serverID string) 
 	var portsResp PortsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&portsResp); err != nil {
 		c.Logger.Errorf("OpenStack Ports - Failed to decode response: %v", err)
-		return nil, fmt.Errorf("failed to decode response: %v", err)
+		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
 	c.Logger.Infof("OpenStack Ports - Found %d ports for server %s", len(portsResp.Ports), serverID)
@@ -400,19 +400,19 @@ func (c *OpenStackClient) ListServerPorts(ctx context.Context, serverID string) 
 func (c *OpenStackClient) AddAllowedAddressPair(ctx context.Context, portID, ipAddress string) error {
 	// Authenticate first
 	if err := c.authenticate(ctx); err != nil {
-		return fmt.Errorf("authentication failed: %v", err)
+		return fmt.Errorf("authentication failed: %w", err)
 	}
 
 	// Get network endpoint
 	endpoint, err := c.getNetworkEndpoint()
 	if err != nil {
-		return fmt.Errorf("failed to get network endpoint: %v", err)
+		return fmt.Errorf("failed to get network endpoint: %w", err)
 	}
 
 	// First, get current port details to preserve existing allowed address pairs
 	port, err := c.getPort(ctx, endpoint, portID)
 	if err != nil {
-		return fmt.Errorf("failed to get port details: %v", err)
+		return fmt.Errorf("failed to get port details: %w", err)
 	}
 
 	// Check if the IP address is already in allowed address pairs
@@ -432,8 +432,8 @@ func (c *OpenStackClient) AddAllowedAddressPair(ctx context.Context, portID, ipA
 	port.AllowedAddressPairs = append(port.AllowedAddressPairs, newPair)
 
 	// Update the port
-	updatePayload := map[string]interface{}{
-		"port": map[string]interface{}{
+	updatePayload := map[string]any{
+		"port": map[string]any{
 			"allowed_address_pairs": port.AllowedAddressPairs,
 		},
 	}
@@ -445,19 +445,19 @@ func (c *OpenStackClient) AddAllowedAddressPair(ctx context.Context, portID, ipA
 func (c *OpenStackClient) RemoveAllowedAddressPair(ctx context.Context, portID, ipAddress string) error {
 	// Authenticate first
 	if err := c.authenticate(ctx); err != nil {
-		return fmt.Errorf("authentication failed: %v", err)
+		return fmt.Errorf("authentication failed: %w", err)
 	}
 
 	// Get network endpoint
 	endpoint, err := c.getNetworkEndpoint()
 	if err != nil {
-		return fmt.Errorf("failed to get network endpoint: %v", err)
+		return fmt.Errorf("failed to get network endpoint: %w", err)
 	}
 
 	// Get current port details
 	port, err := c.getPort(ctx, endpoint, portID)
 	if err != nil {
-		return fmt.Errorf("failed to get port details: %v", err)
+		return fmt.Errorf("failed to get port details: %w", err)
 	}
 
 	// Remove the allowed address pair
@@ -477,8 +477,8 @@ func (c *OpenStackClient) RemoveAllowedAddressPair(ctx context.Context, portID, 
 	}
 
 	// Update the port
-	updatePayload := map[string]interface{}{
-		"port": map[string]interface{}{
+	updatePayload := map[string]any{
+		"port": map[string]any{
 			"allowed_address_pairs": updatedPairs,
 		},
 	}
@@ -496,7 +496,7 @@ func (c *OpenStackClient) getPort(ctx context.Context, endpoint, portID string) 
 	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
 		c.Logger.Errorf("OpenStack Port Get - Failed to create request: %v", err)
-		return nil, fmt.Errorf("failed to create request: %v", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	req.Header.Set("X-Auth-Token", c.cachedToken.tokenID)
@@ -512,7 +512,7 @@ func (c *OpenStackClient) getPort(ctx context.Context, endpoint, portID string) 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		c.Logger.Errorf("OpenStack Port Get - HTTP request failed: %v", err)
-		return nil, fmt.Errorf("request failed: %v", err)
+		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -539,7 +539,7 @@ func (c *OpenStackClient) getPort(ctx context.Context, endpoint, portID string) 
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&portResp); err != nil {
 		c.Logger.Errorf("OpenStack Port Get - Failed to decode response: %v", err)
-		return nil, fmt.Errorf("failed to decode response: %v", err)
+		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
 	c.Logger.Debugf("OpenStack Port Get - Successfully retrieved port: %s", portResp.Port.ID)
@@ -548,17 +548,17 @@ func (c *OpenStackClient) getPort(ctx context.Context, endpoint, portID string) 
 }
 
 // updatePort updates port configuration
-func (c *OpenStackClient) updatePort(ctx context.Context, endpoint, portID string, payload map[string]interface{}) error {
+func (c *OpenStackClient) updatePort(ctx context.Context, endpoint, portID string, payload map[string]any) error {
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("failed to marshal update payload: %v", err)
+		return fmt.Errorf("failed to marshal update payload: %w", err)
 	}
 
 	reqURL := fmt.Sprintf("%s/v2.0/ports/%s", endpoint, portID)
 
 	req, err := http.NewRequestWithContext(ctx, "PUT", reqURL, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return fmt.Errorf("failed to create request: %v", err)
+		return fmt.Errorf("failed to create request: %w", err)
 	}
 
 	req.Header.Set("X-Auth-Token", c.cachedToken.tokenID)
@@ -566,7 +566,7 @@ func (c *OpenStackClient) updatePort(ctx context.Context, endpoint, portID strin
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("request failed: %v", err)
+		return fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -598,14 +598,14 @@ func (c *OpenStackClient) GetNetwork(ctx context.Context, networkID string) (*Ne
 	// Authenticate first
 	if err := c.authenticate(ctx); err != nil {
 		c.Logger.Errorf("OpenStack Network - Authentication failed: %v", err)
-		return nil, fmt.Errorf("authentication failed: %v", err)
+		return nil, fmt.Errorf("authentication failed: %w", err)
 	}
 
 	// Get network endpoint
 	endpoint, err := c.getNetworkEndpoint()
 	if err != nil {
 		c.Logger.Errorf("OpenStack Network - Failed to get network endpoint: %v", err)
-		return nil, fmt.Errorf("failed to get network endpoint: %v", err)
+		return nil, fmt.Errorf("failed to get network endpoint: %w", err)
 	}
 
 	// Build request URL
@@ -615,7 +615,7 @@ func (c *OpenStackClient) GetNetwork(ctx context.Context, networkID string) (*Ne
 	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
 		c.Logger.Errorf("OpenStack Network - Failed to create request: %v", err)
-		return nil, fmt.Errorf("failed to create request: %v", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	// Add authentication token
@@ -627,7 +627,7 @@ func (c *OpenStackClient) GetNetwork(ctx context.Context, networkID string) (*Ne
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		c.Logger.Errorf("OpenStack Network - Request failed: %v", err)
-		return nil, fmt.Errorf("request failed: %v", err)
+		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -652,7 +652,7 @@ func (c *OpenStackClient) GetNetwork(ctx context.Context, networkID string) (*Ne
 	var networkResp NetworkResponse
 	if err := json.NewDecoder(resp.Body).Decode(&networkResp); err != nil {
 		c.Logger.Errorf("OpenStack Network - Failed to decode response: %v", err)
-		return nil, fmt.Errorf("failed to decode response: %v", err)
+		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
 	c.Logger.Infof("OpenStack Network - Successfully retrieved network %s (%s)", networkResp.Network.Name, networkID)
@@ -666,14 +666,14 @@ func (c *OpenStackClient) GetSubnet(ctx context.Context, subnetID string) (*Subn
 	// Authenticate first
 	if err := c.authenticate(ctx); err != nil {
 		c.Logger.Errorf("OpenStack Subnet - Authentication failed: %v", err)
-		return nil, fmt.Errorf("authentication failed: %v", err)
+		return nil, fmt.Errorf("authentication failed: %w", err)
 	}
 
 	// Get network endpoint
 	endpoint, err := c.getNetworkEndpoint()
 	if err != nil {
 		c.Logger.Errorf("OpenStack Subnet - Failed to get network endpoint: %v", err)
-		return nil, fmt.Errorf("failed to get network endpoint: %v", err)
+		return nil, fmt.Errorf("failed to get network endpoint: %w", err)
 	}
 
 	// Build request URL
@@ -683,7 +683,7 @@ func (c *OpenStackClient) GetSubnet(ctx context.Context, subnetID string) (*Subn
 	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
 		c.Logger.Errorf("OpenStack Subnet - Failed to create request: %v", err)
-		return nil, fmt.Errorf("failed to create request: %v", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	// Add authentication token
@@ -695,7 +695,7 @@ func (c *OpenStackClient) GetSubnet(ctx context.Context, subnetID string) (*Subn
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		c.Logger.Errorf("OpenStack Subnet - Request failed: %v", err)
-		return nil, fmt.Errorf("request failed: %v", err)
+		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -720,7 +720,7 @@ func (c *OpenStackClient) GetSubnet(ctx context.Context, subnetID string) (*Subn
 	var subnetResp SubnetResponse
 	if err := json.NewDecoder(resp.Body).Decode(&subnetResp); err != nil {
 		c.Logger.Errorf("OpenStack Subnet - Failed to decode response: %v", err)
-		return nil, fmt.Errorf("failed to decode response: %v", err)
+		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
 	c.Logger.Infof("OpenStack Subnet - Successfully retrieved subnet %s (%s)", subnetResp.Subnet.Name, subnetID)
@@ -734,14 +734,14 @@ func (c *OpenStackClient) ListNetworkSubnets(ctx context.Context, networkID stri
 	// Authenticate first
 	if err := c.authenticate(ctx); err != nil {
 		c.Logger.Errorf("OpenStack Subnets - Authentication failed: %v", err)
-		return nil, fmt.Errorf("authentication failed: %v", err)
+		return nil, fmt.Errorf("authentication failed: %w", err)
 	}
 
 	// Get network endpoint
 	endpoint, err := c.getNetworkEndpoint()
 	if err != nil {
 		c.Logger.Errorf("OpenStack Subnets - Failed to get network endpoint: %v", err)
-		return nil, fmt.Errorf("failed to get network endpoint: %v", err)
+		return nil, fmt.Errorf("failed to get network endpoint: %w", err)
 	}
 
 	// Build request URL with network filter
@@ -751,7 +751,7 @@ func (c *OpenStackClient) ListNetworkSubnets(ctx context.Context, networkID stri
 	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
 		c.Logger.Errorf("OpenStack Subnets - Failed to create request: %v", err)
-		return nil, fmt.Errorf("failed to create request: %v", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	// Add authentication token
@@ -763,7 +763,7 @@ func (c *OpenStackClient) ListNetworkSubnets(ctx context.Context, networkID stri
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		c.Logger.Errorf("OpenStack Subnets - Request failed: %v", err)
-		return nil, fmt.Errorf("request failed: %v", err)
+		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -788,7 +788,7 @@ func (c *OpenStackClient) ListNetworkSubnets(ctx context.Context, networkID stri
 	var subnetsResp SubnetsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&subnetsResp); err != nil {
 		c.Logger.Errorf("OpenStack Subnets - Failed to decode response: %v", err)
-		return nil, fmt.Errorf("failed to decode response: %v", err)
+		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
 	c.Logger.Infof("OpenStack Subnets - Found %d subnets for network %s", len(subnetsResp.Subnets), networkID)
@@ -802,21 +802,21 @@ func (c *OpenStackClient) AddFixedIP(ctx context.Context, portID, ipAddress, sub
 	// Authenticate first
 	if err := c.authenticate(ctx); err != nil {
 		c.Logger.Errorf("OpenStack Fixed IP - Authentication failed: %v", err)
-		return fmt.Errorf("authentication failed: %v", err)
+		return fmt.Errorf("authentication failed: %w", err)
 	}
 
 	// Get network endpoint
 	endpoint, err := c.getNetworkEndpoint()
 	if err != nil {
 		c.Logger.Errorf("OpenStack Fixed IP - Failed to get network endpoint: %v", err)
-		return fmt.Errorf("failed to get network endpoint: %v", err)
+		return fmt.Errorf("failed to get network endpoint: %w", err)
 	}
 
 	// First, get current port details to preserve existing fixed IPs
 	port, err := c.getPort(ctx, endpoint, portID)
 	if err != nil {
 		c.Logger.Errorf("OpenStack Fixed IP - Failed to get port details: %v", err)
-		return fmt.Errorf("failed to get port details: %v", err)
+		return fmt.Errorf("failed to get port details: %w", err)
 	}
 
 	// Check if the IP address is already in fixed IPs
@@ -843,7 +843,7 @@ func (c *OpenStackClient) AddFixedIP(ctx context.Context, portID, ipAddress, sub
 
 	if err := c.updatePort(ctx, endpoint, portID, updatePayload); err != nil {
 		c.Logger.Errorf("OpenStack Fixed IP - Failed to update port: %v", err)
-		return err
+		return fmt.Errorf("failed to update port: %w", err)
 	}
 
 	c.Logger.Infof("Successfully added fixed IP %s to port %s", ipAddress, portID)
@@ -857,21 +857,21 @@ func (c *OpenStackClient) RemoveFixedIP(ctx context.Context, portID, ipAddress s
 	// Authenticate first
 	if err := c.authenticate(ctx); err != nil {
 		c.Logger.Errorf("OpenStack Fixed IP - Authentication failed: %v", err)
-		return fmt.Errorf("authentication failed: %v", err)
+		return fmt.Errorf("authentication failed: %w", err)
 	}
 
 	// Get network endpoint
 	endpoint, err := c.getNetworkEndpoint()
 	if err != nil {
 		c.Logger.Errorf("OpenStack Fixed IP - Failed to get network endpoint: %v", err)
-		return fmt.Errorf("failed to get network endpoint: %v", err)
+		return fmt.Errorf("failed to get network endpoint: %w", err)
 	}
 
 	// Get current port details
 	port, err := c.getPort(ctx, endpoint, portID)
 	if err != nil {
 		c.Logger.Errorf("OpenStack Fixed IP - Failed to get port details: %v", err)
-		return fmt.Errorf("failed to get port details: %v", err)
+		return fmt.Errorf("failed to get port details: %w", err)
 	}
 
 	// Remove the fixed IP (but keep at least one fixed IP)

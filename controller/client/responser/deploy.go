@@ -2,16 +2,20 @@ package responser
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/CloudNativeWorks/elchi-backend/controller/client/services"
 	"github.com/CloudNativeWorks/elchi-backend/controller/cloud/openstack"
 	"github.com/CloudNativeWorks/elchi-backend/controller/crud/xds"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/gslb"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 	pb "github.com/CloudNativeWorks/elchi-proto/client"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 type DeployResponser struct {
@@ -72,6 +76,23 @@ func (p *DeployResponser) ValidateAndTransform(op models.OperationClass, respons
 	}
 
 	p.Logger.Infof("Client ID: %s successfully added to service: %s", clientID, serviceName)
+
+	// Step 1.5: Add IP to GSLB record if enabled
+	ctx := context.Background()
+	serviceCollection := p.XDSHandler.Context.Client.Collection("services")
+	var service struct {
+		ID primitive.ObjectID `bson:"_id"`
+	}
+	serviceFilter := bson.M{"name": serviceName, "project": projectName, "version": version}
+	if err := serviceCollection.FindOne(ctx, serviceFilter).Decode(&service); err == nil {
+		serviceID := service.ID.Hex()
+		if err := p.addIPToGSLBRecord(ctx, serviceID, projectName, version, clientID, downstreamAddress); err != nil {
+			p.Logger.Errorf("Failed to add IP to GSLB for client %s: %v", clientID, err)
+			// Don't fail deploy if GSLB IP addition fails
+		}
+	} else if !errors.Is(err, mongo.ErrNoDocuments) {
+		p.Logger.Errorf("Failed to fetch service ID for GSLB: %v", err)
+	}
 
 	// Step 2: OpenStack integration (if required)
 	if interfaceID != "" && ipMode != "" {
@@ -179,7 +200,7 @@ func (p *DeployResponser) handleOpenStackIntegration(clientID, downstreamAddress
 	// Get client information to check provider
 	client, err := p.Service.GetClientByClientID(context.Background(), clientID)
 	if err != nil {
-		return fmt.Errorf("failed to get client info: %v", err)
+		return fmt.Errorf("failed to get client info: %w", err)
 	}
 
 	// Only process OpenStack clients
@@ -201,7 +222,7 @@ func (p *DeployResponser) handleOpenStackIntegration(clientID, downstreamAddress
 			downstreamAddress, interfaceID, clientID)
 
 		if err := p.OpenStackHandler.AddAllowedAddressPair(context.Background(), interfaceID, downstreamAddress, projectName); err != nil {
-			return fmt.Errorf("failed to add allowed address pair: %v", err)
+			return fmt.Errorf("failed to add allowed address pair: %w", err)
 		}
 
 		p.Logger.Infof("Successfully added allowed address pair %s to interface %s", downstreamAddress, interfaceID)
@@ -216,7 +237,7 @@ func (p *DeployResponser) handleOpenStackIntegration(clientID, downstreamAddress
 		// We need to determine the subnet ID from the port's existing fixed IPs
 		// For now, we'll use the first fixed IP's subnet ID as reference
 		if err := p.OpenStackHandler.AddFixedIPWithAutoSubnet(context.Background(), interfaceID, downstreamAddress, projectName); err != nil {
-			return fmt.Errorf("failed to add fixed IP: %v", err)
+			return fmt.Errorf("failed to add fixed IP: %w", err)
 		}
 
 		p.Logger.Infof("Successfully added fixed IP %s to interface %s", downstreamAddress, interfaceID)
@@ -225,4 +246,52 @@ func (p *DeployResponser) handleOpenStackIntegration(clientID, downstreamAddress
 	default:
 		return fmt.Errorf("invalid ip_mode: %s (must be 'aap' or 'fixed')", ipMode)
 	}
+}
+
+// ================== GSLB IP ADDRESS MANAGEMENT ==================
+
+// addIPToGSLBRecord adds client's downstream address to GSLB IP health collection
+func (p *DeployResponser) addIPToGSLBRecord(ctx context.Context, serviceID, projectName, version, clientID, downstreamAddress string) error {
+	if downstreamAddress == "" {
+		return nil
+	}
+
+	gslbCollection := p.XDSHandler.Context.Client.Collection("gslb_records")
+
+	filter := bson.M{
+		"service_id": serviceID,
+		"project":    projectName,
+		"version":    version,
+	}
+
+	var gslbRecord models.GSLBRecord
+	err := gslbCollection.FindOne(ctx, filter).Decode(&gslbRecord)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		// No GSLB record - GSLB not enabled for this service
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	// Create IPHealthManager directly
+	ipHealthManager := gslb.NewIPHealthManager(p.XDSHandler.Context.Client, p.Logger)
+
+	// Calculate sub-shard for this IP
+	subShardID := gslb.CalculateSubShardID(gslbRecord.FQDN, downstreamAddress)
+
+	// Add IP to gslb_ip_health collection (optimistic healthy state)
+	err = ipHealthManager.AddIP(ctx, gslbRecord.ID, gslbRecord.FQDN, downstreamAddress, clientID, gslbRecord.ShardID, subShardID)
+	if err != nil {
+		// Check if duplicate (IP already exists)
+		if mongo.IsDuplicateKeyError(err) {
+			p.Logger.Debugf("IP %s already exists in GSLB for client %s", downstreamAddress, clientID)
+			return nil
+		}
+		return fmt.Errorf("failed to add IP to GSLB health collection: %w", err)
+	}
+
+	p.Logger.Infof("✅ Added IP %s to GSLB health collection for client %s (shard: %d/%d)",
+		downstreamAddress, clientID, gslbRecord.ShardID, subShardID)
+	return nil
 }

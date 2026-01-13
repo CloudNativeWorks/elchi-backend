@@ -64,7 +64,7 @@ func (p *DeployProcessor) ValidateAndTransform(op models.OperationClass, request
 
 				if err := p.validateFixedIPInSubnet(context.TODO(), cl.InterfaceID, cl.DownstreamAddress, op.GetCommandProject()); err != nil {
 					p.Logger.Errorf("VALIDATION FAILED: Fixed IP subnet validation failed for IP %s: %v", cl.DownstreamAddress, err)
-					return nil, fmt.Errorf("fixed IP subnet validation failed: %v", err)
+					return nil, fmt.Errorf("fixed IP subnet validation failed: %w", err)
 				}
 				p.Logger.Infof("VALIDATION PASSED: Subnet validation successful for fixed IP: %s", cl.DownstreamAddress)
 			}
@@ -142,7 +142,7 @@ func (p *DeployProcessor) validateFixedIPInSubnet(ctx context.Context, interface
 	if err != nil {
 		p.Logger.Errorf("Fixed IP validation FAILED: IP=%s, Interface=%s, Project=%s, Error=%v",
 			ipAddress, interfaceID, projectName, err)
-		return fmt.Errorf("IP validation failed: %v", err)
+		return fmt.Errorf("IP validation failed: %w", err)
 	}
 
 	p.Logger.Debugf("Fixed IP validation PASSED: IP=%s, Interface=%s, Project=%s", ipAddress, interfaceID, projectName)

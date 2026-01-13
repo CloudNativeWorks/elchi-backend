@@ -3,6 +3,7 @@ package scenario
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -136,7 +137,7 @@ func (t *AppHandler) GetScenarioByID(scenarioID string, reqDetails models.Reques
 
 	err := collection.FindOne(context.Background(), bson.M{"scenario_id": scenarioID}).Decode(&scenario)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, fmt.Errorf("scenario not found")
 		}
 		return nil, fmt.Errorf("failed to fetch scenario: %w", err)
@@ -714,7 +715,7 @@ func (t *AppHandler) ImportScenarios(request models.ImportScenarioRequest, reqDe
 				conflicts = append(conflicts, conflict)
 				imported++
 			}
-		} else if err == mongo.ErrNoDocuments {
+		} else if errors.Is(err, mongo.ErrNoDocuments) {
 			// Scenario doesn't exist - create new
 			scenario.ID = primitive.NewObjectID()
 			scenario.CreatedAt = time.Now()

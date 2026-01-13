@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
@@ -128,7 +129,7 @@ func (h *Handler) setScenarioAuditChanges(c *gin.Context, path string) {
 	collection := db.Collection("scenarios")
 	err := collection.FindOne(ctx, filter).Decode(&existingScenario)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			audit.SetAuditChanges(c, map[string]any{"new_scenario": true})
 		}
 		return

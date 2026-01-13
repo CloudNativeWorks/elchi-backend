@@ -2,6 +2,7 @@ package acme
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -204,7 +205,7 @@ func (d *DistributedScheduler) tryAcquireLock(ctx context.Context) (bool, error)
 	var result SchedulerLock
 	err = collection.FindOneAndUpdate(ctx, filter, update, opts).Decode(&result)
 
-	if err == mongo.ErrNoDocuments {
+	if errors.Is(err, mongo.ErrNoDocuments) {
 		// Lock is held by another instance
 		d.logger.Debugf("Lock held by another instance")
 		return false, nil

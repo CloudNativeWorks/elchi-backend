@@ -2,6 +2,7 @@ package openstack
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -572,7 +573,7 @@ func (h *Handler) AddAllowedAddressPair(ctx context.Context, interfaceID, ipAddr
 	cloudConfig, err := h.getCloudConfig(projectName)
 	if err != nil {
 		h.Logger.Errorf("OpenStack AddAllowedAddressPair - Failed to get cloud config for project %s: %v", projectName, err)
-		return fmt.Errorf("failed to get cloud config for project %s: %v", projectName, err)
+		return fmt.Errorf("failed to get cloud config for project %s: %w", projectName, err)
 	}
 
 	h.Logger.Debugf("OpenStack AddAllowedAddressPair - Cloud config retrieved: Provider=%s, AuthURL=%s", cloudConfig.Provider, cloudConfig.Auth.AuthURL)
@@ -583,20 +584,20 @@ func (h *Handler) AddAllowedAddressPair(ctx context.Context, interfaceID, ipAddr
 	// Pre-check: Verify interface exists before attempting to modify
 	if err := osClient.authenticate(ctx); err != nil {
 		h.Logger.Errorf("OpenStack AddAllowedAddressPair - Authentication failed: %v", err)
-		return fmt.Errorf("OpenStack authentication failed: %v", err)
+		return fmt.Errorf("OpenStack authentication failed: %w", err)
 	}
 
 	endpoint, err := osClient.getNetworkEndpoint()
 	if err != nil {
 		h.Logger.Errorf("OpenStack AddAllowedAddressPair - Failed to get network endpoint: %v", err)
-		return fmt.Errorf("failed to get network endpoint: %v", err)
+		return fmt.Errorf("failed to get network endpoint: %w", err)
 	}
 
 	// Check if interface exists
 	_, err = osClient.getPort(ctx, endpoint, interfaceID)
 	if err != nil {
 		h.Logger.Errorf("OpenStack AddAllowedAddressPair - Interface %s not found: %v", interfaceID, err)
-		return fmt.Errorf("interface %s not found or inaccessible: %v", interfaceID, err)
+		return fmt.Errorf("interface %s not found or inaccessible: %w", interfaceID, err)
 	}
 
 	h.Logger.Debugf("OpenStack AddAllowedAddressPair - No CIDR validation required for AAP (allows cross-subnet IPs)")
@@ -604,7 +605,7 @@ func (h *Handler) AddAllowedAddressPair(ctx context.Context, interfaceID, ipAddr
 	// Add allowed address pair
 	if err := osClient.AddAllowedAddressPair(ctx, interfaceID, ipAddress); err != nil {
 		h.Logger.Errorf("OpenStack AddAllowedAddressPair - Failed to add allowed address pair %s to interface %s: %v", ipAddress, interfaceID, err)
-		return fmt.Errorf("failed to add allowed address pair %s to interface %s: %v", ipAddress, interfaceID, err)
+		return fmt.Errorf("failed to add allowed address pair %s to interface %s: %w", ipAddress, interfaceID, err)
 	}
 
 	h.Logger.Infof("OpenStack AddAllowedAddressPair - Successfully added allowed address pair %s to interface %s", ipAddress, interfaceID)
@@ -619,7 +620,7 @@ func (h *Handler) RemoveAllowedAddressPair(ctx context.Context, interfaceID, ipA
 	cloudConfig, err := h.getCloudConfig(projectName)
 	if err != nil {
 		h.Logger.Errorf("OpenStack RemoveAllowedAddressPair - Failed to get cloud config for project %s: %v", projectName, err)
-		return fmt.Errorf("failed to get cloud config for project %s: %v", projectName, err)
+		return fmt.Errorf("failed to get cloud config for project %s: %w", projectName, err)
 	}
 
 	h.Logger.Debugf("OpenStack RemoveAllowedAddressPair - Cloud config retrieved: Provider=%s, AuthURL=%s", cloudConfig.Provider, cloudConfig.Auth.AuthURL)
@@ -630,7 +631,7 @@ func (h *Handler) RemoveAllowedAddressPair(ctx context.Context, interfaceID, ipA
 	// Remove allowed address pair
 	if err := osClient.RemoveAllowedAddressPair(ctx, interfaceID, ipAddress); err != nil {
 		h.Logger.Errorf("OpenStack RemoveAllowedAddressPair - Failed to remove allowed address pair %s from interface %s: %v", ipAddress, interfaceID, err)
-		return fmt.Errorf("failed to remove allowed address pair %s from interface %s: %v", ipAddress, interfaceID, err)
+		return fmt.Errorf("failed to remove allowed address pair %s from interface %s: %w", ipAddress, interfaceID, err)
 	}
 
 	h.Logger.Infof("OpenStack RemoveAllowedAddressPair - Successfully removed allowed address pair %s from interface %s", ipAddress, interfaceID)
@@ -645,7 +646,7 @@ func (h *Handler) AddFixedIPWithAutoSubnet(ctx context.Context, interfaceID, ipA
 	cloudConfig, err := h.getCloudConfig(projectName)
 	if err != nil {
 		h.Logger.Errorf("OpenStack AddFixedIPWithAutoSubnet - Failed to get cloud config for project %s: %v", projectName, err)
-		return fmt.Errorf("failed to get cloud config for project %s: %v", projectName, err)
+		return fmt.Errorf("failed to get cloud config for project %s: %w", projectName, err)
 	}
 
 	// Create OpenStack client
@@ -654,21 +655,21 @@ func (h *Handler) AddFixedIPWithAutoSubnet(ctx context.Context, interfaceID, ipA
 	// Authenticate first to get endpoint
 	if err := osClient.authenticate(ctx); err != nil {
 		h.Logger.Errorf("OpenStack AddFixedIPWithAutoSubnet - Authentication failed: %v", err)
-		return fmt.Errorf("authentication failed: %v", err)
+		return fmt.Errorf("authentication failed: %w", err)
 	}
 
 	// Get network endpoint
 	endpoint, err := osClient.getNetworkEndpoint()
 	if err != nil {
 		h.Logger.Errorf("OpenStack AddFixedIPWithAutoSubnet - Failed to get network endpoint: %v", err)
-		return fmt.Errorf("failed to get network endpoint: %v", err)
+		return fmt.Errorf("failed to get network endpoint: %w", err)
 	}
 
 	// Get port details to find network ID
 	port, err := osClient.getPort(ctx, endpoint, interfaceID)
 	if err != nil {
 		h.Logger.Errorf("OpenStack AddFixedIPWithAutoSubnet - Failed to get port details for %s: %v", interfaceID, err)
-		return fmt.Errorf("failed to get port details: %v", err)
+		return fmt.Errorf("failed to get port details: %w", err)
 	}
 
 	var subnetID string
@@ -684,7 +685,7 @@ func (h *Handler) AddFixedIPWithAutoSubnet(ctx context.Context, interfaceID, ipA
 		subnetID, err = h.findSubnetForIP(ctx, port.NetworkID, ipAddress, osClient)
 		if err != nil {
 			h.Logger.Errorf("OpenStack AddFixedIPWithAutoSubnet - Failed to find subnet for IP %s: %v", ipAddress, err)
-			return fmt.Errorf("failed to determine subnet for IP %s: %v", ipAddress, err)
+			return fmt.Errorf("failed to determine subnet for IP %s: %w", ipAddress, err)
 		}
 
 		h.Logger.Infof("OpenStack AddFixedIPWithAutoSubnet - Auto-detected subnet ID: %s for IP %s", subnetID, ipAddress)
@@ -704,7 +705,7 @@ func (h *Handler) AddFixedIPWithAutoSubnet(ctx context.Context, interfaceID, ipA
 	// Add fixed IP
 	if err := osClient.AddFixedIP(ctx, interfaceID, ipAddress, subnetID); err != nil {
 		h.Logger.Errorf("OpenStack AddFixedIPWithAutoSubnet - Failed to add fixed IP %s to interface %s: %v", ipAddress, interfaceID, err)
-		return fmt.Errorf("failed to add fixed IP %s to interface %s: %v", ipAddress, interfaceID, err)
+		return fmt.Errorf("failed to add fixed IP %s to interface %s: %w", ipAddress, interfaceID, err)
 	}
 
 	h.Logger.Infof("OpenStack AddFixedIPWithAutoSubnet - Successfully added fixed IP %s to interface %s (subnet: %s)", ipAddress, interfaceID, subnetID)
@@ -719,7 +720,7 @@ func (h *Handler) ValidateFixedIPInSubnet(ctx context.Context, interfaceID, ipAd
 	cloudConfig, err := h.getCloudConfig(dbProject)
 	if err != nil {
 		h.Logger.Errorf("OpenStack ValidateFixedIPInSubnet - Failed to get cloud config for project %s: %v", dbProject, err)
-		return fmt.Errorf("failed to get cloud config for project %s: %v", dbProject, err)
+		return fmt.Errorf("failed to get cloud config for project %s: %w", dbProject, err)
 	}
 
 	// Create OpenStack client
@@ -728,21 +729,21 @@ func (h *Handler) ValidateFixedIPInSubnet(ctx context.Context, interfaceID, ipAd
 	// Authenticate first to get endpoint
 	if err := osClient.authenticate(ctx); err != nil {
 		h.Logger.Errorf("OpenStack ValidateFixedIPInSubnet - Authentication failed: %v", err)
-		return fmt.Errorf("authentication failed: %v", err)
+		return fmt.Errorf("authentication failed: %w", err)
 	}
 
 	// Get network endpoint
 	endpoint, err := osClient.getNetworkEndpoint()
 	if err != nil {
 		h.Logger.Errorf("OpenStack ValidateFixedIPInSubnet - Failed to get network endpoint: %v", err)
-		return fmt.Errorf("failed to get network endpoint: %v", err)
+		return fmt.Errorf("failed to get network endpoint: %w", err)
 	}
 
 	// Get port details to find network ID
 	port, err := osClient.getPort(ctx, endpoint, interfaceID)
 	if err != nil {
 		h.Logger.Errorf("OpenStack ValidateFixedIPInSubnet - Failed to get port details for %s: %v", interfaceID, err)
-		return fmt.Errorf("failed to get port details: %v", err)
+		return fmt.Errorf("failed to get port details: %w", err)
 	}
 
 	var subnetID string
@@ -758,7 +759,7 @@ func (h *Handler) ValidateFixedIPInSubnet(ctx context.Context, interfaceID, ipAd
 		subnetID, err = h.findSubnetForIP(ctx, port.NetworkID, ipAddress, osClient)
 		if err != nil {
 			h.Logger.Errorf("OpenStack ValidateFixedIPInSubnet - Failed to find subnet for IP %s: %v", ipAddress, err)
-			return fmt.Errorf("IP address %s does not belong to any subnet in network %s: %v", ipAddress, port.NetworkID, err)
+			return fmt.Errorf("IP address %s does not belong to any subnet in network %s: %w", ipAddress, port.NetworkID, err)
 		}
 
 		h.Logger.Debugf("OpenStack ValidateFixedIPInSubnet - Found appropriate subnet ID: %s for IP %s", subnetID, ipAddress)
@@ -768,7 +769,7 @@ func (h *Handler) ValidateFixedIPInSubnet(ctx context.Context, interfaceID, ipAd
 	subnet, err := osClient.GetSubnet(ctx, subnetID)
 	if err != nil {
 		h.Logger.Errorf("OpenStack ValidateFixedIPInSubnet - Failed to get subnet %s details: %v", subnetID, err)
-		return fmt.Errorf("failed to get subnet %s details: %v", subnetID, err)
+		return fmt.Errorf("failed to get subnet %s details: %w", subnetID, err)
 	}
 
 	// Validate IP is within subnet CIDR
@@ -793,7 +794,7 @@ func (h *Handler) RemoveFixedIP(ctx context.Context, interfaceID, ipAddress, pro
 	cloudConfig, err := h.getCloudConfig(projectName)
 	if err != nil {
 		h.Logger.Errorf("OpenStack RemoveFixedIP - Failed to get cloud config for project %s: %v", projectName, err)
-		return fmt.Errorf("failed to get cloud config for project %s: %v", projectName, err)
+		return fmt.Errorf("failed to get cloud config for project %s: %w", projectName, err)
 	}
 
 	// Create OpenStack client
@@ -802,7 +803,7 @@ func (h *Handler) RemoveFixedIP(ctx context.Context, interfaceID, ipAddress, pro
 	// Remove fixed IP
 	if err := osClient.RemoveFixedIP(ctx, interfaceID, ipAddress); err != nil {
 		h.Logger.Errorf("OpenStack RemoveFixedIP - Failed to remove fixed IP %s from interface %s: %v", ipAddress, interfaceID, err)
-		return fmt.Errorf("failed to remove fixed IP %s from interface %s: %v", ipAddress, interfaceID, err)
+		return fmt.Errorf("failed to remove fixed IP %s from interface %s: %w", ipAddress, interfaceID, err)
 	}
 
 	h.Logger.Infof("OpenStack RemoveFixedIP - Successfully removed fixed IP %s from interface %s", ipAddress, interfaceID)
@@ -821,12 +822,12 @@ func (h *Handler) getCloudConfig(projectID string) (*models.CloudConfig, error) 
 	h.Logger.Debugf("OpenStack getCloudConfig - DB query filter: %+v", filter)
 	err := settingsCollection.FindOne(context.Background(), filter).Decode(&settings)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			h.Logger.Errorf("OpenStack getCloudConfig - No settings found for project %s", projectID)
 			return nil, fmt.Errorf("no settings found for project %s", projectID)
 		}
 		h.Logger.Errorf("OpenStack getCloudConfig - Database error for project %s: %v", projectID, err)
-		return nil, fmt.Errorf("database error: %v", err)
+		return nil, fmt.Errorf("database error: %w", err)
 	}
 
 	h.Logger.Debugf("OpenStack getCloudConfig - Settings retrieved for project %s", projectID)

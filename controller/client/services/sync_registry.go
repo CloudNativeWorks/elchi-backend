@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/CloudNativeWorks/elchi-backend/controller/client/client"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/bridge"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
-	pb "github.com/CloudNativeWorks/elchi-proto/client"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -120,7 +120,7 @@ func (s *ClientService) syncSingleClient(ctx context.Context, dbClient *client.C
 }
 
 // handleRegistryFoundClient handles clients that are found in registry
-func (s *ClientService) handleRegistryFoundClient(ctx context.Context, dbClient *client.ClientInfo, location *pb.GetControllerClusterResponse, isLocallyConnected bool, lastSeenAge time.Duration) bool {
+func (s *ClientService) handleRegistryFoundClient(ctx context.Context, dbClient *client.ClientInfo, location *bridge.GetControllerClusterResponse, isLocallyConnected bool, lastSeenAge time.Duration) bool {
 	clientID := dbClient.ClientID
 	currentControllerID := s.registryClient.GetControllerID()
 	

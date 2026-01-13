@@ -148,6 +148,19 @@ func (xds *AppHandler) delService(ctx context.Context, requestDetails models.Req
 		return err
 	}
 
+	// NEW: Get service ID before deletion for GSLB cleanup
+	var service struct {
+		ID primitive.ObjectID `bson:"_id"`
+	}
+	if err := collection.FindOne(ctx, filter).Decode(&service); err == nil {
+		serviceID := service.ID.Hex()
+		// Delete associated GSLB record AND all IP health records (cascading delete)
+		if err := xds.deleteGSLBRecordWithCleanup(ctx, serviceID, requestDetails.Project, requestDetails.Version); err != nil {
+			xds.Logger.Errorf("Failed to delete GSLB record for service %s: %v", requestDetails.Name, err)
+			// Don't fail service deletion if GSLB record deletion fails
+		}
+	}
+
 	if err := deleteDocument(ctx, collection, filter); err != nil {
 		return err
 	}

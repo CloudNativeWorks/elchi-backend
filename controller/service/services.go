@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -170,13 +171,13 @@ func (s *AppHandler) ListServices(ctx context.Context, _ models.OperationClass, 
 
 	cursor, err := s.Context.Client.Collection("services").Aggregate(ctx, pipeline)
 	if err != nil {
-		return nil, fmt.Errorf("failed to aggregate services: %v", err)
+		return nil, fmt.Errorf("failed to aggregate services: %w", err)
 	}
 	defer cursor.Close(ctx)
 
 	var aggregateResult []bson.M
 	if err := cursor.All(ctx, &aggregateResult); err != nil {
-		return nil, fmt.Errorf("failed to decode aggregate result: %v", err)
+		return nil, fmt.Errorf("failed to decode aggregate result: %w", err)
 	}
 
 	if len(aggregateResult) == 0 {
@@ -244,7 +245,7 @@ func (s *AppHandler) GetService(ctx context.Context, _ models.OperationClass, re
 func (s *AppHandler) GetSingleService(ctx context.Context, _ models.OperationClass, requestDetails models.RequestDetails) (any, error) {
 	objectID, err := primitive.ObjectIDFromHex(requestDetails.ServiceID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid service id: %v", err)
+		return nil, fmt.Errorf("invalid service id: %w", err)
 	}
 	filter := bson.M{"_id": objectID, "project": requestDetails.Project}
 
@@ -273,17 +274,17 @@ func (s *AppHandler) GetSingleService(ctx context.Context, _ models.OperationCla
 	cursor := s.Context.Client.Collection("services").FindOne(ctx, filter)
 	var service Service
 	if err := cursor.Decode(&service); err != nil {
-		return nil, fmt.Errorf("failed to decode service: %v", err)
+		return nil, fmt.Errorf("failed to decode service: %w", err)
 	}
 
 	cursor = s.Context.Client.Collection("envoys").FindOne(ctx, bson.M{"name": service.Name, "project": service.Project})
 	var envoy models.Envoys
 	err = cursor.Decode(&envoy)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			envoy = models.Envoys{}
 		} else {
-			return nil, fmt.Errorf("failed to decode envoy: %v", err)
+			return nil, fmt.Errorf("failed to decode envoy: %w", err)
 		}
 	}
 
@@ -305,7 +306,7 @@ func (s *AppHandler) GetServicesByClientID(ctx context.Context, _ models.Operati
 
 	cursor, err := s.Context.Client.Collection("services").Find(ctx, filter)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get services: %v", err)
+		return nil, fmt.Errorf("failed to get services: %w", err)
 	}
 	defer cursor.Close(ctx)
 
@@ -313,7 +314,7 @@ func (s *AppHandler) GetServicesByClientID(ctx context.Context, _ models.Operati
 	for cursor.Next(ctx) {
 		var svc Service
 		if err := cursor.Decode(&svc); err != nil {
-			return nil, fmt.Errorf("failed to decode service: %v", err)
+			return nil, fmt.Errorf("failed to decode service: %w", err)
 		}
 		result = append(result, &svc)
 	}
@@ -324,12 +325,12 @@ func (s *AppHandler) GetServicesByClientID(ctx context.Context, _ models.Operati
 func (s *AppHandler) GetEnvoyDetails(ctx context.Context, _ models.OperationClass, requestDetails models.RequestDetails) (any, error) {
 	objectID, err := primitive.ObjectIDFromHex(requestDetails.ServiceID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid service id: %v", err)
+		return nil, fmt.Errorf("invalid service id: %w", err)
 	}
 	cursor := s.Context.Client.Collection("services").FindOne(ctx, bson.M{"_id": objectID})
 	var service Service
 	if err := cursor.Decode(&service); err != nil {
-		return nil, fmt.Errorf("failed to decode service: %v", err)
+		return nil, fmt.Errorf("failed to decode service: %w", err)
 	}
 
 	return &service, nil

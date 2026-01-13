@@ -39,13 +39,13 @@ func (h *Client) DeleteClient(ctx context.Context, _ models.OperationClass, requ
 	// Check if client exists
 	client, err := h.Service.GetClientByClientID(ctx, clientID)
 	if err != nil {
-		return nil, fmt.Errorf("client not found: %v", err)
+		return nil, fmt.Errorf("client not found: %w", err)
 	}
 
 	// Check if client is being used by any services
 	hasServices, err := h.Service.CheckClientServices(ctx, clientID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to check client services: %v", err)
+		return nil, fmt.Errorf("failed to check client services: %w", err)
 	}
 
 	if hasServices {
@@ -55,7 +55,7 @@ func (h *Client) DeleteClient(ctx context.Context, _ models.OperationClass, requ
 	// Delete client from database
 	err = h.Service.DeleteClientFromDB(ctx, clientID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to delete client: %v", err)
+		return nil, fmt.Errorf("failed to delete client: %w", err)
 	}
 
 	return map[string]string{

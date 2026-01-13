@@ -3,6 +3,7 @@ package backup
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -396,7 +397,7 @@ func (e *Exporter) getProjectName(ctx context.Context, projectID string) (string
 	var project models.Project
 	err = collection.FindOne(ctx, bson.M{"_id": objectID}).Decode(&project)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return "", fmt.Errorf("project not found: %s", projectID)
 		}
 		return "", err

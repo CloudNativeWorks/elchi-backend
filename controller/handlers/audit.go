@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -404,7 +405,7 @@ func (h *Handler) compareWithExistingResource(ctx context.Context, newResource *
 	var existingResource models.DBResource
 	err := db.Collection(collection).FindOne(ctx, filter).Decode(&existingResource)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			// Resource doesn't exist yet (should be POST not PUT, but handle gracefully)
 			return "new_resource: true"
 		}
@@ -679,5 +680,43 @@ func (h *Handler) setLDAPAuditContext(c *gin.Context, requestDetails models.Requ
 
 	// Set LDAP-specific audit context
 	audit.SetAuditResource(c, "ldap", "", "ldap-config", requestDetails.Project)
+	audit.SetAuditAction(c, action)
+}
+
+// setGSLBAuditContext sets audit context specifically for GSLB operations
+func (h *Handler) setGSLBAuditContext(c *gin.Context, requestDetails models.RequestDetails) {
+	if h.AuditService == nil {
+		return
+	}
+
+	path := c.Request.URL.Path
+
+	// Only process GSLB-related endpoints
+	if !strings.Contains(path, "/gslb") {
+		return
+	}
+
+	// Skip audit for GET operations
+	if c.Request.Method == "GET" {
+		return
+	}
+
+	// Determine action based on HTTP method
+	action := ""
+	switch c.Request.Method {
+	case "POST":
+		action = "CREATE_GSLB_CONFIG"
+	case "PUT":
+		action = "UPDATE_GSLB_CONFIG"
+	case "DELETE":
+		action = "DELETE_GSLB_CONFIG"
+	}
+
+	if action == "" {
+		return
+	}
+
+	// Set GSLB-specific audit context
+	audit.SetAuditResource(c, "gslb", "", "gslb-config", requestDetails.Project)
 	audit.SetAuditAction(c, action)
 }

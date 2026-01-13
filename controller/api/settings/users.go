@@ -47,7 +47,7 @@ func (handler *AppHandler) GetUserByID(c *gin.Context) {
 	filter := bson.M{"_id": objectID}
 	err = userCollection.FindOne(context.Background(), filter).Decode(&user)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			c.JSON(http.StatusNotFound, gin.H{"message": "User not found"})
 			return
 		}
@@ -334,7 +334,7 @@ func (handler *AppHandler) Login() gin.HandlerFunc {
 			}
 		}
 
-		if err != mongo.ErrNoDocuments {
+		if !errors.Is(err, mongo.ErrNoDocuments) {
 			c.JSON(http.StatusInternalServerError, gin.H{"message": "database error occurred"})
 			return
 		}

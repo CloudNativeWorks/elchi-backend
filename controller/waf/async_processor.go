@@ -2,6 +2,7 @@ package waf
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -159,7 +160,7 @@ func (p *AsyncWAFProcessor) loadWAFConfig(ctx context.Context, configName, proje
 	var config WAFConfig
 	err := collection.FindOne(ctx, bson.M{"name": configName, "project": project}).Decode(&config)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, fmt.Errorf("WAF config '%s' not found in project '%s'", configName, project)
 		}
 		return nil, fmt.Errorf("failed to load WAF config: %w", err)

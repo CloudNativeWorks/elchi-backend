@@ -367,3 +367,42 @@ func GenerateSecureRequestID() string {
 	randInt := binary.LittleEndian.Uint32(randBytes[:])
 	return fmt.Sprintf("%d_%d", time.Now().UnixNano(), randInt)
 }
+
+// ================== GSLB Helper Functions ==================
+
+// NormalizeFQDN normalizes FQDN for consistent hashing
+// - Converts to lowercase
+// - Ensures trailing dot
+func NormalizeFQDN(fqdn string) string {
+	normalized := strings.ToLower(strings.TrimSpace(fqdn))
+	if !strings.HasSuffix(normalized, ".") {
+		normalized += "."
+	}
+	return normalized
+}
+
+// NormalizeFQDNWithZone adds zone to FQDN if not already present
+// Example: "myservice" + "atest.elchi" → "myservice.atest.elchi."
+// Example: "dedeff" + "atest.elchi" → "dedeff.atest.elchi."
+func NormalizeFQDNWithZone(fqdn, zone string) string {
+	normalized := strings.ToLower(strings.TrimSpace(fqdn))
+	normalizedZone := strings.ToLower(strings.TrimSpace(zone))
+
+	// Remove trailing dot from zone for easier manipulation
+	normalizedZone = strings.TrimSuffix(normalizedZone, ".")
+
+	// Check if FQDN already contains the zone
+	if strings.HasSuffix(normalized, "."+normalizedZone) || strings.HasSuffix(normalized, "."+normalizedZone+".") {
+		// Already has zone, just ensure trailing dot
+		if !strings.HasSuffix(normalized, ".") {
+			normalized += "."
+		}
+		return normalized
+	}
+
+	// Remove trailing dot from FQDN for appending zone
+	normalized = strings.TrimSuffix(normalized, ".")
+
+	// Append zone and ensure trailing dot
+	return normalized + "." + normalizedZone + "."
+}

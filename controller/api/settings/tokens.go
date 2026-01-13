@@ -2,6 +2,7 @@ package settings
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -207,7 +208,7 @@ func (handler *AppHandler) GetOpenRouterToken(c *gin.Context) {
 	var settings bson.M
 	err := settingsCollection.FindOne(ctx, filter).Decode(&settings)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			c.JSON(http.StatusOK, gin.H{"openrouter_token": "", "ai_default_model": "", "message": "no OpenRouter token set for this project"})
 			return
 		}
@@ -406,7 +407,7 @@ func (handler *AppHandler) GetDiscoveryToken(c *gin.Context) {
 	var settings bson.M
 	err := settingsCollection.FindOne(ctx, filter).Decode(&settings)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			c.JSON(http.StatusOK, gin.H{"discovery_token": "", "message": "no discovery token set for this project"})
 			return
 		}

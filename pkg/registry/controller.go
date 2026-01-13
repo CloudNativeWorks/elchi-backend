@@ -7,18 +7,18 @@ import (
 	"sync"
 	"time"
 
+	"github.com/CloudNativeWorks/elchi-backend/pkg/bridge"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/config"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/helper"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/version"
-	pb "github.com/CloudNativeWorks/elchi-proto/client"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type RegistryClient struct {
 	conn             *grpc.ClientConn
-	controllerClient pb.ControllerRoutingServiceClient
+	controllerClient bridge.ControllerRoutingServiceClient
 	controllerID     string
 	version          string
 	grpcAddress      string
@@ -66,7 +66,7 @@ func NewRegistryClientWithConfig(config *Config, logger *logger.Logger, appConfi
 	// Auto-detect controller ID from hostname
 	controllerID, err := os.Hostname()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get hostname: %v", err)
+		return nil, fmt.Errorf("failed to get hostname: %w", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -102,11 +102,11 @@ func (r *RegistryClient) Connect() error {
 	// Use shared gRPC dial options for consistency
 	conn, err := grpc.NewClient(r.registryAddr, GetDefaultGRPCDialOptions()...)
 	if err != nil {
-		return fmt.Errorf("failed to create connection: %v", err)
+		return fmt.Errorf("failed to create connection: %w", err)
 	}
 
 	r.conn = conn
-	r.controllerClient = pb.NewControllerRoutingServiceClient(conn)
+	r.controllerClient = bridge.NewControllerRoutingServiceClient(conn)
 
 	r.setConnectionState(ControllerStateConnected)
 	return nil
@@ -171,7 +171,7 @@ func (r *RegistryClient) RegisterController() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	req := &pb.RegisterControllerRequest{
+	req := &bridge.RegisterControllerRequest{
 		ControllerId: r.controllerID,
 		Version:      r.version,
 		Timestamp:    timestamppb.New(time.Now()),
@@ -179,7 +179,7 @@ func (r *RegistryClient) RegisterController() error {
 
 	resp, err := r.controllerClient.RegisterController(ctx, req)
 	if err != nil {
-		return fmt.Errorf("failed to register controller: %v", err)
+		return fmt.Errorf("failed to register controller: %w", err)
 	}
 
 	if !resp.Success {
@@ -202,7 +202,7 @@ func (r *RegistryClient) NotifyClientConnected(clientID string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	req := &pb.NotifyClientConnectedRequest{
+	req := &bridge.NotifyClientConnectedRequest{
 		ControllerId: r.controllerID,
 		ClientId:     clientID,
 		Version:      r.version,
@@ -213,7 +213,7 @@ func (r *RegistryClient) NotifyClientConnected(clientID string) error {
 	if err != nil {
 		// Mark as disconnected on error to trigger reconnection
 		r.setConnectionState(ControllerStateDisconnected)
-		return fmt.Errorf("failed to notify client connected: %v", err)
+		return fmt.Errorf("failed to notify client connected: %w", err)
 	}
 
 	if !resp.Success {
@@ -235,7 +235,7 @@ func (r *RegistryClient) NotifyClientDisconnected(clientID string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	req := &pb.NotifyClientDisconnectedRequest{
+	req := &bridge.NotifyClientDisconnectedRequest{
 		ControllerId: r.controllerID,
 		ClientId:     clientID,
 		Version:      r.version,
@@ -246,7 +246,7 @@ func (r *RegistryClient) NotifyClientDisconnected(clientID string) error {
 	if err != nil {
 		// Mark as disconnected on error to trigger reconnection
 		r.setConnectionState(ControllerStateDisconnected)
-		return fmt.Errorf("failed to notify client disconnected: %v", err)
+		return fmt.Errorf("failed to notify client disconnected: %w", err)
 	}
 
 	if !resp.Success {
@@ -265,16 +265,16 @@ func (r *RegistryClient) UpdateClientList(clientIDs []string) error {
 	defer cancel()
 
 	// Convert to ClientInfo array
-	var clients []*pb.ClientInfo
+	var clients []*bridge.ClientInfo
 	for _, clientID := range clientIDs {
-		clients = append(clients, &pb.ClientInfo{
+		clients = append(clients, &bridge.ClientInfo{
 			ClientId: clientID,
 			Version:  r.version,
 			LastSeen: timestamppb.New(time.Now()),
 		})
 	}
 
-	req := &pb.UpdateClientListRequest{
+	req := &bridge.UpdateClientListRequest{
 		ControllerId: r.controllerID,
 		Clients:      clients,
 		Timestamp:    timestamppb.New(time.Now()),
@@ -282,7 +282,7 @@ func (r *RegistryClient) UpdateClientList(clientIDs []string) error {
 
 	resp, err := r.controllerClient.UpdateClientList(ctx, req)
 	if err != nil {
-		return fmt.Errorf("failed to update client list: %v", err)
+		return fmt.Errorf("failed to update client list: %w", err)
 	}
 
 	if !resp.Success {
@@ -294,13 +294,13 @@ func (r *RegistryClient) UpdateClientList(clientIDs []string) error {
 }
 
 // GetClientLocation finds which controller a client is connected to
-func (r *RegistryClient) GetClientLocation(clientID string) (*pb.GetControllerClusterResponse, error) {
+func (r *RegistryClient) GetClientLocation(clientID string) (*bridge.GetControllerClusterResponse, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	r.logger.Infof("Getting client location from registry: clientID=%s (searching all versions)", clientID)
 
-	req := &pb.GetControllerClusterRequest{
+	req := &bridge.GetControllerClusterRequest{
 		ClientId:  clientID,
 		Version:   "", // Empty version to search across all versions
 		Timestamp: timestamppb.New(time.Now()),
@@ -309,7 +309,7 @@ func (r *RegistryClient) GetClientLocation(clientID string) (*pb.GetControllerCl
 	resp, err := r.controllerClient.GetControllerCluster(ctx, req)
 	if err != nil {
 		r.logger.Errorf("Registry GetControllerCluster failed: %v", err)
-		return nil, fmt.Errorf("failed to get client location: %v", err)
+		return nil, fmt.Errorf("failed to get client location: %w", err)
 	}
 
 	r.logger.Infof("Registry response: Found=%v, ControllerId=%s", resp.Found, resp.ControllerId)
@@ -328,25 +328,25 @@ func (r *RegistryClient) GetRegistryData(ctx context.Context) (map[string]interf
 	}
 
 	// Get controller data from controller routing service
-	controllerClient := pb.NewControllerRoutingServiceClient(r.conn)
+	controllerClient := bridge.NewControllerRoutingServiceClient(r.conn)
 
 	// Get control plane data from control plane routing service
-	controlPlaneClient := pb.NewEnvoyRoutingServiceClient(r.conn)
+	controlPlaneClient := bridge.NewEnvoyRoutingServiceClient(r.conn)
 
 	// Get all controller registry data
-	controllerDataReq := &pb.GetAllControllerRegistryDataRequest{}
+	controllerDataReq := &bridge.GetAllControllerRegistryDataRequest{}
 	controllerResp, err := controllerClient.GetAllRegistryData(ctx, controllerDataReq)
 	if err != nil {
 		r.logger.Errorf("Failed to get controller registry data: %v", err)
-		return nil, fmt.Errorf("failed to get controller registry data: %v", err)
+		return nil, fmt.Errorf("failed to get controller registry data: %w", err)
 	}
 
 	// Get all control plane registry data
-	controlPlaneDataReq := &pb.GetAllRegistryDataRequest{}
+	controlPlaneDataReq := &bridge.GetAllRegistryDataRequest{}
 	controlPlaneResp, err := controlPlaneClient.GetAllRegistryData(ctx, controlPlaneDataReq)
 	if err != nil {
 		r.logger.Errorf("Failed to get control plane registry data: %v", err)
-		return nil, fmt.Errorf("failed to get control plane registry data: %v", err)
+		return nil, fmt.Errorf("failed to get control plane registry data: %w", err)
 	}
 
 	// Combine all data
@@ -388,7 +388,7 @@ func (r *RegistryClient) DeleteController(controllerID string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	req := &pb.DeleteControllerRequest{
+	req := &bridge.DeleteControllerRequest{
 		ControllerId: controllerID,
 	}
 
@@ -411,9 +411,9 @@ func (r *RegistryClient) DeleteControlPlane(controlPlaneID string) error {
 	defer cancel()
 
 	// Use control-plane routing service client
-	controlPlaneClient := pb.NewEnvoyRoutingServiceClient(r.conn)
+	controlPlaneClient := bridge.NewEnvoyRoutingServiceClient(r.conn)
 
-	req := &pb.DeleteControlPlaneRequest{
+	req := &bridge.DeleteControlPlaneRequest{
 		ControlPlaneId: controlPlaneID,
 	}
 
@@ -506,7 +506,7 @@ func (r *RegistryClient) ConnectAndRegister() error {
 	// Connect with retry - now includes real connectivity test
 	if err := r.ConnectWithRetry(ctx); err != nil {
 		r.logger.Errorf("❌ Controller registry connection failed: %v", err)
-		return fmt.Errorf("failed to connect to registry: %v", err)
+		return fmt.Errorf("failed to connect to registry: %w", err)
 	}
 
 	r.logger.Infof("✅ Controller registry connection established successfully")
@@ -514,7 +514,7 @@ func (r *RegistryClient) ConnectAndRegister() error {
 	// Register with retry
 	if err := r.RegisterControllerWithRetry(ctx); err != nil {
 		r.logger.Errorf("❌ Controller registration failed: %v", err)
-		return fmt.Errorf("failed to register controller: %v", err)
+		return fmt.Errorf("failed to register controller: %w", err)
 	}
 
 	r.logger.Infof("✅ Controller registered successfully with registry")

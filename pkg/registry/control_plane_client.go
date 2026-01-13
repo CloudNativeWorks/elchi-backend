@@ -10,13 +10,13 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/CloudNativeWorks/elchi-backend/pkg/bridge"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
-	pb "github.com/CloudNativeWorks/elchi-proto/client"
 )
 
 type ControlPlaneRegistryClient struct {
 	conn         *grpc.ClientConn
-	client       pb.EnvoyRoutingServiceClient
+	client       bridge.EnvoyRoutingServiceClient
 	registryAddr string
 	logger       *logger.Logger
 }
@@ -59,11 +59,11 @@ func (r *ControlPlaneRegistryClient) Connect() error {
 	// Use shared gRPC dial options for consistency
 	conn, err := grpc.NewClient(r.registryAddr, GetDefaultGRPCDialOptions()...)
 	if err != nil {
-		return fmt.Errorf("failed to create connection: %v", err)
+		return fmt.Errorf("failed to create connection: %w", err)
 	}
 
 	r.conn = conn
-	r.client = pb.NewEnvoyRoutingServiceClient(conn)
+	r.client = bridge.NewEnvoyRoutingServiceClient(conn)
 
 	return nil
 }
@@ -81,7 +81,7 @@ func (r *ControlPlaneRegistryClient) RegisterControlPlane(config *ControlPlaneCo
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	request := &pb.RegisterControlPlaneRequest{
+	request := &bridge.RegisterControlPlaneRequest{
 		ControlPlaneId: config.ControlPlaneID,
 		Version:        config.Version,
 		Timestamp:      timestamppb.New(time.Now().UTC()),
@@ -89,7 +89,7 @@ func (r *ControlPlaneRegistryClient) RegisterControlPlane(config *ControlPlaneCo
 
 	response, err := r.client.RegisterControlPlane(ctx, request)
 	if err != nil {
-		return fmt.Errorf("failed to register control-plane: %v", err)
+		return fmt.Errorf("failed to register control-plane: %w", err)
 	}
 
 	if !response.Success {
@@ -105,7 +105,7 @@ func (r *ControlPlaneRegistryClient) NotifySnapshotDelivered(controlPlaneID, nod
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	request := &pb.NotifySnapshotDeliveredRequest{
+	request := &bridge.NotifySnapshotDeliveredRequest{
 		ControlPlaneId: controlPlaneID,
 		NodeId:         nodeID,
 		Version:        version,
@@ -114,7 +114,7 @@ func (r *ControlPlaneRegistryClient) NotifySnapshotDelivered(controlPlaneID, nod
 
 	response, err := r.client.NotifySnapshotDelivered(ctx, request)
 	if err != nil {
-		return fmt.Errorf("failed to notify snapshot delivery: %v", err)
+		return fmt.Errorf("failed to notify snapshot delivery: %w", err)
 	}
 
 	if !response.Success {
@@ -153,16 +153,16 @@ func (r *ControlPlaneRegistryClient) UpdateNodeList(controlPlaneID string, nodes
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	var pbNodes []*pb.NodeInfo
+	var pbNodes []*bridge.NodeInfo
 	for _, node := range nodes {
-		pbNodes = append(pbNodes, &pb.NodeInfo{
+		pbNodes = append(pbNodes, &bridge.NodeInfo{
 			NodeId:   node.NodeID,
 			Version:  node.Version,
 			LastSeen: timestamppb.New(node.LastSeen),
 		})
 	}
 
-	request := &pb.UpdateNodeListRequest{
+	request := &bridge.UpdateNodeListRequest{
 		ControlPlaneId: controlPlaneID,
 		Nodes:          pbNodes,
 		Timestamp:      timestamppb.New(time.Now().UTC()),
@@ -171,7 +171,7 @@ func (r *ControlPlaneRegistryClient) UpdateNodeList(controlPlaneID string, nodes
 
 	response, err := r.client.UpdateNodeList(ctx, request)
 	if err != nil {
-		return fmt.Errorf("failed to update node list: %v", err)
+		return fmt.Errorf("failed to update node list: %w", err)
 	}
 
 	if !response.Success {
@@ -187,13 +187,13 @@ func (r *ControlPlaneRegistryClient) HealthCheck() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	request := &pb.HealthCheckRequest{
+	request := &bridge.EnvoyHealthCheckRequest{
 		Service: "control-plane",
 	}
 
 	response, err := r.client.HealthCheck(ctx, request)
 	if err != nil {
-		return fmt.Errorf("health check failed: %v", err)
+		return fmt.Errorf("health check failed: %w", err)
 	}
 
 	if !response.Healthy {
@@ -277,7 +277,7 @@ func (r *ControlPlaneRegistryClient) DeleteControlPlane(controlPlaneID string) e
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	req := &pb.DeleteControlPlaneRequest{
+	req := &bridge.DeleteControlPlaneRequest{
 		ControlPlaneId: controlPlaneID,
 	}
 

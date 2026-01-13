@@ -2,6 +2,7 @@ package profile
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -52,7 +53,7 @@ func (h *ProfileHandler) GetProfile() gin.HandlerFunc {
 			Decode(&user)
 
 		if err != nil {
-			if err == mongo.ErrNoDocuments {
+			if errors.Is(err, mongo.ErrNoDocuments) {
 				c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 				return
 			}

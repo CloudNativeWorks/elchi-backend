@@ -2,8 +2,8 @@ package catalog
 
 import "github.com/CloudNativeWorks/elchi-backend/pkg/models"
 
-// HttpConnectionManagerDefinition defines the HTTP connection manager component
-var HttpConnectionManagerDefinition = models.ComponentDefinition{
+// HTTPConnectionManagerDefinition defines the HTTP connection manager component
+var HTTPConnectionManagerDefinition = models.ComponentDefinition{
 	Name:          "http_connection_manager",
 	Label:         "HTTP Connection Manager",
 	Description:   "HTTP filter that manages HTTP/1.1, HTTP/2, and HTTP/3 connections",
@@ -63,9 +63,9 @@ var HttpConnectionManagerDefinition = models.ComponentDefinition{
 									ComponentTypes: []string{"route"},
 									FieldName:      "name",
 								},
-								ApiEndpoint:     "/api/v3/custom/resource_list_search?collection=routes&type=routes",
+								APIEndpoint:     "/api/v3/custom/resource_list_search?collection=routes&type=routes",
 								UseInScenario:   true,
-								UseApi:          true,
+								UseAPI:          true,
 								ValidationRules: []string{"required", "route_exists"},
 							},
 						},
@@ -178,10 +178,10 @@ var HttpConnectionManagerDefinition = models.ComponentDefinition{
 			Type:                 models.FieldTypeArray,
 			RequiredForCreation:  true,
 			RequiredForExecution: true,
-			ApiEndpoint:          "/api/v3/custom/http_filter_list?collection=filters&category=envoy.filters.http",
+			APIEndpoint:          "/api/v3/custom/http_filter_list?collection=filters&category=envoy.filters.http",
 			HasMetadata:          true,
 			UseInScenario:        true,
-			UseApi:               true,
+			UseAPI:               true,
 			Connected: &models.ConnectedField{
 				ComponentTypes: []string{"router_filter", "cors_filter", "rbac_filter", "basic_auth_filter", "rate_limit_filter"},
 				FieldName:      ":componentname:",
@@ -330,7 +330,7 @@ var HttpConnectionManagerDefinition = models.ComponentDefinition{
 			},
 			HasMetadata:   true,
 			UseInScenario: true,  // Only from scenario components
-			UseApi:        false, // Not from API
+			UseAPI:        false, // Not from API
 		},
 	},
 	Rules: models.ComponentRule{

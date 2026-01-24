@@ -1,3 +1,5 @@
+// Package server provides gRPC and HTTP server implementations for the registry service
+// handling controller and control-plane registration and routing.
 package server
 
 import (
@@ -5,14 +7,14 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
-	"sync"
-
+	"github.com/CloudNativeWorks/elchi-backend/pkg/bridge"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/config"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
+	"github.com/CloudNativeWorks/elchi-backend/registry/metrics"
 	"github.com/CloudNativeWorks/elchi-backend/registry/service"
-	pb "github.com/CloudNativeWorks/elchi-proto/client"
 	core "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/config/core/v3"
 	ext "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/service/ext_proc/v3"
 	"google.golang.org/grpc"
@@ -82,7 +84,7 @@ func NewExternalProcessorServer(controllerRoutingService *service.ControllerRout
 }
 
 // GetAllRegistryData handles get all control plane registry data requests
-func (s *ControlPlaneGRPCServer) GetAllRegistryData(ctx context.Context, req *pb.GetAllRegistryDataRequest) (*pb.GetAllRegistryDataResponse, error) {
+func (s *ControlPlaneGRPCServer) GetAllRegistryData(ctx context.Context, req *bridge.GetAllRegistryDataRequest) (*bridge.GetAllRegistryDataResponse, error) {
 	s.logger.Infof("Getting all control plane registry data")
 
 	data, err := s.controlPlaneRoutingService.ListAllData(ctx)
@@ -92,33 +94,33 @@ func (s *ControlPlaneGRPCServer) GetAllRegistryData(ctx context.Context, req *pb
 	}
 
 	// Convert to proto
-	var protoControlPlanes []*pb.ControlPlaneInfo
+	var protoControlPlanes []*bridge.ControlPlaneInfo
 	for _, cp := range data.ControlPlanes {
-		protoControlPlanes = append(protoControlPlanes, &pb.ControlPlaneInfo{
+		protoControlPlanes = append(protoControlPlanes, &bridge.ControlPlaneInfo{
 			ControlPlaneId: cp.ID,
 			Version:        cp.Version,
 			LastSeen:       timestamppb.New(cp.LastSeen),
 		})
 	}
 
-	nodesByControlPlane := make(map[string]*pb.NodesData)
+	nodesByControlPlane := make(map[string]*bridge.NodesData)
 	for controlPlaneID, nodes := range data.NodesByControlPlane {
-		var protoNodes []*pb.NodeInfo
+		var protoNodes []*bridge.NodeInfo
 		for _, node := range nodes {
-			protoNodes = append(protoNodes, &pb.NodeInfo{
+			protoNodes = append(protoNodes, &bridge.NodeInfo{
 				NodeId:   node.NodeID,
 				Version:  node.Version,
 				LastSeen: timestamppb.New(node.LastSeen),
 			})
 		}
-		nodesByControlPlane[controlPlaneID] = &pb.NodesData{
+		nodesByControlPlane[controlPlaneID] = &bridge.NodesData{
 			Nodes: protoNodes,
 		}
 	}
 
 	s.logger.Infof("Returning registry data: %d control planes, %d control-plane-node mappings", len(protoControlPlanes), len(nodesByControlPlane))
-	return &pb.GetAllRegistryDataResponse{
-		Data: &pb.RegistryData{
+	return &bridge.GetAllRegistryDataResponse{
+		Data: &bridge.RegistryData{
 			ControlPlanes:       protoControlPlanes,
 			NodesByControlPlane: nodesByControlPlane,
 		},
@@ -439,7 +441,7 @@ func (p *ExternalProcessorServer) getHeaderFromMap(headers *core.HeaderMap, key 
 		return ""
 	}
 
-	// Envoy ext_proc'da header'lar raw_value field'ında geliyor
+	// In Envoy ext_proc, headers come in raw_value field
 	for _, header := range headers.Headers {
 		if header != nil && strings.EqualFold(header.Key, key) {
 			return string(header.RawValue)
@@ -497,7 +499,7 @@ func (p *ExternalProcessorServer) isEnvoyADSStream(path string) bool {
 }
 
 // StartGRPCServer starts the gRPC server
-func StartGRPCServer(address string, controllerRoutingService *service.ControllerRoutingService, controlPlaneRoutingService *service.RoutingService, logger *logger.Logger, appConfig *config.AppConfig) error {
+func StartGRPCServer(address string, controllerRoutingService *service.ControllerRoutingService, controlPlaneRoutingService *service.RoutingService, metricsAggregator *metrics.Aggregator, logger *logger.Logger, appConfig *config.AppConfig) error {
 	lis, err := net.Listen("tcp", address)
 	if err != nil {
 		return fmt.Errorf("failed to listen on address %s: %w", address, err)
@@ -519,16 +521,19 @@ func StartGRPCServer(address string, controllerRoutingService *service.Controlle
 
 	// Register controller routing service with access to external processor
 	controllerGRPCServer := NewControllerGRPCServer(controllerRoutingService, extProcessorServer, logger, appConfig)
-	pb.RegisterControllerRoutingServiceServer(grpcServer, controllerGRPCServer)
+	bridge.RegisterControllerRoutingServiceServer(grpcServer, controllerGRPCServer)
 
 	// Register control-plane routing service with access to external processor
 	controlPlaneGRPCServer := NewControlPlaneGRPCServer(controlPlaneRoutingService, extProcessorServer, logger)
-	pb.RegisterEnvoyRoutingServiceServer(grpcServer, controlPlaneGRPCServer)
+	bridge.RegisterEnvoyRoutingServiceServer(grpcServer, controlPlaneGRPCServer)
 
 	// Register external processor service (for Envoy ext_proc)
 	ext.RegisterExternalProcessorServer(grpcServer, extProcessorServer)
 
-	logger.Infof("gRPC server starting on address %s (Controller + Control-Plane + ExternalProcessor services)", address)
+	// Register metrics service
+	bridge.RegisterMetricsServiceServer(grpcServer, metricsAggregator)
+
+	logger.Infof("gRPC server starting on address %s (Controller + Control-Plane + ExternalProcessor + Metrics services)", address)
 
 	if err := grpcServer.Serve(lis); err != nil {
 		return fmt.Errorf("failed to serve gRPC: %w", err)

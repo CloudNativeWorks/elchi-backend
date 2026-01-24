@@ -1,3 +1,5 @@
+// Package analysis provides dependency analysis for async job processing
+// including resource change detection and impact assessment.
 package analysis
 
 import (
@@ -176,7 +178,7 @@ func (a *Analyzer) collectListenersRecursively(
 	}
 }
 
-// Alternative simpler implementation using existing poker logic
+// AnalyzeUsingPoker is an alternative simpler implementation using existing poker logic.
 func (a *Analyzer) AnalyzeUsingPoker(ctx context.Context, req *AnalysisRequest) (*DependencyAnalysis, error) {
 	startTime := time.Now()
 
@@ -209,7 +211,6 @@ func (a *Analyzer) AnalyzeUsingPoker(ctx context.Context, req *AnalysisRequest) 
 		req.Project,
 		req.Version,
 		processed,
-		false, // managed
 	)
 
 	result.AffectedListeners = processed.Listeners
@@ -227,7 +228,6 @@ func (a *Analyzer) detectChangedResourcesNoPoke(
 	project string,
 	version string,
 	processed *poker.Processed,
-	managed bool,
 ) {
 	pathWithGtype := gType.String() + "===" + resourceName
 	if gType != models.Listener {
@@ -261,7 +261,7 @@ func (a *Analyzer) detectChangedResourcesNoPoke(
 			}
 
 			for _, general := range rGeneral {
-				a.detectChangedResourcesNoPoke(ctx, general.GType, general.Name, project, version, processed, general.Managed)
+				a.detectChangedResourcesNoPoke(ctx, general.GType, general.Name, project, version, processed)
 			}
 		}
 	}

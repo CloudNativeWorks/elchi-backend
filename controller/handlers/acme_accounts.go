@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -104,14 +105,14 @@ func (h *ACMEHandler) CreateACMEAccount(c *gin.Context) {
 
 	// Create account
 	account := &acme.ACMEAccount{
-		Project:      project,
-		Name:         req.Name,
-		Description:  req.Description,
-		Email:        req.Email,
-		CAProvider:   req.CAProvider,
-		Environment:  req.Environment,
-		Permissions:  req.Permissions,
-		CreatedBy:    userDetails.UserID,
+		Project:     project,
+		Name:        req.Name,
+		Description: req.Description,
+		Email:       req.Email,
+		CAProvider:  req.CAProvider,
+		Environment: req.Environment,
+		Permissions: req.Permissions,
+		CreatedBy:   userDetails.UserID,
 	}
 
 	// Encrypt and add EAB credentials if provided
@@ -292,7 +293,8 @@ func (h *ACMEHandler) DeleteACMEAccount(c *gin.Context) {
 	err = h.manager.DeleteACMEAccount(ctx, accountID, project, force)
 	if err != nil {
 		// Check if it's an AccountInUseError
-		if accountInUseErr, ok := err.(*acme.AccountInUseError); ok {
+		var accountInUseErr *acme.AccountInUseError
+		if errors.As(err, &accountInUseErr) {
 			h.auditHelper.SetAuditError(c, accountInUseErr)
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": accountInUseErr.Error(),

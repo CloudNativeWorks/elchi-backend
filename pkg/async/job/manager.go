@@ -1,7 +1,10 @@
+// Package job provides job management functionality for async operations
+// including job creation, status tracking, and execution coordination.
 package job
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -103,11 +106,12 @@ func (m *Manager) CreateJob(ctx context.Context, req *CreateJobRequest) (*Job, e
 
 	// Log with appropriate resource name based on job type
 	var resourceName string
-	if req.Metadata.SourceResource != nil {
+	switch {
+	case req.Metadata.SourceResource != nil:
 		resourceName = req.Metadata.SourceResource.Name
-	} else if req.Metadata.ACMEMetadata != nil {
+	case req.Metadata.ACMEMetadata != nil:
 		resourceName = req.Metadata.ACMEMetadata.CertificateName
-	} else {
+	default:
 		resourceName = "unknown"
 	}
 
@@ -171,11 +175,12 @@ func (m *Manager) CreateJobWithParent(ctx context.Context, req *CreateJobRequest
 
 	// Log with appropriate resource name based on job type
 	var resourceName string
-	if req.Metadata.SourceResource != nil {
+	switch {
+	case req.Metadata.SourceResource != nil:
 		resourceName = req.Metadata.SourceResource.Name
-	} else if req.Metadata.ACMEMetadata != nil {
+	case req.Metadata.ACMEMetadata != nil:
 		resourceName = req.Metadata.ACMEMetadata.CertificateName
-	} else {
+	default:
 		resourceName = "unknown"
 	}
 
@@ -195,7 +200,7 @@ func (m *Manager) GetJob(ctx context.Context, jobID string) (*Job, error) {
 	collection := m.db.Collection("background_jobs")
 	err = collection.FindOne(ctx, bson.M{"_id": objID}).Decode(&job)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, fmt.Errorf("job not found")
 		}
 		return nil, err
@@ -210,7 +215,7 @@ func (m *Manager) GetJobByHumanID(ctx context.Context, humanID string) (*Job, er
 	collection := m.db.Collection("background_jobs")
 	err := collection.FindOne(ctx, bson.M{"job_id": humanID}).Decode(&job)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, fmt.Errorf("job not found: %s", humanID)
 		}
 		return nil, err
@@ -423,7 +428,7 @@ func (m *Manager) ClaimJob(ctx context.Context, workerID string) (*Job, error) {
 	var job Job
 	result := collection.FindOneAndUpdate(ctx, filter, update, opts)
 	if err := result.Decode(&job); err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, nil // No job available
 		}
 		return nil, err

@@ -1,3 +1,5 @@
+// Package logger provides structured logging functionality using logrus
+// with configurable output formats and log levels.
 package logger
 
 import (
@@ -23,7 +25,7 @@ type Logger struct {
 // Global logger instance
 var globalLogger *Logger
 
-// Configuration for the logger
+// Config holds configuration options for the logger.
 type Config struct {
 	Level      string `mapstructure:"level"`
 	Format     string `mapstructure:"format"`
@@ -31,11 +33,67 @@ type Config struct {
 	Module     string `mapstructure:"module"`
 }
 
+// CustomTextFormatter wraps logrus.TextFormatter to customize module field placement
+type CustomTextFormatter struct {
+	*logrus.TextFormatter
+}
+
+// Format renders a single log entry with module field placed after timestamp
+func (f *CustomTextFormatter) Format(entry *logrus.Entry) ([]byte, error) {
+	// Extract module field from entry data
+	var moduleStr string
+	if module, hasModule := entry.Data["module"]; hasModule {
+		moduleStr = fmt.Sprint(module)
+		// Create a copy of Data without module to avoid duplication
+		newData := make(logrus.Fields)
+		for k, v := range entry.Data {
+			if k != "module" {
+				newData[k] = v
+			}
+		}
+		entry.Data = newData
+	}
+
+	// Get base formatted output from TextFormatter
+	formatted, err := f.TextFormatter.Format(entry)
+	if err != nil {
+		return nil, err
+	}
+
+	// If no module, return as-is
+	if moduleStr == "" {
+		return formatted, nil
+	}
+
+	// Parse the formatted log line and insert [module] after timestamp
+	// Expected format: "LEVEL  [timestamp]filename:line message fields..."
+	// We want: "LEVEL  [timestamp][module]filename:line message fields..."
+
+	line := string(formatted)
+
+	// Find the closing bracket of timestamp
+	timestampEnd := strings.Index(line, "]")
+	if timestampEnd == -1 {
+		// If no timestamp found, return original
+		return formatted, nil
+	}
+
+	// Insert [module] right after timestamp with spacing
+	var result strings.Builder
+	result.WriteString(line[:timestampEnd+1]) // "LEVEL  [timestamp]"
+	result.WriteString(" [")                  // Space before module
+	result.WriteString(moduleStr)
+	result.WriteString("] ")                  // Space after module
+	result.WriteString(line[timestampEnd+1:]) // "filename:line message fields..."
+
+	return []byte(result.String()), nil
+}
+
 // Init initializes the global logger with the provided configuration
 func Init(config Config) error {
 	level, err := logrus.ParseLevel(config.Level)
 	if err != nil {
-		return fmt.Errorf("invalid log level: %v", err)
+		return fmt.Errorf("invalid log level: %w", err)
 	}
 
 	logger := logrus.New()
@@ -47,45 +105,47 @@ func Init(config Config) error {
 			CallerPrettyfier: callerPrettyfier,
 		})
 	} else {
-		logger.SetFormatter(&logrus.TextFormatter{
-			FullTimestamp:          true,
-			CallerPrettyfier:       callerPrettyfier,
-			DisableSorting:         false, // Enable sorting for consistent field order
-			DisableTimestamp:       false,
-			DisableLevelTruncation: true,
-			ForceColors:            true,  // Force colors for all outputs
-			DisableColors:          false, // Keep colors enabled
-			PadLevelText:           true,  // Keep level padding for consistency
-			SortingFunc: func(keys []string) {
-				// Define custom field order for HTTP logs
-				order := map[string]int{
-					"statusCode":     1,
-					"responseTime":   2,
-					"clientIP":       3,
-					"requestMethod":  4,
-					"requestPath":    5,
-					"requestUri":     6,
-					"username":       7,
-					"userAgent":      8,
-					"requestReferer": 9,
-				}
+		logger.SetFormatter(&CustomTextFormatter{
+			TextFormatter: &logrus.TextFormatter{
+				FullTimestamp:          true,
+				CallerPrettyfier:       callerPrettyfier,
+				DisableSorting:         false, // Enable sorting for consistent field order
+				DisableTimestamp:       false,
+				DisableLevelTruncation: true,
+				ForceColors:            true,  // Force colors for all outputs
+				DisableColors:          false, // Keep colors enabled
+				PadLevelText:           true,  // Keep level padding for consistency
+				SortingFunc: func(keys []string) {
+					// Define custom field order for HTTP logs
+					order := map[string]int{
+						"statusCode":     1,
+						"responseTime":   2,
+						"clientIP":       3,
+						"requestMethod":  4,
+						"requestPath":    5,
+						"requestUri":     6,
+						"username":       7,
+						"userAgent":      8,
+						"requestReferer": 9,
+					}
 
-				// Sort based on predefined order, then alphabetically for unknown fields
-				sort.Slice(keys, func(i, j int) bool {
-					orderI, hasI := order[keys[i]]
-					orderJ, hasJ := order[keys[j]]
+					// Sort based on predefined order, then alphabetically for unknown fields
+					sort.Slice(keys, func(i, j int) bool {
+						orderI, hasI := order[keys[i]]
+						orderJ, hasJ := order[keys[j]]
 
-					if hasI && hasJ {
-						return orderI < orderJ
-					}
-					if hasI {
-						return true
-					}
-					if hasJ {
-						return false
-					}
-					return keys[i] < keys[j]
-				})
+						if hasI && hasJ {
+							return orderI < orderJ
+						}
+						if hasI {
+							return true
+						}
+						if hasJ {
+							return false
+						}
+						return keys[i] < keys[j]
+					})
+				},
 			},
 		})
 	}
@@ -95,15 +155,15 @@ func Init(config Config) error {
 		// Ensure the directory exists with secure permissions
 		// 0750 = rwxr-x--- (owner: rwx, group: r-x, others: no access)
 		dir := filepath.Dir(config.OutputPath)
-		if err := os.MkdirAll(dir, 0750); err != nil {
-			return fmt.Errorf("failed to create log directory: %v", err)
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			return fmt.Errorf("failed to create log directory: %w", err)
 		}
 
 		// 0600 = rw------- (owner: rw, group: no access, others: no access)
 		// Only the owner can read/write log files for security
-		file, err := os.OpenFile(config.OutputPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+		file, err := os.OpenFile(config.OutputPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 		if err != nil {
-			return fmt.Errorf("failed to open log file: %v", err)
+			return fmt.Errorf("failed to open log file: %w", err)
 		}
 		logger.SetOutput(file)
 	}
@@ -158,62 +218,58 @@ func callerPrettyfier(f *runtime.Frame) (string, string) {
 }
 
 // withModule adds the module field to the entry
-func (l *Logger) withModule(fields Fields) *logrus.Entry {
-	if fields == nil {
-		fields = Fields{}
-	}
-	fields["module"] = l.module
-	return l.WithFields(fields)
+func (l *Logger) withModule() *logrus.Entry {
+	return l.WithFields(Fields{"module": l.module})
 }
 
 // Debug logs a message at the debug level
 func (l *Logger) Debug(args ...any) {
-	l.withModule(nil).Debug(args...)
+	l.withModule().Debug(args...)
 }
 
 // Debugf logs a formatted message at the debug level
 func (l *Logger) Debugf(format string, args ...any) {
-	l.withModule(nil).Debugf(format, args...)
+	l.withModule().Debugf(format, args...)
 }
 
 // Info logs a message at the info level
 func (l *Logger) Info(args ...any) {
-	l.withModule(nil).Info(args...)
+	l.withModule().Info(args...)
 }
 
 // Infof logs a formatted message at the info level
 func (l *Logger) Infof(format string, args ...any) {
-	l.withModule(nil).Infof(format, args...)
+	l.withModule().Infof(format, args...)
 }
 
 // Warn logs a message at the warn level
 func (l *Logger) Warn(args ...any) {
-	l.withModule(nil).Warn(args...)
+	l.withModule().Warn(args...)
 }
 
 // Warnf logs a formatted message at the warn level
 func (l *Logger) Warnf(format string, args ...any) {
-	l.withModule(nil).Warnf(format, args...)
+	l.withModule().Warnf(format, args...)
 }
 
 // Error logs a message at the error level
 func (l *Logger) Error(args ...any) {
-	l.withModule(nil).Error(args...)
+	l.withModule().Error(args...)
 }
 
 // Errorf logs a formatted message at the error level
 func (l *Logger) Errorf(format string, args ...any) {
-	l.withModule(nil).Errorf(format, args...)
+	l.withModule().Errorf(format, args...)
 }
 
 // Fatal logs a message at the fatal level and then exits
 func (l *Logger) Fatal(args ...any) {
-	l.withModule(nil).Fatal(args...)
+	l.withModule().Fatal(args...)
 }
 
 // Fatalf logs a formatted message at the fatal level and then exits
 func (l *Logger) Fatalf(format string, args ...any) {
-	l.withModule(nil).Fatalf(format, args...)
+	l.withModule().Fatalf(format, args...)
 }
 
 // WithFields adds fields to the logger

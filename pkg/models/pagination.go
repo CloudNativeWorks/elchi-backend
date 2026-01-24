@@ -194,4 +194,3 @@ func (p *PaginationRequest) BuildResponse(data interface{}, totalCount int64) *P
 type PaginationHelper struct {
 	CollectionName string
 }
-

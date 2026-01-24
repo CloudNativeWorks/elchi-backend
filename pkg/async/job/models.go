@@ -10,10 +10,10 @@ import (
 type JobType string
 
 const (
-	JobTypeSnapshotUpdate      JobType = "SNAPSHOT_UPDATE"
-	JobTypeWAFPropagation      JobType = "WAF_PROPAGATION"
-	JobTypeResourceUpgrade     JobType = "RESOURCE_UPGRADE"
-	JobTypeACMEVerification    JobType = "ACME_VERIFICATION"
+	JobTypeSnapshotUpdate   JobType = "SNAPSHOT_UPDATE"
+	JobTypeWAFPropagation   JobType = "WAF_PROPAGATION"
+	JobTypeResourceUpgrade  JobType = "RESOURCE_UPGRADE"
+	JobTypeACMEVerification JobType = "ACME_VERIFICATION"
 )
 
 // JobStatus represents the current status of a job
@@ -61,7 +61,7 @@ type Job struct {
 	WorkerInfo       *WorkerInfo         `bson:"worker_info,omitempty" json:"worker_info,omitempty"`
 	RetryInfo        *RetryInfo          `bson:"retry_info,omitempty" json:"retry_info,omitempty"`
 	ParentJobID      *primitive.ObjectID `bson:"parent_job_id,omitempty" json:"parent_job_id,omitempty"` // Parent job that must complete before this job can process
-	CreatedBy        string              `bson:"created_by" json:"created_by"`                            // User ObjectID as string
+	CreatedBy        string              `bson:"created_by" json:"created_by"`                           // User ObjectID as string
 	CreatedAt        time.Time           `bson:"created_at" json:"created_at"`
 	StartedAt        *time.Time          `bson:"started_at,omitempty" json:"started_at,omitempty"`
 	CompletedAt      *time.Time          `bson:"completed_at,omitempty" json:"completed_at,omitempty"`
@@ -80,15 +80,15 @@ type JobProgress struct {
 
 // JobMetadata contains metadata about the job
 type JobMetadata struct {
-	SourceResource      *SourceResource            `bson:"source_resource,omitempty" json:"source_resource,omitempty"`
-	TriggerUser         *TriggerUser               `bson:"trigger_user" json:"trigger_user"`
-	AffectedListeners   []string                   `bson:"affected_listeners" json:"affected_listeners"`
-	TotalAffected       int                        `bson:"total_affected" json:"total_affected"`
-	AnalysisDuration    int64                      `bson:"analysis_duration_ms" json:"analysis_duration_ms"`
-	WAFConfig           *WAFConfigMeta             `bson:"waf_config,omitempty" json:"waf_config,omitempty"`               // For WAF_PROPAGATION jobs
-	AffectedWASM        []string                   `bson:"affected_wasm,omitempty" json:"affected_wasm,omitempty"`         // For WAF_PROPAGATION jobs
-	UpgradeConfig       *UpgradeMetadata           `bson:"upgrade_config,omitempty" json:"upgrade_config,omitempty"`       // For RESOURCE_UPGRADE jobs
-	ACMEMetadata        *ACMEJobMetadata           `bson:"acme,omitempty" json:"acme,omitempty"`                           // For ACME_VERIFICATION jobs
+	SourceResource    *SourceResource  `bson:"source_resource,omitempty" json:"source_resource,omitempty"`
+	TriggerUser       *TriggerUser     `bson:"trigger_user" json:"trigger_user"`
+	AffectedListeners []string         `bson:"affected_listeners" json:"affected_listeners"`
+	TotalAffected     int              `bson:"total_affected" json:"total_affected"`
+	AnalysisDuration  int64            `bson:"analysis_duration_ms" json:"analysis_duration_ms"`
+	WAFConfig         *WAFConfigMeta   `bson:"waf_config,omitempty" json:"waf_config,omitempty"`         // For WAF_PROPAGATION jobs
+	AffectedWASM      []string         `bson:"affected_wasm,omitempty" json:"affected_wasm,omitempty"`   // For WAF_PROPAGATION jobs
+	UpgradeConfig     *UpgradeMetadata `bson:"upgrade_config,omitempty" json:"upgrade_config,omitempty"` // For RESOURCE_UPGRADE jobs
+	ACMEMetadata      *ACMEJobMetadata `bson:"acme,omitempty" json:"acme,omitempty"`                     // For ACME_VERIFICATION jobs
 }
 
 // WAFConfigMeta contains metadata about the WAF config that triggered propagation
@@ -208,15 +208,15 @@ type UpgradeMetadata struct {
 	UpdateBootstrap   bool                   `bson:"update_bootstrap" json:"update_bootstrap"`
 	DryRun            bool                   `bson:"dry_run" json:"dry_run"`
 	Analysis          *UpgradeAnalysisResult `bson:"analysis,omitempty" json:"analysis,omitempty"`
-	ClientResponses   []interface{}          `bson:"client_responses,omitempty" json:"client_responses,omitempty"`     // Raw responses from each client
-	CreatedResources  []ResourceRef          `bson:"created_resources,omitempty" json:"created_resources,omitempty"`   // Resources created during upgrade
-	BootstrapUpdates  []BootstrapUpdate      `bson:"bootstrap_updates,omitempty" json:"bootstrap_updates,omitempty"`   // Bootstrap updates performed
+	ClientResponses   []interface{}          `bson:"client_responses,omitempty" json:"client_responses,omitempty"`   // Raw responses from each client
+	CreatedResources  []ResourceRef          `bson:"created_resources,omitempty" json:"created_resources,omitempty"` // Resources created during upgrade
+	BootstrapUpdates  []BootstrapUpdate      `bson:"bootstrap_updates,omitempty" json:"bootstrap_updates,omitempty"` // Bootstrap updates performed
 }
 
 // UpgradeAnalysisResult contains the result of upgrade dependency analysis
 type UpgradeAnalysisResult struct {
 	// Listener tracking
-	ListenersToUpgrade    []string `bson:"listeners_to_upgrade" json:"listeners_to_upgrade"`       // All listeners being upgraded
+	ListenersToUpgrade    []string `bson:"listeners_to_upgrade" json:"listeners_to_upgrade"`                           // All listeners being upgraded
 	ListenersAlreadyExist []string `bson:"listeners_already_exist,omitempty" json:"listeners_already_exist,omitempty"` // Listeners that exist in target version
 
 	// Per-listener analysis details
@@ -230,8 +230,8 @@ type UpgradeAnalysisResult struct {
 	SkippedResources     []ExistingResource `bson:"skipped_resources,omitempty" json:"skipped_resources,omitempty"`
 
 	// Bootstrap tracking
-	BootstrapRequired    bool     `bson:"bootstrap_required" json:"bootstrap_required"`
-	BootstrapNames       []string `bson:"bootstrap_names,omitempty" json:"bootstrap_names,omitempty"`
+	BootstrapRequired bool     `bson:"bootstrap_required" json:"bootstrap_required"`
+	BootstrapNames    []string `bson:"bootstrap_names,omitempty" json:"bootstrap_names,omitempty"`
 
 	// Client validation
 	ClientsValidated    int      `bson:"clients_validated" json:"clients_validated"`
@@ -243,16 +243,16 @@ type UpgradeAnalysisResult struct {
 
 // ListenerAnalysis contains analysis details for a single listener
 type ListenerAnalysis struct {
-	ListenerName           string             `bson:"listener_name" json:"listener_name"`
-	ExistsInTarget         bool               `bson:"exists_in_target" json:"exists_in_target"`
-	UpstreamDependencies   int                `bson:"upstream_dependencies" json:"upstream_dependencies"`
-	MissingResources       []MissingResource  `bson:"missing_resources" json:"missing_resources"`
-	ExistingResources      []ExistingResource `bson:"existing_resources" json:"existing_resources"`
-	BootstrapRequired      bool               `bson:"bootstrap_required" json:"bootstrap_required"`
-	BootstrapNames         []string           `bson:"bootstrap_names,omitempty" json:"bootstrap_names,omitempty"`
-	RequiresClientUpgrade  bool               `bson:"requires_client_upgrade" json:"requires_client_upgrade"`  // True if listener has connected clients
-	ConnectedClients       int                `bson:"connected_clients" json:"connected_clients"`              // Number of connected clients
-	TotalClients           int                `bson:"total_clients" json:"total_clients"`                      // Total deployed clients
+	ListenerName          string             `bson:"listener_name" json:"listener_name"`
+	ExistsInTarget        bool               `bson:"exists_in_target" json:"exists_in_target"`
+	UpstreamDependencies  int                `bson:"upstream_dependencies" json:"upstream_dependencies"`
+	MissingResources      []MissingResource  `bson:"missing_resources" json:"missing_resources"`
+	ExistingResources     []ExistingResource `bson:"existing_resources" json:"existing_resources"`
+	BootstrapRequired     bool               `bson:"bootstrap_required" json:"bootstrap_required"`
+	BootstrapNames        []string           `bson:"bootstrap_names,omitempty" json:"bootstrap_names,omitempty"`
+	RequiresClientUpgrade bool               `bson:"requires_client_upgrade" json:"requires_client_upgrade"` // True if listener has connected clients
+	ConnectedClients      int                `bson:"connected_clients" json:"connected_clients"`             // Number of connected clients
+	TotalClients          int                `bson:"total_clients" json:"total_clients"`                     // Total deployed clients
 }
 
 // ExistingResource represents a resource that already exists in target version
@@ -281,10 +281,10 @@ type ResourceRef struct {
 
 // ResourceInfo represents information about a resource
 type ResourceInfo struct {
-	Name       string `bson:"name" json:"name"`
-	GType      string `bson:"gtype" json:"gtype"`
-	Version    string `bson:"version" json:"version"`
-	ProjectID  string `bson:"project_id" json:"project_id"`
+	Name      string `bson:"name" json:"name"`
+	GType     string `bson:"gtype" json:"gtype"`
+	Version   string `bson:"version" json:"version"`
+	ProjectID string `bson:"project_id" json:"project_id"`
 }
 
 // BootstrapUpdate represents a bootstrap update operation

@@ -1,3 +1,5 @@
+// Package common provides shared utilities for resource processing
+// including protobuf conversions and Envoy type helpers.
 package common
 
 import (

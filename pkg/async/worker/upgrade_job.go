@@ -196,20 +196,14 @@ func (w *Worker) updateBootstrapsAndNotifyClients(ctx context.Context, j *job.Jo
 	// Update all bootstraps and notify clients
 	for _, listenerName := range listenerNames {
 		requiresClientUpgrade := w.findRequiresClientUpgrade(analysis, listenerName)
-
-		err := w.updateBootstrapsForListener(ctx, j, listenerName, analysis.BootstrapNames, requiresClientUpgrade)
-		if err != nil {
-			w.logger.Errorf("Failed to update bootstraps for listener %s: %v", listenerName, err)
-			// Don't fail the whole job, just log the error
-			// Bootstrap updates can be done manually if needed
-		}
+		w.updateBootstrapsForListener(ctx, j, listenerName, analysis.BootstrapNames, requiresClientUpgrade)
 	}
 }
 
 // triggerSnapshotUpdates triggers snapshot updates for all upgraded listeners
 func (w *Worker) triggerSnapshotUpdates(ctx context.Context, meta *job.JobMetadata, listenerNames []string) {
 	if w.pokeService == nil {
-		w.logger.Warn("⚠️  Poke service not available, snapshot updates will occur on next client request")
+		w.logger.Warn("Poke service not available, snapshot updates will occur on next client request")
 		return
 	}
 
@@ -224,7 +218,7 @@ func (w *Worker) triggerSnapshotUpdates(ctx context.Context, meta *job.JobMetada
 			w.logger.Errorf("Failed to trigger snapshot for listener %s: %v", listenerName, err)
 			// Don't fail job - snapshot will regenerate on client request
 		} else {
-			w.logger.Infof("✅ Snapshot update triggered for listener: %s", listenerName)
+			w.logger.Infof("Snapshot update triggered for listener: %s", listenerName)
 		}
 	}
 }
@@ -328,7 +322,7 @@ func (w *Worker) rollbackCreatedResources(ctx context.Context, resources []job.R
 		if err != nil {
 			w.logger.Errorf("Failed to rollback %s/%s: %v", resource.Collection, resource.Name, err)
 		} else {
-			w.logger.Infof("🗑️  Rolled back %s/%s", resource.Collection, resource.Name)
+			w.logger.Infof("Rolled back %s/%s", resource.Collection, resource.Name)
 		}
 	}
 }
@@ -360,7 +354,8 @@ func (w *Worker) getServicesForListener(ctx context.Context, listenerName, proje
 	ServiceID string                  `bson:"_id"`
 	Name      string                  `bson:"name"`
 	Clients   []models.ServiceClients `bson:"clients"`
-}, error) {
+}, error,
+) {
 	serviceCollection := w.dbContext.Client.Collection("services")
 	cursor, err := serviceCollection.Find(ctx, bson.M{
 		"name":    listenerName,
@@ -390,7 +385,8 @@ func (w *Worker) getServicesForListenerAnyVersion(ctx context.Context, listenerN
 	ServiceID string                  `bson:"_id"`
 	Name      string                  `bson:"name"`
 	Clients   []models.ServiceClients `bson:"clients"`
-}, error) {
+}, error,
+) {
 	serviceCollection := w.dbContext.Client.Collection("services")
 	cursor, err := serviceCollection.Find(ctx, bson.M{
 		"name":    listenerName,
@@ -419,7 +415,8 @@ func (w *Worker) collectClientIDs(services []struct {
 	ServiceID string                  `bson:"_id"`
 	Name      string                  `bson:"name"`
 	Clients   []models.ServiceClients `bson:"clients"`
-}) []string {
+},
+) []string {
 	clientIDsMap := make(map[string]bool)
 	for _, svc := range services {
 		for _, client := range svc.Clients {
@@ -459,7 +456,7 @@ func (w *Worker) getConnectedClients(ctx context.Context, clientIDs []string) ([
 }
 
 // updateBootstrapsForListener orchestrates bootstrap update and client notification
-func (w *Worker) updateBootstrapsForListener(ctx context.Context, j *job.Job, listenerName string, bootstrapNames []string, requiresClientUpgrade bool) error {
+func (w *Worker) updateBootstrapsForListener(ctx context.Context, j *job.Job, listenerName string, bootstrapNames []string, requiresClientUpgrade bool) {
 	meta := j.Metadata
 	project := meta.SourceResource.ProjectID
 	fromVersion := meta.SourceResource.Version
@@ -490,8 +487,6 @@ func (w *Worker) updateBootstrapsForListener(ctx context.Context, j *job.Job, li
 		// Even if no clients, update service version if service exists
 		w.updateServiceVersion(ctx, project, listenerName, fromVersion, toVersion)
 	}
-
-	return nil
 }
 
 // performBootstrapUpdates updates each bootstrap to target version
@@ -526,7 +521,7 @@ func (w *Worker) performBootstrapUpdates(ctx context.Context, bootstrapNames []s
 			continue
 		}
 
-		w.logger.Infof("✅ Updated bootstrap %s to version %s", bootstrapName, toVersion)
+		w.logger.Infof("Updated bootstrap %s to version %s", bootstrapName, toVersion)
 		bootstrapUpdate.Success = true
 		bootstrapUpdates = append(bootstrapUpdates, bootstrapUpdate)
 	}
@@ -611,7 +606,9 @@ func (w *Worker) storeBootstrapUpdates(ctx context.Context, j *job.Job, meta *jo
 	}
 
 	existingUpdates := meta.UpgradeConfig.BootstrapUpdates
-	allUpdates := append(existingUpdates, bootstrapUpdates...)
+	allUpdates := make([]job.BootstrapUpdate, 0, len(existingUpdates)+len(bootstrapUpdates))
+	allUpdates = append(allUpdates, existingUpdates...)
+	allUpdates = append(allUpdates, bootstrapUpdates...)
 
 	if err := w.jobManager.UpdateJob(ctx, j.ID.Hex(), map[string]any{
 		"$set": map[string]any{
@@ -626,10 +623,10 @@ func (w *Worker) storeBootstrapUpdates(ctx context.Context, j *job.Job, meta *jo
 func (w *Worker) updateAdminPortForListener(ctx context.Context, project, listenerName, toVersion string) {
 	w.logger.Debugf("Updating admin_port for managed listener: %s", listenerName)
 	if err := w.updateAdminPortVersion(ctx, project, listenerName, toVersion); err != nil {
-		w.logger.Warnf("⚠️  Failed to update admin_port (may not exist): %v", err)
+		w.logger.Warnf("Failed to update admin_port (may not exist): %v", err)
 		// Don't fail the whole operation - admin_port update is not critical
 	} else {
-		w.logger.Infof("✅ Updated admin_port for listener %s to version %s", listenerName, toVersion)
+		w.logger.Infof("Updated admin_port for listener %s to version %s", listenerName, toVersion)
 	}
 }
 
@@ -655,7 +652,7 @@ func (w *Worker) notifyClientsForUpgrade(ctx context.Context, j *job.Job, projec
 		return nil
 	}
 
-	w.logger.Infof("📤 Sending UPGRADE_LISTENER commands to %d client(s)", len(clients))
+	w.logger.Infof("Sending UPGRADE_LISTENER commands to %d client(s)", len(clients))
 
 	// Step 2: Send upgrade commands to all clients
 	clientResponses, successCount, failureCount := w.sendUpgradeCommandsToClients(ctx, clients, meta, project, listenerName, fromVersion, toVersion)
@@ -665,10 +662,10 @@ func (w *Worker) notifyClientsForUpgrade(ctx context.Context, j *job.Job, projec
 
 	// Step 4: Update service version if any succeeded
 	if successCount > 0 {
-		w.logger.Infof("✅ Upgrade notification summary: %d succeeded, %d failed", successCount, failureCount)
+		w.logger.Infof("Upgrade notification summary: %d succeeded, %d failed", successCount, failureCount)
 		w.updateServiceVersion(ctx, project, listenerName, fromVersion, toVersion)
 	} else {
-		w.logger.Warnf("⚠️  All upgrade notifications failed: %d failed", failureCount)
+		w.logger.Warnf("All upgrade notifications failed: %d failed", failureCount)
 	}
 
 	return nil
@@ -734,7 +731,7 @@ func (w *Worker) sendUpgradeCommandsToClients(ctx context.Context, clients []Cli
 	failureCount := 0
 
 	for _, client := range clients {
-		w.logger.Infof("📤 Sending upgrade command to client %s (%s): %s → %s",
+		w.logger.Infof("Sending upgrade command to client %s (%s): %s -> %s",
 			client.Name, client.ClientID, fromVersion, toVersion)
 
 		// Build upgrade operation
@@ -756,7 +753,7 @@ func (w *Worker) sendUpgradeCommandsToClients(ctx context.Context, clients []Cli
 
 		// Success
 		clientResponses = append(clientResponses, response)
-		w.logger.Infof("✅ Successfully sent UPGRADE_LISTENER to client %s", client.ClientID)
+		w.logger.Infof("Successfully sent UPGRADE_LISTENER to client %s", client.ClientID)
 		successCount++
 	}
 
@@ -805,16 +802,18 @@ func (w *Worker) storeClientResponses(ctx context.Context, j *job.Job, clientRes
 		return
 	}
 
-	// ✅ APPEND to existing responses instead of overwriting
+	// APPEND to existing responses instead of overwriting
 	existingResponses := j.Metadata.UpgradeConfig.ClientResponses
-	allResponses := append(existingResponses, clientResponses...)
+	allResponses := make([]interface{}, 0, len(existingResponses)+len(clientResponses))
+	allResponses = append(allResponses, existingResponses...)
+	allResponses = append(allResponses, clientResponses...)
 
 	j.Metadata.UpgradeConfig.ClientResponses = allResponses
 	err := w.jobManager.UpdateJobMetadata(ctx, j.ID, j.Metadata)
 	if err != nil {
 		w.logger.Errorf("Failed to update job metadata with client responses: %v", err)
 	} else {
-		w.logger.Infof("✅ Stored %d client responses in job metadata (total: %d)", len(clientResponses), len(allResponses))
+		w.logger.Infof("Stored %d client responses in job metadata (total: %d)", len(clientResponses), len(allResponses))
 	}
 }
 
@@ -830,11 +829,12 @@ func (w *Worker) updateServiceVersion(ctx context.Context, project, listenerName
 			"version": toVersion, // Update to new version
 		},
 	})
-	if err != nil {
+	switch {
+	case err != nil:
 		w.logger.Errorf("Failed to update service version: %v", err)
-	} else if updateResult.ModifiedCount > 0 {
-		w.logger.Infof("✅ Updated %d service(s) to version %s", updateResult.ModifiedCount, toVersion)
-	} else {
+	case updateResult.ModifiedCount > 0:
+		w.logger.Infof("Updated %d service(s) to version %s", updateResult.ModifiedCount, toVersion)
+	default:
 		w.logger.Debugf("No services found to update for listener %s", listenerName)
 	}
 }

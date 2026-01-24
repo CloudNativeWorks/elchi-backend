@@ -23,13 +23,13 @@ type DeleteVersionResourcesRequest struct {
 
 // DeleteVersionResourcesResponse represents the cleanup result
 type DeleteVersionResourcesResponse struct {
-	Success       bool              `json:"success"`
-	Message       string            `json:"message"`
-	Version       string            `json:"version"`
-	Mode          string            `json:"mode"`
-	DeletedCounts map[string]int64  `json:"deleted_counts"`
-	TotalDeleted  int64             `json:"total_deleted"`
-	SkippedReason string            `json:"skipped_reason,omitempty"`
+	Success       bool             `json:"success"`
+	Message       string           `json:"message"`
+	Version       string           `json:"version"`
+	Mode          string           `json:"mode"`
+	DeletedCounts map[string]int64 `json:"deleted_counts"`
+	TotalDeleted  int64            `json:"total_deleted"`
+	SkippedReason string           `json:"skipped_reason,omitempty"`
 }
 
 // DeleteVersionResources handles version cleanup
@@ -69,7 +69,7 @@ func (h *CleanupHandler) DeleteVersionResources(c *gin.Context) {
 		}
 	}
 
-	h.Logger.Infof("🧹 Cleanup: User %s requesting version cleanup - version=%s, project=%s, mode=%s",
+	h.Logger.Infof("Cleanup: User %s requesting version cleanup - version=%s, project=%s, mode=%s",
 		username, version, project, req.Mode)
 
 	ctx := context.Background()
@@ -89,7 +89,7 @@ func (h *CleanupHandler) DeleteVersionResources(c *gin.Context) {
 	}
 
 	if listenerCount > 0 {
-		h.Logger.Warnf("❌ ABORT: Version %s has %d active listener(s) - cannot delete resources", version, listenerCount)
+		h.Logger.Warnf("ABORT: Version %s has %d active listener(s) - cannot delete resources", version, listenerCount)
 		c.JSON(http.StatusConflict, DeleteVersionResourcesResponse{
 			Success:       false,
 			Message:       fmt.Sprintf("Cannot delete resources: version %s has %d active listener(s). Delete listeners first.", version, listenerCount),
@@ -102,7 +102,7 @@ func (h *CleanupHandler) DeleteVersionResources(c *gin.Context) {
 		return
 	}
 
-	h.Logger.Infof("✅ Version %s has no active listeners - proceeding with cleanup", version)
+	h.Logger.Infof("Version %s has no active listeners - proceeding with cleanup", version)
 
 	// Step 2: Build deletion filter based on mode
 	baseFilter := bson.M{
@@ -174,7 +174,7 @@ func (h *CleanupHandler) DeleteVersionResources(c *gin.Context) {
 		totalDeleted += result.DeletedCount
 
 		if result.DeletedCount > 0 {
-			h.Logger.Infof("  ✅ Deleted %d resource(s) from %s", result.DeletedCount, collectionName)
+			h.Logger.Infof("  Deleted %d resource(s) from %s", result.DeletedCount, collectionName)
 		}
 	}
 

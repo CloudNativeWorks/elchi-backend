@@ -3,6 +3,8 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"net/http"
 	"strings"
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/audit"
@@ -33,7 +35,7 @@ func (h *Handler) updateSettingsActionIfNeeded(c *gin.Context) {
 	}
 
 	// Only process PUT requests (potential CREATE operations)
-	if c.Request.Method != "PUT" {
+	if c.Request.Method != http.MethodPut {
 		return
 	}
 
@@ -213,10 +215,7 @@ func (h *Handler) fetchResourceNameFromDB(ctx context.Context, resType settingsR
 	var result bson.M
 	err := db.Collection(resType.dbCollection).FindOne(ctx, query).Decode(&result)
 	if err != nil {
-		// Log error but don't fail audit - graceful degradation
-		if err != mongo.ErrNoDocuments {
-			// Could add logging here if logger is available
-		}
+		// Graceful degradation - return empty on any error (including ErrNoDocuments)
 		return ""
 	}
 
@@ -308,7 +307,7 @@ func (h *Handler) compareUserChanges(ctx context.Context, db *mongo.Database, bo
 	var existingUser models.User
 	err := db.Collection("users").FindOne(ctx, bson.M{"user_id": userID}).Decode(&existingUser)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return "new_user: true"
 		}
 		return ""
@@ -335,7 +334,7 @@ func (h *Handler) compareGroupChanges(ctx context.Context, db *mongo.Database, b
 	var existingGroup bson.M
 	err := db.Collection("groups").FindOne(ctx, bson.M{"_id": parseObjectID(groupID)}).Decode(&existingGroup)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return "new_group: true"
 		}
 		return ""
@@ -381,7 +380,7 @@ func (h *Handler) compareProjectChanges(ctx context.Context, db *mongo.Database,
 	var existingProject bson.M
 	err := db.Collection("projects").FindOne(ctx, bson.M{"_id": parseObjectID(projectID)}).Decode(&existingProject)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return "new_project: true"
 		}
 		return ""
@@ -439,7 +438,7 @@ func (h *Handler) compareCloudChanges(ctx context.Context, db *mongo.Database, b
 	var existingCloud bson.M
 	err := db.Collection("clouds").FindOne(ctx, bson.M{"name": cloudName}).Decode(&existingCloud)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return "new_cloud: true"
 		}
 		return ""
@@ -560,12 +559,13 @@ func maskEmail(email string) string {
 	domain := parts[1]
 
 	// Mask username part
-	maskedUsername := ""
-	if len(username) <= 1 {
+	var maskedUsername string
+	switch {
+	case len(username) <= 1:
 		maskedUsername = "*"
-	} else if len(username) <= 3 {
+	case len(username) <= 3:
 		maskedUsername = username[:1] + strings.Repeat("*", len(username)-1)
-	} else {
+	default:
 		maskedUsername = username[:1] + strings.Repeat("*", len(username)-2) + username[len(username)-1:]
 	}
 
@@ -576,11 +576,12 @@ func maskEmail(email string) string {
 		if i > 0 {
 			maskedDomain += "."
 		}
-		if len(part) <= 1 {
+		switch {
+		case len(part) <= 1:
 			maskedDomain += "*"
-		} else if len(part) <= 3 {
+		case len(part) <= 3:
 			maskedDomain += part[:1] + strings.Repeat("*", len(part)-1)
-		} else {
+		default:
 			maskedDomain += part[:1] + strings.Repeat("*", len(part)-2) + part[len(part)-1:]
 		}
 	}
@@ -648,7 +649,7 @@ func (h *Handler) setWAFAuditChanges(ctx context.Context, db *mongo.Database, bo
 	var existingConfig bson.M
 	err = db.Collection("waf").FindOne(ctx, bson.M{"_id": objID}).Decode(&existingConfig)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return "new_waf_config: true"
 		}
 		return ""

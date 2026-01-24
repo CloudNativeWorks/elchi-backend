@@ -2,6 +2,7 @@ package waf
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -138,7 +139,7 @@ func (s *WAFCRUDService) Update(ctx context.Context, id string, req WAFConfigReq
 	)
 
 	if result.Err() != nil {
-		if result.Err() == mongo.ErrNoDocuments {
+		if errors.Is(result.Err(), mongo.ErrNoDocuments) {
 			return nil, nil, nil, fmt.Errorf("WAF config not found")
 		}
 		return nil, nil, nil, fmt.Errorf("failed to update WAF config: %w", result.Err())
@@ -263,7 +264,7 @@ func (s *WAFCRUDService) GetByID(ctx context.Context, id string) (*WAFConfig, er
 	var config WAFConfig
 	err = s.dbContext.Client.Collection(WAFCollection).FindOne(ctx, bson.M{"_id": objectID}).Decode(&config)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, fmt.Errorf("WAF config not found")
 		}
 		return nil, fmt.Errorf("failed to get WAF config: %w", err)

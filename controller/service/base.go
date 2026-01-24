@@ -1,3 +1,5 @@
+// Package service provides service management functionality for tracking
+// and managing connected Envoy services and their configurations.
 package service
 
 import (

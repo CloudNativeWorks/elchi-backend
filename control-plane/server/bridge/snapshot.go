@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/CloudNativeWorks/versioned-go-control-plane/pkg/cache/types"
@@ -123,8 +124,8 @@ func convertToStructPB(resourceData map[string]types.Resource, maskSecrets bool)
 
 		// Debug: Log for resources containing "coraza"
 		protoStr := fmt.Sprintf("%v", resProto)
-		if len(protoStr) > 100 && (contains(protoStr, "coraza") || contains(protoStr, "directives_map")) {
-			logrus.Debugf("🔍 [SNAPSHOT] Resource '%s' JSON (800 chars): %s", key, truncate(string(jsonBytes), 800))
+		if len(protoStr) > 100 && (strings.Contains(protoStr, "coraza") || strings.Contains(protoStr, "directives_map")) {
+			logrus.Debugf("[SNAPSHOT] Resource '%s' JSON (800 chars): %s", key, truncate(string(jsonBytes), 800))
 		}
 
 		var jsonData any
@@ -183,14 +184,7 @@ func isSensitiveField(fieldName string) bool {
 		"inline_string",
 	}
 
-	fieldLower := ""
-	for _, c := range fieldName {
-		if c >= 'A' && c <= 'Z' {
-			fieldLower += string(c + 32)
-		} else {
-			fieldLower += string(c)
-		}
-	}
+	fieldLower := strings.ToLower(fieldName)
 
 	// Check exact matches
 	for _, sensitive := range exactMatchFields {
@@ -201,9 +195,9 @@ func isSensitiveField(fieldName string) bool {
 
 	// Special case: "secret" only if it's the exact field name or ends with "_secret"
 	// This avoids masking "sds_secret_configs" which is just configuration
-	if fieldLower == "secret" || contains(fieldLower, "_secret") {
+	if fieldLower == "secret" || strings.Contains(fieldLower, "_secret") {
 		// But exclude configuration fields that just reference secrets
-		if !contains(fieldLower, "secret_config") && !contains(fieldLower, "secret_provider") {
+		if !strings.Contains(fieldLower, "secret_config") && !strings.Contains(fieldLower, "secret_provider") {
 			return true
 		}
 	}
@@ -216,13 +210,4 @@ func truncate(s string, max int) string {
 		return s
 	}
 	return s[:max] + "..."
-}
-
-func contains(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

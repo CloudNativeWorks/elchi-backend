@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package bridge;
+
+option go_package = ".;bridge";
+
+// MetricsService handles metric collection from distributed components
+// Used for centralized metrics aggregation in Registry
+service MetricsService {
+  // PushMetrics accepts metrics from controllers and control-planes
+  // Fire-and-forget pattern: client doesn't wait for processing
+  rpc PushMetrics(PushMetricsRequest) returns (PushMetricsResponse);
+}
+
+// PushMetricsRequest contains metrics from a single source
+message PushMetricsRequest {
+  string source_id = 1;     // e.g., "controller-ctrl-1", "control-plane-v1.36.2"
+  string source_type = 2;   // "controller" | "control-plane" | "registry"
+  string version = 3;       // Envoy version (optional, for control-plane)
+  int64 timestamp = 4;      // Unix timestamp (seconds)
+
+  repeated Metric metrics = 5;
+}
+
+// Metric represents a single metric data point
+message Metric {
+  string name = 1;                    // Metric name (e.g., "elchi_gslb_health_checks_total")
+  double value = 2;                   // Metric value
+  map<string, string> labels = 3;    // Labels (e.g., {"shard_id": "42", "result": "success"})
+}
+
+// PushMetricsResponse is returned immediately (fire-and-forget)
+message PushMetricsResponse {
+  bool accepted = 1;  // Always true (for gRPC contract compliance)
+}

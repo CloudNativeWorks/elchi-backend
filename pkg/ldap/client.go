@@ -1,3 +1,5 @@
+// Package ldap provides LDAP authentication client for integrating
+// with directory services for user authentication.
 package ldap
 
 import (

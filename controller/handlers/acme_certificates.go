@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -21,7 +22,7 @@ type ACMEHandler struct {
 	manager       *acme.CertificateManager
 	asyncSystem   async.AsyncJobSystem // For background DNS verification
 	logger        *logger.Logger
-	parentHandler *Handler      // Reference to parent Handler for audit functions
+	parentHandler *Handler         // Reference to parent Handler for audit functions
 	auditHelper   *ACMEAuditHelper // Audit context helper for ACME operations
 }
 
@@ -45,18 +46,18 @@ func (h *ACMEHandler) SetParentHandler(parent *Handler) {
 
 // CreateDNSCredentialRequest represents the request body for creating a DNS credential
 type CreateDNSCredentialRequest struct {
-	Name        string                  `json:"name" binding:"required"`
-	Description string                  `json:"description"`
-	Provider    string                  `json:"provider" binding:"required"` // "google" | "godaddy"
-	Credentials map[string]any          `json:"credentials" binding:"required"`
+	Name        string           `json:"name" binding:"required"`
+	Description string           `json:"description"`
+	Provider    string           `json:"provider" binding:"required"` // "google" | "godaddy"
+	Credentials map[string]any   `json:"credentials" binding:"required"`
 	Permissions acme.Permissions `json:"permissions"`
 }
 
 // UpdateDNSCredentialRequest represents the request body for updating a DNS credential
 type UpdateDNSCredentialRequest struct {
-	Name        *string                  `json:"name"`
-	Description *string                  `json:"description"`
-	Credentials map[string]any           `json:"credentials"` // Optional - only if updating credentials
+	Name        *string           `json:"name"`
+	Description *string           `json:"description"`
+	Credentials map[string]any    `json:"credentials"` // Optional - only if updating credentials
 	Permissions *acme.Permissions `json:"permissions"`
 }
 
@@ -253,7 +254,6 @@ func (h *ACMEHandler) CreateCertificate(c *gin.Context) {
 			TriggerUser:     userDetails,
 			IsRenewal:       false, // Initial verification
 		})
-
 		if err != nil {
 			h.logger.Errorf("Failed to create verification job: %v", err)
 			h.auditHelper.SetAuditError(c, err)
@@ -383,7 +383,7 @@ func (h *ACMEHandler) ListCertificates(c *gin.Context) {
 
 	// Add warning if there are orphaned certificates
 	if orphanedCount > 0 {
-		response["warning"] = fmt.Sprintf("⚠️ %d certificate(s) have missing ACME accounts. Automatic renewal will fail for these certificates.", orphanedCount)
+		response["warning"] = fmt.Sprintf("%d certificate(s) have missing ACME accounts. Automatic renewal will fail for these certificates.", orphanedCount)
 		response["orphaned_count"] = orphanedCount
 	}
 
@@ -438,7 +438,7 @@ func (h *ACMEHandler) GetCertificate(c *gin.Context) {
 		_, err := h.manager.GetACMEAccount(ctx, *certificate.ACME.AccountID, project)
 		if err != nil {
 			// Account not found - certificate is orphaned
-			warning = "⚠️ ACME account not found. Automatic renewal may fail. The account may have been deleted."
+			warning = "ACME account not found. Automatic renewal may fail. The account may have been deleted."
 		}
 	}
 
@@ -654,7 +654,6 @@ func (h *ACMEHandler) RetryVerification(c *gin.Context) {
 		TriggerUser:     userDetails,
 		IsRenewal:       false, // Retry verification (not renewal)
 	})
-
 	if err != nil {
 		h.logger.Errorf("Failed to create retry verification job: %v", err)
 		h.auditHelper.SetAuditError(c, err)
@@ -965,7 +964,6 @@ func (h *ACMEHandler) RenewCertificate(c *gin.Context) {
 			TriggerUser:     userDetails,
 			IsRenewal:       true, // This is a renewal operation
 		})
-
 		if err != nil {
 			h.logger.Errorf("Failed to create renewal job: %v", err)
 			h.auditHelper.SetAuditError(c, err)
@@ -1336,7 +1334,8 @@ func (h *ACMEHandler) DeleteDNSCredential(c *gin.Context) {
 	err = h.manager.DeleteDNSCredential(ctx, credID, project, force)
 	if err != nil {
 		// Check if it's a DNSCredentialInUseError
-		if credInUseErr, ok := err.(*acme.DNSCredentialInUseError); ok {
+		var credInUseErr *acme.DNSCredentialInUseError
+		if errors.As(err, &credInUseErr) {
 			h.auditHelper.SetAuditError(c, credInUseErr)
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": credInUseErr.Error(),
@@ -1591,7 +1590,7 @@ func (h *ACMEHandler) ChangeCertificateDNSCredential(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "DNS credential updated successfully",
 		"data": gin.H{
-			"certificate_id":      certID.Hex(),
+			"certificate_id":     certID.Hex(),
 			"new_dns_credential": newCredential.Name,
 			"new_provider":       newCredential.Provider,
 		},

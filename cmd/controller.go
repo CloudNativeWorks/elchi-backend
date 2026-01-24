@@ -30,6 +30,7 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/pkg/audit"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/config"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
+	pkgGslb "github.com/CloudNativeWorks/elchi-backend/pkg/gslb"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/helper"
 	server "github.com/CloudNativeWorks/elchi-backend/pkg/httpserver"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
@@ -102,7 +103,6 @@ var restCmd = &cobra.Command{
 			Module:     "root",
 		}); err != nil {
 			log.Fatalf("Fatal: Logger could not be initialized: %v\n", err)
-			os.Exit(1)
 		}
 
 		rootLogger := logger.NewLogger("controller")
@@ -128,11 +128,42 @@ var restCmd = &cobra.Command{
 				rootLogger.Errorf("Initial registry connection failed: %v", err)
 				// Don't return - the continuous reconnect loop will handle retries
 			} else {
-				rootLogger.Infof("✅ Successfully connected to registry and registered controller")
+				rootLogger.Infof("Successfully connected to registry and registered controller")
 			}
 		}()
 
 		appContext := db.NewMongoDB(appConfig, false)
+
+		// Generate controller ID for GSLB shard ownership
+		// Use hostname (same as registry registration for consistency)
+		controllerID, err := os.Hostname()
+		if err != nil {
+			rootLogger.Fatalf("Failed to get hostname for controller ID: %v", err)
+		}
+
+		// Create GSLB System (manages all GSLB components)
+		gslbSystem, err := pkgGslb.NewSystem(appContext, controllerID)
+		if err != nil {
+			rootLogger.Fatalf("Failed to create GSLB system: %v", err)
+		}
+
+		// Start GSLB system in background
+		go func() {
+			if err := gslbSystem.Start(); err != nil {
+				// This is expected when no GSLB records exist yet
+				rootLogger.Infof("GSLB system in standby mode: %v", err)
+			}
+		}()
+
+		// Ensure graceful shutdown of GSLB system
+		defer func() {
+			if err := gslbSystem.Stop(); err != nil {
+				rootLogger.Errorf("Failed to stop GSLB system: %v", err)
+			}
+		}()
+
+		rootLogger.Infof("GSLB system initialization completed")
+
 		xdsHandler := xds.NewXDSHandler(appContext)
 		extensionHandler := extension.NewExtensionHandler(appContext)
 		scenarioHandler := scenario.NewScenarioHandler(appContext)
@@ -230,6 +261,12 @@ var restCmd = &cobra.Command{
 		// Create CA providers handler
 		caProvidersHandler := handlers.NewCAProvidersHandler(appConfig)
 
+		// Create GSLB DNS handler
+		dnsHandler := handlers.NewDNSHandler(appContext)
+
+		// Create GSLB CRUD handler (with gslbSystem for reloads)
+		gslbHandler := handlers.NewGSLBHandler(appContext, gslbSystem)
+
 		// Set dependency services for snapshot updates on certificate renewal
 		acmeManager.SetDependencyServices(appContext, &bridgeHandler.Poke)
 
@@ -288,6 +325,8 @@ var restCmd = &cobra.Command{
 			upgradeHandler,
 			acmeHandler,
 			caProvidersHandler,
+			dnsHandler,
+			gslbHandler,
 		)
 
 		// Set handler reference for audit functionality

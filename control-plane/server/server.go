@@ -1,3 +1,5 @@
+// Package server provides the xDS server implementation for the control-plane
+// including ADS, VHDS, and gRPC service management.
 package server
 
 import (

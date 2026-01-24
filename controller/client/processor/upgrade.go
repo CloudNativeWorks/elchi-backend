@@ -51,12 +51,12 @@ func (p *UpgradeProcessor) ValidateAndTransform(op models.OperationClass, reques
 	// Client will fetch the new bootstrap config based on the ToVersion during restart
 	upgrade := &client.Command_UpgradeListener{
 		UpgradeListener: &client.RequestUpgradeListener{
-			Name:              op.GetCommandName(),
-			FromVersion:       fromVersion,            // Source Envoy version from command
-			ToVersion:         requestDetails.Version, // Target Envoy version
-			Port:              adminPort,
-			Graceful:          true, // Default to graceful upgrade
-			DrainTimeSeconds:  30,   // Default 30 seconds drain time
+			Name:             op.GetCommandName(),
+			FromVersion:      fromVersion,            // Source Envoy version from command
+			ToVersion:        requestDetails.Version, // Target Envoy version
+			Port:             adminPort,
+			Graceful:         true, // Default to graceful upgrade
+			DrainTimeSeconds: 30,   // Default 30 seconds drain time
 		},
 	}
 

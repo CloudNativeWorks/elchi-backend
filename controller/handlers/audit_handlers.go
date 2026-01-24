@@ -40,13 +40,13 @@ func respondWithAuditError(c *gin.Context, statusCode int, operation, message st
 }
 
 // handleAuditRequest validates project access for audit operations
-func (h *Handler) handleAuditRequest(c *gin.Context) (models.RequestDetails, models.UserDetails, bool) {
+func (h *Handler) handleAuditRequest(c *gin.Context) (models.RequestDetails, bool) {
 	requestDetails, userDetails := h.getRequestDetails(c)
 
 	// Check basic role permissions
 	if err := checkRole(c, userDetails); err != nil {
 		respondWithAuditError(c, http.StatusBadRequest, "authorization", "Insufficient permissions for audit access", err)
-		return requestDetails, userDetails, false
+		return requestDetails, false
 	}
 
 	// Validate project access if project is specified
@@ -54,12 +54,12 @@ func (h *Handler) handleAuditRequest(c *gin.Context) (models.RequestDetails, mod
 		if db := h.getDatabaseConnection(); db != nil {
 			if err := authorization.ValidateRequestProject(c.Request.Context(), db, userDetails, requestDetails.Project); err != nil {
 				respondWithAuditError(c, http.StatusForbidden, "project_validation", "Access denied to this project", err)
-				return requestDetails, userDetails, false
+				return requestDetails, false
 			}
 		}
 	}
 
-	return requestDetails, userDetails, true
+	return requestDetails, true
 }
 
 // GetAuditLogs retrieves audit logs with pagination and filtering
@@ -67,7 +67,7 @@ func (h *Handler) GetAuditLogs(c *gin.Context) {
 	ctx := c.Request.Context()
 
 	// Validate project access and get request details
-	requestDetails, _, ok := h.handleAuditRequest(c)
+	requestDetails, ok := h.handleAuditRequest(c)
 	if !ok {
 		return // Error already handled
 	}
@@ -151,7 +151,7 @@ func (h *Handler) GetAuditStats(c *gin.Context) {
 	ctx := c.Request.Context()
 
 	// Validate project access and get request details
-	requestDetails, _, ok := h.handleAuditRequest(c)
+	requestDetails, ok := h.handleAuditRequest(c)
 	if !ok {
 		return // Error already handled
 	}

@@ -24,7 +24,7 @@ type Envoys struct {
 	Status         string               `bson:"status,omitempty"     json:"status,omitempty"`
 }
 
-// Enhanced error entry with rich metadata
+// EnhancedErrorEntry represents an enhanced error entry with rich metadata
 type EnhancedErrorEntry struct {
 	ID               string     `bson:"_id" json:"id"`
 	Message          string     `bson:"message" json:"message"`

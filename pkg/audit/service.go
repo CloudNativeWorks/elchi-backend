@@ -1,3 +1,5 @@
+// Package audit provides audit logging functionality for tracking
+// user actions and system events with MongoDB persistence.
 package audit
 
 import (
@@ -152,9 +154,7 @@ func (s *Service) StoreAsync(entry *models.AuditEntry) {
 				s.logger.Debugf("Audit service shutting down, skipping fallback store")
 				return
 			default:
-				if err := s.Store(entry); err != nil {
-					// Already logged by Store method, just continue
-				}
+				_ = s.Store(entry) // Error already logged by Store method
 			}
 		}()
 	}

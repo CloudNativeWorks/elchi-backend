@@ -40,6 +40,11 @@ var BootstrapTypedConfigPaths = []TypedConfigPath{
 		PathTemplate: "overload_manager.resource_monitors.%d.typed_config",
 		Kind:         "resource_monitor",
 	},
+	{
+		ArrayPaths:   []ArrayPath{},
+		PathTemplate: "typed_dns_resolver_config.typed_config",
+		Kind:         "dns_resolver",
+	},
 }
 
 var ListenerTypedConfigPaths = []TypedConfigPath{
@@ -108,6 +113,11 @@ var ClusterTypedConfigPaths = []TypedConfigPath{
 		ArrayPaths:   []ArrayPath{},
 		PathTemplate: "cluster_type.typed_config",
 		Kind:         "cluster_extension",
+	},
+	{
+		ArrayPaths:   []ArrayPath{},
+		PathTemplate: "typed_dns_resolver_config.typed_config",
+		Kind:         "dns_resolver",
 	},
 }
 

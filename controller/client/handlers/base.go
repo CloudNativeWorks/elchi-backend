@@ -1,3 +1,5 @@
+// Package handlers provides gRPC handlers for client connections
+// including client registration and command processing.
 package handlers
 
 import (
@@ -31,25 +33,25 @@ type Client struct {
 	// Client-level request serialization to prevent concurrent gRPC calls
 	clientMutexes sync.Map // clientID -> *sync.Mutex mapping
 	cleanupTicker *time.Ticker
-	
+
 	// Request deduplication to handle duplicate frontend requests
 	activeRequests sync.Map // requestHash -> chan struct{} (completion channel)
 }
 
 // ClearActiveRequestsForClient removes all active requests related to a specific client
 // Called when client disconnects to prevent stale request blocking
-func (c *Client) ClearActiveRequestsForClient(clientID string) {
-	c.logger.Debugf("Clearing active requests for disconnected client: %s", clientID)
+func (h *Client) ClearActiveRequestsForClient(clientID string) {
+	h.logger.Debugf("Clearing active requests for disconnected client: %s", clientID)
 
 	// Iterate through all active requests and close channels for this client
-	c.activeRequests.Range(func(key, value interface{}) bool {
+	h.activeRequests.Range(func(key, value interface{}) bool {
 		requestHash := key.(string)
 		completionChan := value.(chan struct{})
 
 		// Hash contains client ID, so we can check if this request belongs to the disconnected client
 		if strings.Contains(requestHash, clientID) {
-			c.logger.Debugf("Removing active request hash for client %s: %s", clientID, requestHash)
-			c.activeRequests.Delete(requestHash)
+			h.logger.Debugf("Removing active request hash for client %s: %s", clientID, requestHash)
+			h.activeRequests.Delete(requestHash)
 
 			// Close the channel to unblock any waiting requests
 			select {
@@ -138,13 +140,13 @@ func (h *Client) getClientMutex(clientID string) *sync.Mutex {
 func (h *Client) startMutexCleanup() {
 	h.cleanupTicker = time.NewTicker(5 * time.Minute)
 	go func() {
-		defer h.logger.Info("🔄 Mutex cleanup goroutine terminated")
+		defer h.logger.Info("Mutex cleanup goroutine terminated")
 		for {
 			select {
 			case <-h.cleanupTicker.C:
 				h.cleanupUnusedMutexes()
 			case <-h.shutdownCtx.Done():
-				h.logger.Info("🔄 Mutex cleanup goroutine received shutdown signal")
+				h.logger.Info("Mutex cleanup goroutine received shutdown signal")
 				return
 			}
 		}
@@ -171,7 +173,7 @@ func (h *Client) cleanupUnusedMutexes() {
 
 // Stop gracefully shuts down the client handler
 func (h *Client) Stop() {
-	h.logger.Info("🔄 Stopping client handler and cleaning up resources...")
+	h.logger.Info("Stopping client handler and cleaning up resources...")
 
 	// Signal shutdown to all background goroutines
 	if h.shutdownCancel != nil {
@@ -185,10 +187,10 @@ func (h *Client) Stop() {
 	// Force cleanup all mutexes to prevent shutdown deadlock
 	h.clientMutexes.Range(func(key, value any) bool {
 		clientID := key.(string)
-		h.logger.Debugf("🔄 Cleaning up mutex for client: %s", clientID)
+		h.logger.Debugf("Cleaning up mutex for client: %s", clientID)
 		h.clientMutexes.Delete(clientID)
 		return true
 	})
 
-	h.logger.Info("🔄 Client handler stopped successfully")
+	h.logger.Info("Client handler stopped successfully")
 }

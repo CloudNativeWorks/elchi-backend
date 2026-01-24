@@ -1,0 +1,302 @@
+syntax = "proto3";
+
+package bridge;
+
+option go_package = ".;bridge";
+
+import "google/protobuf/timestamp.proto";
+
+// Controller Routing Service
+service ControllerRoutingService {
+  rpc RegisterController(RegisterControllerRequest)
+      returns (RegisterControllerResponse);
+
+  rpc GetControllerCluster(GetControllerClusterRequest)
+      returns (GetControllerClusterResponse);
+
+  // Controller client'ı aldı notification
+  rpc NotifyClientConnected(NotifyClientConnectedRequest)
+      returns (NotifyClientConnectedResponse);
+
+  // Bulk client update (30sn'de bir)
+  rpc UpdateClientList(UpdateClientListRequest)
+      returns (UpdateClientListResponse);
+
+  // List all controllers
+  rpc ListControllers(ListControllersRequest) returns (ListControllersResponse);
+
+  // List clients by controller
+  rpc ListClientsByController(ListClientsByControllerRequest)
+      returns (ListClientsByControllerResponse);
+
+  // Get all registry data for reporting
+  rpc GetAllRegistryData(GetAllControllerRegistryDataRequest)
+      returns (GetAllControllerRegistryDataResponse);
+
+  // Health check
+  rpc HealthCheck(ControllerHealthCheckRequest)
+      returns (ControllerHealthCheckResponse);
+
+  rpc NotifyClientDisconnected(NotifyClientDisconnectedRequest)
+      returns (NotifyClientDisconnectedResponse);
+
+  // Delete controller
+  rpc DeleteController(DeleteControllerRequest)
+      returns (DeleteControllerResponse);
+}
+
+// Controller kaydı
+message RegisterControllerRequest {
+  string controller_id = 1;
+  string version = 2;
+  google.protobuf.Timestamp timestamp = 4;
+}
+
+message RegisterControllerResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Client'dan routing request'i (external processing)
+message GetControllerClusterRequest {
+  string client_id = 1; // client-app-123
+  string version = 2;   // v1.2.1
+  google.protobuf.Timestamp timestamp = 3;
+}
+
+message GetControllerClusterResponse {
+  bool found = 1;
+  string controller_id = 2;
+}
+
+// Client connected notification
+message NotifyClientConnectedRequest {
+  string controller_id = 1;
+  string client_id = 2;
+  string version = 3;
+  google.protobuf.Timestamp timestamp = 4;
+}
+
+message NotifyClientConnectedResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message NotifyClientDisconnectedRequest {
+  string controller_id = 1;
+  string client_id = 2;
+  string version = 3;
+  google.protobuf.Timestamp timestamp = 4;
+}
+
+message NotifyClientDisconnectedResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Bulk client list update (30sn'de bir)
+message UpdateClientListRequest {
+  string controller_id = 1;
+  repeated ClientInfo clients = 2;
+  google.protobuf.Timestamp timestamp = 3;
+}
+
+message ClientInfo {
+  string client_id = 1;
+  string version = 2;
+  google.protobuf.Timestamp last_seen = 3;
+}
+
+message UpdateClientListResponse {
+  bool success = 1;
+  string message = 2;
+  int32 updated_count = 3;
+}
+
+// List controllers
+message ListControllersRequest {}
+
+message ControllerInfo {
+  string controller_id = 1;
+  string version = 2;
+  string http_address = 3;
+  google.protobuf.Timestamp last_seen = 4;
+}
+
+message ListControllersResponse { repeated ControllerInfo controllers = 1; }
+
+// List clients by controller
+message ListClientsByControllerRequest { string controller_id = 1; }
+
+message ListClientsByControllerResponse { repeated ClientInfo clients = 1; }
+
+// Get all controller registry data
+message GetAllControllerRegistryDataRequest {}
+
+message ControllerRegistryData {
+  repeated ControllerInfo controllers = 1;
+  map<string, ClientsData> clients_by_controller = 2;
+}
+
+message ClientsData { repeated ClientInfo clients = 1; }
+
+message GetAllControllerRegistryDataResponse {
+  ControllerRegistryData data = 1;
+}
+
+// Health check
+message ControllerHealthCheckRequest { string service = 1; }
+
+message ControllerHealthCheckResponse {
+  bool healthy = 1;
+  string message = 2;
+  google.protobuf.Timestamp timestamp = 3;
+}
+
+// Delete controller
+message DeleteControllerRequest { string controller_id = 1; }
+
+message DeleteControllerResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Envoy Routing Service
+service EnvoyRoutingService {
+  rpc RegisterControlPlane(RegisterControlPlaneRequest)
+      returns (RegisterControlPlaneResponse);
+
+  rpc GetControlPlaneCluster(GetControlPlaneClusterRequest)
+      returns (GetControlPlaneClusterResponse);
+
+  // Control-plane snapshot verdi notification
+  rpc NotifySnapshotDelivered(NotifySnapshotDeliveredRequest)
+      returns (NotifySnapshotDeliveredResponse);
+
+  // Bulk node update (30sn'de bir)
+  rpc UpdateNodeList(UpdateNodeListRequest) returns (UpdateNodeListResponse);
+
+  // List all control planes
+  rpc ListControlPlanes(ListControlPlanesRequest)
+      returns (ListControlPlanesResponse);
+
+  // List nodes by control plane
+  rpc ListNodesByControlPlane(ListNodesByControlPlaneRequest)
+      returns (ListNodesByControlPlaneResponse);
+
+  // Get all registry data for reporting
+  rpc GetAllRegistryData(GetAllRegistryDataRequest)
+      returns (GetAllRegistryDataResponse);
+
+  // Health check
+  rpc HealthCheck(EnvoyHealthCheckRequest) returns (EnvoyHealthCheckResponse);
+
+  // Delete control plane
+  rpc DeleteControlPlane(DeleteControlPlaneRequest)
+      returns (DeleteControlPlaneResponse);
+}
+
+// Control-plane kaydı
+message RegisterControlPlaneRequest {
+  string control_plane_id = 1;
+  string version = 2;
+  google.protobuf.Timestamp timestamp = 3;
+}
+
+message RegisterControlPlaneResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Envoy'dan routing request'i
+message GetControlPlaneClusterRequest {
+  string node_id = 1; // envoy-node-123
+  string version = 2; // v1.2.1
+  google.protobuf.Timestamp timestamp = 3;
+}
+
+message GetControlPlaneClusterResponse {
+  bool found = 1;
+  string control_plane_id = 2;
+}
+
+// Snapshot delivered notification
+message NotifySnapshotDeliveredRequest {
+  string control_plane_id = 1;
+  string node_id = 2;
+  string version = 3;
+  google.protobuf.Timestamp timestamp = 4;
+}
+
+message NotifySnapshotDeliveredResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message UpdateNodeListRequest {
+  string control_plane_id = 1;
+  repeated NodeInfo nodes = 2;
+  google.protobuf.Timestamp timestamp = 3;
+  string version = 4; // Control-plane version for auto-registration
+}
+
+message NodeInfo {
+  string node_id = 1;
+  string version = 2;
+  google.protobuf.Timestamp last_seen = 3;
+}
+
+message UpdateNodeListResponse {
+  bool success = 1;
+  string message = 2;
+  int32 updated_count = 3;
+}
+
+// List control planes
+message ListControlPlanesRequest {}
+
+message ControlPlaneInfo {
+  string control_plane_id = 1;
+  string version = 2;
+  google.protobuf.Timestamp last_seen = 3;
+}
+
+message ListControlPlanesResponse {
+  repeated ControlPlaneInfo control_planes = 1;
+}
+
+// List nodes by control plane
+message ListNodesByControlPlaneRequest { string control_plane_id = 1; }
+
+message ListNodesByControlPlaneResponse { repeated NodeInfo nodes = 1; }
+
+// Get all registry data
+message GetAllRegistryDataRequest {}
+
+message RegistryData {
+  repeated ControlPlaneInfo control_planes = 1;
+  map<string, NodesData> nodes_by_control_plane = 2;
+}
+
+message NodesData { repeated NodeInfo nodes = 1; }
+
+message GetAllRegistryDataResponse { RegistryData data = 1; }
+
+// Health check
+message EnvoyHealthCheckRequest {
+  string service = 1;
+}
+
+message EnvoyHealthCheckResponse {
+  bool healthy = 1;
+  string message = 2;
+  google.protobuf.Timestamp timestamp = 3;
+}
+
+// Delete control plane
+message DeleteControlPlaneRequest { string control_plane_id = 1; }
+
+message DeleteControlPlaneResponse {
+  bool success = 1;
+  string message = 2;
+}

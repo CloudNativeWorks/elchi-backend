@@ -1,3 +1,5 @@
+// Package maintenance provides handlers for system maintenance operations
+// including backup, restore, and cleanup functionality.
 package maintenance
 
 import (
@@ -37,7 +39,7 @@ func (h *BackupHandler) ExportBackup(c *gin.Context) {
 		}
 	}
 
-	h.Logger.Infof("📦 Backup export request - type=%s, project=%s, user=%s", req.BackupType, req.ProjectID, username)
+	h.Logger.Infof("Backup export request - type=%s, project=%s, user=%s", req.BackupType, req.ProjectID, username)
 
 	ctx := context.Background()
 
@@ -97,7 +99,7 @@ func (h *BackupHandler) ImportBackup(c *gin.Context) {
 		return
 	}
 
-	h.Logger.Infof("📥 Backup import request - backup_id=%s, dry_run=%v, user=%s, target_project=%s",
+	h.Logger.Infof("Backup import request - backup_id=%s, dry_run=%v, user=%s, target_project=%s",
 		req.BackupData.Metadata.BackupID, req.DryRun, username, req.TargetProject)
 
 	// Validate backup first
@@ -148,12 +150,12 @@ func (h *BackupHandler) ImportBackup(c *gin.Context) {
 
 	// Set audit changes for successful import
 	audit.SetAuditChanges(c, map[string]any{
-		"backup_id":      req.BackupData.Metadata.BackupID,
-		"dry_run":        req.DryRun,
-		"total_created":  response.Summary.Created,
-		"total_updated":  response.Summary.Updated,
-		"total_failed":   response.Summary.Failed,
-		"success":        response.Success,
+		"backup_id":     req.BackupData.Metadata.BackupID,
+		"dry_run":       req.DryRun,
+		"total_created": response.Summary.Created,
+		"total_updated": response.Summary.Updated,
+		"total_failed":  response.Summary.Failed,
+		"success":       response.Success,
 	})
 	h.setAuditResult(c, nil)
 
@@ -174,7 +176,7 @@ func (h *BackupHandler) ValidateBackup(c *gin.Context) {
 		return
 	}
 
-	h.Logger.Infof("🔍 Backup validation request - backup_id=%s", backupData.Metadata.BackupID)
+	h.Logger.Infof("Backup validation request - backup_id=%s", backupData.Metadata.BackupID)
 
 	// Validate backup
 	validator := backup.NewValidator()

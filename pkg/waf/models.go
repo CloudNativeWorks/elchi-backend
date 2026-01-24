@@ -1,16 +1,18 @@
+// Package waf provides Web Application Firewall data structures
+// and embedded rule definitions for ModSecurity Core Rule Set.
 package waf
 
 // Rule represents a parsed ModSecurity Core Rule Set rule
 type Rule struct {
-	Title       string      `json:"title"`
-	Description Description `json:"description"`
-	CRSVersion  string      `json:"crs_version"`
-	References  []string    `json:"references"`
-	RuleType    string      `json:"rule_type"` // blocking / detection / admin-scaffolding / config
-	BuildInstructions string `json:"build_instructions"`
-	LinkToRuleTests   string `json:"link_to_rule_tests"`
-	ExamplePayloads   ExamplePayloads   `json:"example_payloads"`
-	Characteristics   Characteristics   `json:"characteristics"`
+	Title             string          `json:"title"`
+	Description       Description     `json:"description"`
+	CRSVersion        string          `json:"crs_version"`
+	References        []string        `json:"references"`
+	RuleType          string          `json:"rule_type"` // blocking / detection / admin-scaffolding / config
+	BuildInstructions string          `json:"build_instructions"`
+	LinkToRuleTests   string          `json:"link_to_rule_tests"`
+	ExamplePayloads   ExamplePayloads `json:"example_payloads"`
+	Characteristics   Characteristics `json:"characteristics"`
 }
 
 // Description contains various descriptions of the rule

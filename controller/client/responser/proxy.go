@@ -11,16 +11,13 @@ import (
 	pb "github.com/CloudNativeWorks/elchi-proto/client"
 )
 
-var (
-	jsonPool = sync.Pool{
-		New: func() any {
-			return make(map[string]any)
-		},
-	}
-)
-
-type ProxyResponser struct {
+var jsonPool = sync.Pool{
+	New: func() any {
+		return make(map[string]any)
+	},
 }
+
+type ProxyResponser struct{}
 
 func tryParseJSON(str string) (any, bool) {
 	if len(str) < 2 || (str[0] != '{' && str[0] != '[') {

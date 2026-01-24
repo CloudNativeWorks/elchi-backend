@@ -1,3 +1,5 @@
+// Package crud provides base CRUD functionality and common interfaces
+// for XDS resource and extension operations.
 package crud
 
 import (

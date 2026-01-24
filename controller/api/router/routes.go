@@ -112,6 +112,13 @@ func initSettingRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		{"POST", "/ldap-config/test", h.TestLDAPConfigWithAudit},
 		{"POST", "/ldap-config/test-auth", h.TestLDAPAuthWithAudit},
 
+		// GSLB configuration endpoints
+		{"GET", "/gslb", h.Settings.GetGSLBConfig},
+		{"PUT", "/gslb", h.SetGSLBConfigWithAudit},
+		{"POST", "/gslb", h.UpdateGSLBConfigWithAudit},
+		{"DELETE", "/gslb", h.DeleteGSLBConfigWithAudit},
+		{"GET", "/gslb/failover-zones", h.Settings.GetGSLBFailoverZones},
+
 		// OTP configuration endpoints (Admin/Owner only)
 		{"GET", "/otp-config", h.Settings.GetOTPConfig()},
 		{"PUT", "/otp-config", h.Settings.UpdateOTPConfig()},
@@ -377,11 +384,11 @@ func initWAFRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		{"GET", "/crs/:crs_version/:rule_id", h.WAF.GetCRSRuleByID}, // GET /api/v3/waf/crs/4.14.0/941100
 
 		// WAF Config CRUD Endpoints
-		{"POST", "/config", h.WAF.CreateWAFConfigWithAudit},             // POST /api/v3/waf/config
-		{"PUT", "/config/:config_id", h.WAF.UpdateWAFConfigWithAudit},   // PUT /api/v3/waf/config/:config_id
+		{"POST", "/config", h.WAF.CreateWAFConfigWithAudit},              // POST /api/v3/waf/config
+		{"PUT", "/config/:config_id", h.WAF.UpdateWAFConfigWithAudit},    // PUT /api/v3/waf/config/:config_id
 		{"DELETE", "/config/:config_id", h.WAF.DeleteWAFConfigWithAudit}, // DELETE /api/v3/waf/config/:config_id
-		{"GET", "/config/:config_id", h.WAF.GetWAFConfig},               // GET /api/v3/waf/config/:config_id
-		{"GET", "/config", h.WAF.ListWAFConfigs},                        // GET /api/v3/waf/config?project=xxx&version=1.32
+		{"GET", "/config/:config_id", h.WAF.GetWAFConfig},                // GET /api/v3/waf/config/:config_id
+		{"GET", "/config", h.WAF.ListWAFConfigs},                         // GET /api/v3/waf/config?project=xxx&version=1.32
 	}
 
 	initRoutes(rg, routes)
@@ -504,35 +511,81 @@ func initACMERoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		handler gin.HandlerFunc
 	}{
 		// Certificate Management
-		{"POST", "/certificates", h.ACME.CreateCertificate},                        // POST /api/v3/acme/certificates?project=xxx
-		{"GET", "/certificates", h.ACME.ListCertificates},                          // GET /api/v3/acme/certificates?project=xxx
-		{"GET", "/certificates/:cert_id", h.ACME.GetCertificate},                   // GET /api/v3/acme/certificates/:cert_id?project=xxx
-		{"DELETE", "/certificates/:cert_id", h.ACME.DeleteCertificate},             // DELETE /api/v3/acme/certificates/:cert_id?project=xxx
-		{"POST", "/certificates/:cert_id/duplicate", h.ACME.DuplicateCertificate},  // POST /api/v3/acme/certificates/:cert_id/duplicate?project=xxx
-		{"GET", "/certificates/:cert_id/dns-challenges", h.ACME.GetDNSChallenges},  // GET /api/v3/acme/certificates/:cert_id/dns-challenges?project=xxx
-		{"POST", "/certificates/:cert_id/verify", h.ACME.VerifyDNS},                // POST /api/v3/acme/certificates/:cert_id/verify?project=xxx
-		{"POST", "/certificates/:cert_id/retry-verification", h.ACME.RetryVerification}, // POST /api/v3/acme/certificates/:cert_id/retry-verification?project=xxx
-		{"POST", "/certificates/:cert_id/renew", h.ACME.RenewCertificate},          // POST /api/v3/acme/certificates/:cert_id/renew?project=xxx
+		{"POST", "/certificates", h.ACME.CreateCertificate},                                     // POST /api/v3/acme/certificates?project=xxx
+		{"GET", "/certificates", h.ACME.ListCertificates},                                       // GET /api/v3/acme/certificates?project=xxx
+		{"GET", "/certificates/:cert_id", h.ACME.GetCertificate},                                // GET /api/v3/acme/certificates/:cert_id?project=xxx
+		{"DELETE", "/certificates/:cert_id", h.ACME.DeleteCertificate},                          // DELETE /api/v3/acme/certificates/:cert_id?project=xxx
+		{"POST", "/certificates/:cert_id/duplicate", h.ACME.DuplicateCertificate},               // POST /api/v3/acme/certificates/:cert_id/duplicate?project=xxx
+		{"GET", "/certificates/:cert_id/dns-challenges", h.ACME.GetDNSChallenges},               // GET /api/v3/acme/certificates/:cert_id/dns-challenges?project=xxx
+		{"POST", "/certificates/:cert_id/verify", h.ACME.VerifyDNS},                             // POST /api/v3/acme/certificates/:cert_id/verify?project=xxx
+		{"POST", "/certificates/:cert_id/retry-verification", h.ACME.RetryVerification},         // POST /api/v3/acme/certificates/:cert_id/retry-verification?project=xxx
+		{"POST", "/certificates/:cert_id/renew", h.ACME.RenewCertificate},                       // POST /api/v3/acme/certificates/:cert_id/renew?project=xxx
 		{"PUT", "/certificates/:cert_id/dns-credential", h.ACME.ChangeCertificateDNSCredential}, // PUT /api/v3/acme/certificates/:cert_id/dns-credential?project=xxx
 
 		// DNS Credentials Management
-		{"POST", "/dns-credentials", h.ACME.CreateDNSCredential},               // POST /api/v3/acme/dns-credentials?project=xxx
-		{"GET", "/dns-credentials", h.ACME.ListDNSCredentials},                 // GET /api/v3/acme/dns-credentials?project=xxx
-		{"GET", "/dns-credentials/:cred_id", h.ACME.GetDNSCredential},          // GET /api/v3/acme/dns-credentials/:cred_id?project=xxx
-		{"PUT", "/dns-credentials/:cred_id", h.ACME.UpdateDNSCredential},       // PUT /api/v3/acme/dns-credentials/:cred_id?project=xxx
-		{"DELETE", "/dns-credentials/:cred_id", h.ACME.DeleteDNSCredential},    // DELETE /api/v3/acme/dns-credentials/:cred_id?project=xxx
-		{"POST", "/dns-credentials/test", h.ACME.TestDNSCredential},            // POST /api/v3/acme/dns-credentials/test?project=xxx
+		{"POST", "/dns-credentials", h.ACME.CreateDNSCredential},            // POST /api/v3/acme/dns-credentials?project=xxx
+		{"GET", "/dns-credentials", h.ACME.ListDNSCredentials},              // GET /api/v3/acme/dns-credentials?project=xxx
+		{"GET", "/dns-credentials/:cred_id", h.ACME.GetDNSCredential},       // GET /api/v3/acme/dns-credentials/:cred_id?project=xxx
+		{"PUT", "/dns-credentials/:cred_id", h.ACME.UpdateDNSCredential},    // PUT /api/v3/acme/dns-credentials/:cred_id?project=xxx
+		{"DELETE", "/dns-credentials/:cred_id", h.ACME.DeleteDNSCredential}, // DELETE /api/v3/acme/dns-credentials/:cred_id?project=xxx
+		{"POST", "/dns-credentials/test", h.ACME.TestDNSCredential},         // POST /api/v3/acme/dns-credentials/test?project=xxx
 
 		// ACME Accounts Management
-		{"POST", "/acme-accounts", h.ACME.CreateACMEAccount},                             // POST /api/v3/acme/acme-accounts?project=xxx
-		{"GET", "/acme-accounts", h.ACME.ListACMEAccounts},                               // GET /api/v3/acme/acme-accounts?project=xxx
-		{"GET", "/acme-accounts/:account_id", h.ACME.GetACMEAccount},                     // GET /api/v3/acme/acme-accounts/:account_id?project=xxx
-		{"DELETE", "/acme-accounts/:account_id", h.ACME.DeleteACMEAccount},               // DELETE /api/v3/acme/acme-accounts/:account_id?project=xxx
-		{"POST", "/acme-accounts/:account_id/validate", h.ACME.ValidateACMEAccount},      // POST /api/v3/acme/acme-accounts/:account_id/validate?project=xxx
+		{"POST", "/acme-accounts", h.ACME.CreateACMEAccount},                        // POST /api/v3/acme/acme-accounts?project=xxx
+		{"GET", "/acme-accounts", h.ACME.ListACMEAccounts},                          // GET /api/v3/acme/acme-accounts?project=xxx
+		{"GET", "/acme-accounts/:account_id", h.ACME.GetACMEAccount},                // GET /api/v3/acme/acme-accounts/:account_id?project=xxx
+		{"DELETE", "/acme-accounts/:account_id", h.ACME.DeleteACMEAccount},          // DELETE /api/v3/acme/acme-accounts/:account_id?project=xxx
+		{"POST", "/acme-accounts/:account_id/validate", h.ACME.ValidateACMEAccount}, // POST /api/v3/acme/acme-accounts/:account_id/validate?project=xxx
 
 		// CA Providers
-		{"GET", "/ca-providers", h.CAProviders.ListSupportedProviders},                      // GET /api/v3/acme/ca-providers
+		{"GET", "/ca-providers", h.CAProviders.ListSupportedProviders},                         // GET /api/v3/acme/ca-providers
 		{"POST", "/ca-providers/:provider/validate-eab", h.CAProviders.ValidateEABCredentials}, // POST /api/v3/acme/ca-providers/:provider/validate-eab
+	}
+
+	initRoutes(rg, routes)
+}
+
+// initDNSRoutes initializes GSLB DNS API routes
+// These endpoints are used by CoreDNS plugin for DNS record retrieval
+// Authentication: DNSAuthMiddleware validates zone-based X-Elchi-Secret header
+func initDNSRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
+	routes := []struct {
+		method  string
+		path    string
+		handler gin.HandlerFunc
+	}{
+		// DNS Snapshot API (used by CoreDNS plugin)
+		{"GET", "/snapshot", h.DNS.GetDNSSnapshot}, // GET /dns/snapshot?zone=X
+		{"GET", "/changes", h.DNS.GetDNSChanges},   // GET /dns/changes?zone=X&since=VERSION
+	}
+
+	initRoutes(rg, routes)
+}
+
+// initGSLBRoutes initializes GSLB CRUD API routes
+// These endpoints are for manual GSLB record management (Admin/Owner only for write operations)
+func initGSLBRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
+	routes := []struct {
+		method  string
+		path    string
+		handler gin.HandlerFunc
+	}{
+		// GSLB Record CRUD
+		{"GET", "", h.GSLB.ListGSLBRecords},         // GET /api/v3/gslb?project=X
+		{"GET", "/:id", h.GSLB.GetGSLBRecord},       // GET /api/v3/gslb/:id?project=X
+		{"POST", "", h.GSLB.CreateGSLBRecord},       // POST /api/v3/gslb (Admin/Owner only)
+		{"PUT", "/:id", h.GSLB.UpdateGSLBRecord},    // PUT /api/v3/gslb/:id (Admin/Owner only)
+		{"DELETE", "/:id", h.GSLB.DeleteGSLBRecord}, // DELETE /api/v3/gslb/:id?project=X (Admin/Owner only)
+
+		// Bulk Operations
+		{"PUT", "/batch", h.GSLB.BulkUpdateGSLBRecords}, // PUT /api/v3/gslb/batch (Admin/Owner only) - Bulk enable/disable
+
+		// IP Management (NEW)
+		{"GET", "/:id/ips", h.GSLB.ListIPsForRecord},          // GET /api/v3/gslb/:id/ips - List all IPs for a GSLB record
+		{"POST", "/:id/ips", h.GSLB.AddIPToRecord},            // POST /api/v3/gslb/:id/ips (Admin/Owner only)
+		{"PUT", "/:id/ips/:ip", h.GSLB.UpdateIPHealthState},   // PUT /api/v3/gslb/:id/ips/:ip (Admin/Owner only) - Manual health state control
+		{"DELETE", "/:id/ips/:ip", h.GSLB.RemoveIPFromRecord}, // DELETE /api/v3/gslb/:id/ips/:ip (Admin/Owner only)
+		{"DELETE", "/ip/:id/history", h.GSLB.ClearIPHistory},  // DELETE /api/v3/gslb/ip/:id/history (Admin/Owner only) - Clear status history for specific IP health document
 	}
 
 	initRoutes(rg, routes)

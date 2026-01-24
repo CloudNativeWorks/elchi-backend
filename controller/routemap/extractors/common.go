@@ -1,3 +1,5 @@
+// Package extractors provides utility functions for extracting and processing
+// data from Envoy configuration JSON structures.
 package extractors
 
 import (
@@ -322,17 +324,18 @@ func CreateMatchDescription(match RouteMatch) string {
 	// Headers
 	for _, header := range match.Headers {
 		var headerDesc string
-		if header.ExactMatch != "" {
+		switch {
+		case header.ExactMatch != "":
 			headerDesc = fmt.Sprintf("header %s=%s", header.Name, header.ExactMatch)
-		} else if header.PrefixMatch != "" {
+		case header.PrefixMatch != "":
 			headerDesc = fmt.Sprintf("header %s^=%s", header.Name, header.PrefixMatch)
-		} else if header.SuffixMatch != "" {
+		case header.SuffixMatch != "":
 			headerDesc = fmt.Sprintf("header %s$=%s", header.Name, header.SuffixMatch)
-		} else if header.RegexMatch != "" {
+		case header.RegexMatch != "":
 			headerDesc = fmt.Sprintf("header %s~=%s", header.Name, header.RegexMatch)
-		} else if header.PresentMatch {
+		case header.PresentMatch:
 			headerDesc = fmt.Sprintf("header %s exists", header.Name)
-		} else {
+		default:
 			headerDesc = fmt.Sprintf("header %s", header.Name)
 		}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -61,7 +62,7 @@ func (w *WAFWasmInjector) loadWAFConfig(ctx context.Context, configName string) 
 	var config WAFConfig
 	err := collection.FindOne(ctx, bson.M{"name": configName}).Decode(&config)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, fmt.Errorf("WAF config '%s' not found", configName)
 		}
 		return nil, err

@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -13,7 +14,6 @@ import (
 )
 
 func CreateDefaultScenarios(ctx context.Context, db *AppContext) error {
-
 	collection := db.Client.Collection("scenarios")
 
 	// Define default dynamic scenarios with selected fields
@@ -290,7 +290,7 @@ func CreateDefaultScenarios(ctx context.Context, db *AppContext) error {
 		var existing models.Scenario
 		err := collection.FindOne(ctx, filter).Decode(&existing)
 		if err != nil {
-			if err == mongo.ErrNoDocuments {
+			if errors.Is(err, mongo.ErrNoDocuments) {
 				// Scenario doesn't exist, create it
 				_, insertErr := collection.InsertOne(ctx, scenario)
 				if insertErr != nil {

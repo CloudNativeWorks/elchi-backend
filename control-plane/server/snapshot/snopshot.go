@@ -1,3 +1,5 @@
+// Package snapshot provides snapshot cache management for the control-plane
+// including version tracking and resource distribution to Envoy instances.
 package snapshot
 
 import (
@@ -56,7 +58,7 @@ func (c *Context) SetSnapshot(ctx context.Context, allRes *xdsResource.AllResour
 		} else {
 			// Update AllResources with new incremented version
 			allRes.SetVersion(newVersion)
-			logger.Debugf("🔍 SNAPSHOT DEBUG: Version incremented for %s: %s -> %s", name, currentVersion, newVersion)
+			logger.Debugf("SNAPSHOT DEBUG: Version incremented for %s: %s -> %s", name, currentVersion, newVersion)
 		}
 	}
 

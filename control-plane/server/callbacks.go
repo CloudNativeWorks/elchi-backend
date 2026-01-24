@@ -57,11 +57,11 @@ func (c *Callbacks) OnStreamOpen(_ context.Context, _ int64, _ string) error {
 func (c *Callbacks) OnStreamClosed(_ int64, _ *core.Node) {
 }
 
-// 🛡️ getValidVersionForNode provides robust version validation and fallbacks
+// getValidVersionForNode provides robust version validation and fallbacks
 func (c *Callbacks) getValidVersionForNode(nodeID, metadataVersion string) string {
 	// 1. Primary: Use metadata version if present (this should be the case since you set it)
 	if metadataVersion != "" {
-		c.logger.Debugf("✅ Using metadata version for node %s: %s", nodeID, metadataVersion)
+		c.logger.Debugf("Using metadata version for node %s: %s", nodeID, metadataVersion)
 		return metadataVersion
 	}
 
@@ -70,7 +70,7 @@ func (c *Callbacks) getValidVersionForNode(nodeID, metadataVersion string) strin
 		c.routingManager.NodesMutex.RLock()
 		if storedVersion, exists := c.routingManager.NodeVersions[nodeID]; exists && storedVersion != "" {
 			c.routingManager.NodesMutex.RUnlock()
-			c.logger.Warnf("⚠️  Metadata version missing for node %s, using stored version: %s", nodeID, storedVersion)
+			c.logger.Warnf("Metadata version missing for node %s, using stored version: %s", nodeID, storedVersion)
 			return storedVersion
 		}
 		c.routingManager.NodesMutex.RUnlock()
@@ -91,7 +91,7 @@ func (c *Callbacks) OnDeltaStreamOpen(ctx context.Context, id int64, typ string)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.logger.Infof("🔍 DEBUG: OnDeltaStreamOpen called (stream ID: %d, type: %s)", id, typ)
+	c.logger.Infof("DEBUG: OnDeltaStreamOpen called (stream ID: %d, type: %s)", id, typ)
 
 	address, nodeID, version, downstreamAddress, clientName, clientID := GetMetadata(ctx, c.logger)
 
@@ -109,13 +109,13 @@ func (c *Callbacks) OnDeltaStreamOpen(ctx context.Context, id int64, typ string)
 	}
 
 	finalVersion := c.getValidVersionForNode(nodeID, version)
-	c.logger.Infof("🔍 DEBUG: Node metadata - NodeID: %s, Metadata Version: '%s', Final Version: '%s'", nodeID, version, finalVersion)
+	c.logger.Infof("DEBUG: Node metadata - NodeID: %s, Metadata Version: '%s', Final Version: '%s'", nodeID, version, finalVersion)
 
 	// Check if routing manager is set
 	if c.routingManager == nil {
 		c.logger.Errorf("🚨 CRITICAL: Routing manager is NULL in callbacks!")
 	} else {
-		c.logger.Infof("✅ DEBUG: Routing manager is properly set, calling NotifySnapshotDelivered")
+		c.logger.Infof("DEBUG: Routing manager is properly set, calling NotifySnapshotDelivered")
 
 		// Now safe to notify registry (nodeID is validated) with robust version
 		c.routingManager.NotifySnapshotDelivered(nodeID, finalVersion)
@@ -161,7 +161,7 @@ func (c *Callbacks) OnStreamDeltaRequest(id int64, req *discovery.DeltaDiscovery
 	responseNonce := req.GetResponseNonce()
 
 	// DEBUG: Log all delta requests
-	c.logger.Debugf("📥 DELTA REQUEST: StreamID=%d, NodeID=%s, Type=%s, Nonce=%s",
+	c.logger.Debugf("DELTA REQUEST: StreamID=%d, NodeID=%s, Type=%s, Nonce=%s",
 		id, nodeID, typeURL, responseNonce)
 
 	if errDetail := req.GetErrorDetail(); errDetail != nil {
@@ -178,7 +178,7 @@ func (c *Callbacks) OnStreamDeltaRequest(id int64, req *discovery.DeltaDiscovery
 		c.envoyConnTracker.AddOrUpdateError(c.appContext.Client, nodeID, typeURL, errDetail.Message, responseNonce, c.logger)
 	} else {
 		// DEBUG: Log successful ACK
-		c.logger.Debugf("✅ ACK RECEIVED: Node %s accepted %s (nonce: %s)",
+		c.logger.Debugf("ACK RECEIVED: Node %s accepted %s (nonce: %s)",
 			nodeID, typeURL, responseNonce)
 	}
 	return nil
@@ -199,7 +199,7 @@ func (c *Callbacks) OnStreamDeltaResponse(streamID int64, req *discovery.DeltaDi
 	nonce := resp.GetNonce()
 
 	// DEBUG: Log all delta responses being sent to Envoy
-	c.logger.Debugf("📤 DELTA RESPONSE: StreamID=%d, NodeID=%s, Type=%s, Resources=%d, Nonce=%s",
+	c.logger.Debugf("DELTA RESPONSE: StreamID=%d, NodeID=%s, Type=%s, Resources=%d, Nonce=%s",
 		streamID, nodeID, resourceType, resourceCount, nonce)
 
 	if req != nil && req.GetNode() != nil && req.GetErrorDetail() == nil && nodeID != "" {

@@ -400,7 +400,7 @@ func (ar *AllResources) AddToCollection(resource proto.Message, gtype models.GTy
 	ar.mutex.Lock()
 	defer ar.mutex.Unlock()
 	if ar.checkAndMarkDuplicate(uniqName) {
-		fmt.Printf("Skipping duplicate collection of resource: %s", uniqName)
+		logger.Debugf("Skipping duplicate collection of resource: %s", uniqName)
 		return
 	}
 
@@ -409,7 +409,7 @@ func (ar *AllResources) AddToCollection(resource proto.Message, gtype models.GTy
 		if newCluster, ok := proto.Clone(resource).(*cluster.Cluster); ok {
 			ar.Cluster = append(ar.Cluster, newCluster)
 		} else {
-			fmt.Printf("Type assertion failed for Cluster")
+			logger.Errorf("Type assertion failed for Cluster")
 		}
 	case models.Route:
 		if newRoute, ok := proto.Clone(resource).(*route.RouteConfiguration); ok {
@@ -418,13 +418,13 @@ func (ar *AllResources) AddToCollection(resource proto.Message, gtype models.GTy
 			}
 			ar.Route = append(ar.Route, newRoute)
 		} else {
-			fmt.Printf("Type assertion failed for RouteConfiguration")
+			logger.Errorf("Type assertion failed for RouteConfiguration")
 		}
 	case models.Endpoint:
 		if newEndpoint, ok := proto.Clone(resource).(*endpoint.ClusterLoadAssignment); ok {
 			ar.Endpoint = append(ar.Endpoint, newEndpoint)
 		} else {
-			fmt.Printf("Type assertion failed for ClusterLoadAssignment")
+			logger.Errorf("Type assertion failed for ClusterLoadAssignment")
 		}
 	case models.VirtualHost:
 		if newVirtualHost, ok := proto.Clone(resource).(*route.VirtualHost); ok {
@@ -515,7 +515,7 @@ func (ar *AllResources) transformWasmConfiguration(jsonStr string, logger *logge
 	// Transform to protobuf format using placeholder technique
 	result, err := ar.applyProtobufTransformation(data, configuration, typeURL, decodedValue, logger)
 	if err != nil {
-		return jsonStr, err 
+		return jsonStr, err
 	}
 
 	return result, nil
@@ -562,7 +562,7 @@ func (ar *AllResources) decodeWasmConfigValue(configuration map[string]any, logg
 	if logLen > 500 {
 		logLen = 500
 	}
-	logger.Infof("📥 WAF Config RAW (first %d chars): %s", logLen, string(decodedValue[:logLen]))
+	logger.Infof("WAF Config RAW (first %d chars): %s", logLen, string(decodedValue[:logLen]))
 
 	return typeURL, decodedValue, nil
 }
@@ -571,10 +571,10 @@ func (ar *AllResources) decodeWasmConfigValue(configuration map[string]any, logg
 func (ar *AllResources) validateWasmConfigJSON(decodedValue []byte, logger *logger.Logger) error {
 	var testParse any
 	if err := json.Unmarshal(decodedValue, &testParse); err != nil {
-		logger.Errorf("❌ Decoded WAF config is NOT valid JSON: %v", err)
+		logger.Errorf("Decoded WAF config is NOT valid JSON: %v", err)
 		return fmt.Errorf("decoded WAF config is not valid JSON: %w", err)
 	}
-	logger.Infof("✅ Decoded WAF config is valid JSON")
+	logger.Infof("Decoded WAF config is valid JSON")
 	return nil
 }
 
@@ -589,7 +589,7 @@ func (ar *AllResources) applyProtobufTransformation(data, configuration map[stri
 	configuration["value"] = placeholder
 	delete(configuration, "type_url")
 
-	logger.Debugf("🔍 Transformed WASM configuration: type=%s, decoded_value_length=%d", typeURL, len(decodedValue))
+	logger.Debugf("Transformed WASM configuration: type=%s, decoded_value_length=%d", typeURL, len(decodedValue))
 
 	// Marshal with placeholder
 	modifiedJSON, err := json.Marshal(data)
@@ -619,7 +619,7 @@ func (ar *AllResources) replacePlaceholderWithConfig(modifiedJSON, placeholder s
 
 	// Verify placeholder exists (safety check)
 	if !strings.Contains(modifiedJSON, quotedPlaceholder) {
-		logger.Errorf("❌ Placeholder not found in marshaled JSON - internal error")
+		logger.Errorf("Placeholder not found in marshaled JSON - internal error")
 		return "", fmt.Errorf("internal error: placeholder not found in JSON")
 	}
 
@@ -631,7 +631,7 @@ func (ar *AllResources) replacePlaceholderWithConfig(modifiedJSON, placeholder s
 	if resultLogLen > 600 {
 		resultLogLen = 600
 	}
-	logger.Infof("📤 Final JSON (first %d chars): %s", resultLogLen, result[:resultLogLen])
+	logger.Infof("Final JSON (first %d chars): %s", resultLogLen, result[:resultLogLen])
 
 	return result, nil
 }

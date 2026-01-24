@@ -18,7 +18,7 @@ import (
 func (e *EnvoyConnTracker) StartHeartbeat(ctx context.Context, db *mongo.Database, logger *logger.Logger) {
 	logger.Info("Starting envoy heartbeat service (every 30 seconds)")
 
-	ticker := time.NewTicker(60 * time.Second)
+	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
 	for {

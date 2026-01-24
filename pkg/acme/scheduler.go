@@ -47,6 +47,7 @@ type RenewalScheduler struct {
 	mu            sync.Mutex
 	projects      []string // List of projects to check
 	checkInterval time.Duration
+	stopOnce      sync.Once // Ensures Stop() is only executed once
 }
 
 // NewRenewalScheduler creates a new renewal scheduler
@@ -89,21 +90,27 @@ func (s *RenewalScheduler) Start(ctx context.Context) error {
 }
 
 // Stop gracefully stops the renewal scheduler
+// Safe to call multiple times - uses sync.Once to prevent double-close panic
 func (s *RenewalScheduler) Stop() error {
-	s.mu.Lock()
-	if !s.running {
+	var stopErr error
+
+	s.stopOnce.Do(func() {
+		s.mu.Lock()
+		if !s.running {
+			s.mu.Unlock()
+			stopErr = fmt.Errorf("scheduler not running")
+			return
+		}
+		s.running = false
 		s.mu.Unlock()
-		return fmt.Errorf("scheduler not running")
-	}
-	s.running = false
-	s.mu.Unlock()
 
-	s.logger.Info("Stopping Let's Encrypt renewal scheduler")
-	close(s.stopCh)
-	s.wg.Wait()
-	s.logger.Info("Let's Encrypt renewal scheduler stopped")
+		s.logger.Info("Stopping Acme renewal scheduler")
+		close(s.stopCh)
+		s.wg.Wait()
+		s.logger.Info("Acme renewal scheduler stopped")
+	})
 
-	return nil
+	return stopErr
 }
 
 // renewalLoop runs the periodic renewal checks
@@ -119,7 +126,7 @@ func (s *RenewalScheduler) renewalLoop(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			s.logger.Info("Renewal scheduler context cancelled")
+			s.logger.Info("Renewal scheduler context canceled")
 			return
 		case <-s.stopCh:
 			s.logger.Info("Renewal scheduler stop signal received")

@@ -1,6 +1,7 @@
 package helper
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/json"
@@ -14,8 +15,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
-
-	"context"
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
@@ -58,7 +57,7 @@ func Contains(s []string, str string) bool {
 	return false
 }
 
-// This is unused just for development debugging
+// PrettyPrint outputs formatted JSON for development debugging (unused in production).
 func PrettyPrint(data any) {
 	if data == nil {
 		return
@@ -337,10 +336,7 @@ func ToK8sServiceName(controllerID string, namespace string) string {
 // SafeCloseCursor safely closes a MongoDB cursor
 func SafeCloseCursor(ctx context.Context, cursor *mongo.Cursor) {
 	if cursor != nil {
-		if err := cursor.Close(ctx); err != nil {
-			// Log error but don't panic - cursor close errors are not critical
-			// This prevents the nil pointer dereference panic we saw
-		}
+		_ = cursor.Close(ctx) // Ignore error - cursor close errors are not critical
 	}
 }
 
@@ -366,4 +362,43 @@ func GenerateSecureRequestID() string {
 	}
 	randInt := binary.LittleEndian.Uint32(randBytes[:])
 	return fmt.Sprintf("%d_%d", time.Now().UnixNano(), randInt)
+}
+
+// ================== GSLB Helper Functions ==================
+
+// NormalizeFQDN normalizes FQDN for consistent hashing
+// - Converts to lowercase
+// - Ensures trailing dot
+func NormalizeFQDN(fqdn string) string {
+	normalized := strings.ToLower(strings.TrimSpace(fqdn))
+	if !strings.HasSuffix(normalized, ".") {
+		normalized += "."
+	}
+	return normalized
+}
+
+// NormalizeFQDNWithZone adds zone to FQDN if not already present
+// Example: "myservice" + "atest.elchi" -> "myservice.atest.elchi."
+// Example: "dedeff" + "atest.elchi" -> "dedeff.atest.elchi."
+func NormalizeFQDNWithZone(fqdn, zone string) string {
+	normalized := strings.ToLower(strings.TrimSpace(fqdn))
+	normalizedZone := strings.ToLower(strings.TrimSpace(zone))
+
+	// Remove trailing dot from zone for easier manipulation
+	normalizedZone = strings.TrimSuffix(normalizedZone, ".")
+
+	// Check if FQDN already contains the zone
+	if strings.HasSuffix(normalized, "."+normalizedZone) || strings.HasSuffix(normalized, "."+normalizedZone+".") {
+		// Already has zone, just ensure trailing dot
+		if !strings.HasSuffix(normalized, ".") {
+			normalized += "."
+		}
+		return normalized
+	}
+
+	// Remove trailing dot from FQDN for appending zone
+	normalized = strings.TrimSuffix(normalized, ".")
+
+	// Append zone and ensure trailing dot
+	return normalized + "." + normalizedZone + "."
 }

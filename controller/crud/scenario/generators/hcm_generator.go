@@ -115,7 +115,7 @@ func (hg *HCMGenerator) Generate(instance models.ComponentInstance) (any, error)
 			if virtualHosts != nil {
 				// Convert frontend virtual hosts format to Envoy format
 				convertedVirtualHosts := hg.convertVirtualHostsToEnvoyFormat(virtualHosts)
-				fmt.Printf("🔄 Converted virtual hosts from frontend to Envoy format\n")
+				fmt.Printf("Converted virtual hosts from frontend to Envoy format\n")
 				routeConfig["virtual_hosts"] = convertedVirtualHosts
 			}
 			// No default virtual hosts - only add if user provided virtual_hosts
@@ -186,16 +186,16 @@ func (hg *HCMGenerator) Generate(instance models.ComponentInstance) (any, error)
 	if via := hg.GetFieldValueIfSelected(instance.SelectedFields, "via"); via != nil {
 		resource["via"] = via
 	}
-	if generateRequestId := hg.GetFieldValueIfSelected(instance.SelectedFields, "generate_request_id"); generateRequestId != nil {
-		resource["generate_request_id"] = generateRequestId
+	if generateRequestID := hg.GetFieldValueIfSelected(instance.SelectedFields, "generate_request_id"); generateRequestID != nil {
+		resource["generate_request_id"] = generateRequestID
 	}
 	if proxy100Continue := hg.GetFieldValueIfSelected(instance.SelectedFields, "proxy_100_continue"); proxy100Continue != nil {
 		resource["proxy_100_continue"] = proxy100Continue
 	}
 
 	// Add HTTP/2 protocol options if enabled
-	if enableHttp2 := hg.GetFieldValueIfSelected(instance.SelectedFields, "enable_http2_protocol_options"); enableHttp2 != nil {
-		if enabled, ok := enableHttp2.(bool); ok && enabled {
+	if enableHTTP2 := hg.GetFieldValueIfSelected(instance.SelectedFields, "enable_http2_protocol_options"); enableHTTP2 != nil {
+		if enabled, ok := enableHTTP2.(bool); ok && enabled {
 			resource["http2_protocol_options"] = map[string]any{}
 		}
 	}

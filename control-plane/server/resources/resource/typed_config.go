@@ -78,12 +78,12 @@ func (ar *AllResources) processTypedConfigPath(ctx context.Context, pathd models
 		// Keeping this code for future if Envoy adds support
 		// See: https://github.com/envoyproxy/envoy/issues/23263
 		/*
-		// Update VHDS metadata for HCM after decoding to protobuf
-		if tempTypedConfig.Gtype == models.HTTPConnectionManager {
-			if err := ar.updateHCMVhdsMetadata(typedConfig, context); err != nil {
-				context.Logger.Warnf("Error updating HCM VHDS metadata: %v", err)
+			// Update VHDS metadata for HCM after decoding to protobuf
+			if tempTypedConfig.Gtype == models.HTTPConnectionManager {
+				if err := ar.updateHCMVhdsMetadata(typedConfig, context); err != nil {
+					context.Logger.Warnf("Error updating HCM VHDS metadata: %v", err)
+				}
 			}
-		}
 		*/
 
 		if err := ar.updateJSONConfig(jsonStringStr, path, typedConfig, pathd.IsPerTypedConfig, tempTypedConfig); err != nil {
@@ -108,11 +108,11 @@ func (ar *AllResources) updateHCMVhdsMetadata(typedConfig *anypb.Any, context *d
 	}
 
 	updated := false
-	
+
 	// Check for inline route config with VHDS
 	if routeConfig := hcmConfig.GetRouteConfig(); routeConfig != nil {
 		if vhds := routeConfig.GetVhds(); vhds != nil {
-			context.Logger.Debugf("🔍 VHDS: Found VHDS in HCM typed_config, updating metadata")
+			context.Logger.Debugf("VHDS: Found VHDS in HCM typed_config, updating metadata")
 			ar.UpdateVhdsMetadataNodeID(vhds)
 			updated = true
 		}
@@ -124,12 +124,12 @@ func (ar *AllResources) updateHCMVhdsMetadata(typedConfig *anypb.Any, context *d
 		if err != nil {
 			return fmt.Errorf("failed to pack updated HCM into Any: %w", err)
 		}
-		
+
 		// Replace the content of the original Any
 		typedConfig.TypeUrl = newAny.TypeUrl
 		typedConfig.Value = newAny.Value
-		
-		context.Logger.Debugf("🔧 VHDS: Updated HCM typed_config VHDS metadata")
+
+		context.Logger.Debugf("VHDS: Updated HCM typed_config VHDS metadata")
 	}
 
 	return nil
@@ -175,7 +175,7 @@ func decodeTypedConfig(typedConfigJSON []byte, gtype models.GType) (*anypb.Any, 
 // overrideFileAccessLogPath overrides the path field in FileAccessLog resources for managed listeners
 // Format: /var/log/elchi/<listener_name>-<admin_port>_access.log
 func (ar *AllResources) overrideFileAccessLogPath(resource any, context *db.AppContext) {
-	context.Logger.Debugf("📝 Found FileAccessLog in typed_config, IsManaged=%v, ListenerName=%s, AdminPort=%d, ResourceType=%T",
+	context.Logger.Debugf("Found FileAccessLog in typed_config, IsManaged=%v, ListenerName=%s, AdminPort=%d, ResourceType=%T",
 		ar.IsManaged, ar.ListenerName, ar.AdminPort, resource)
 
 	var oldPath any
@@ -189,7 +189,7 @@ func (ar *AllResources) overrideFileAccessLogPath(resource any, context *db.AppC
 	}
 
 	if pathUpdated {
-		context.Logger.Infof("🔄 [PATH_OVERRIDE] FileAccessLog for managed listener '%s': %s → %s",
+		context.Logger.Infof("[PATH_OVERRIDE] FileAccessLog for managed listener '%s': %s -> %s",
 			ar.ListenerName, oldPath, newPath)
 	} else {
 		context.Logger.Warnf("Failed to override FileAccessLog path: unknown resource type %T", resource)

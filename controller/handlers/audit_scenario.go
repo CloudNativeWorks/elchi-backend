@@ -3,6 +3,8 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"net/http"
 	"strings"
 	"time"
 
@@ -71,7 +73,7 @@ func (h *Handler) getScenarioNameFromID(c *gin.Context, scenarioID string) strin
 // setScenarioAuditChanges handles changes detection for scenario operations
 func (h *Handler) setScenarioAuditChanges(c *gin.Context, path string) {
 	// Only handle scenario UPDATE operations that have scenario_id in path
-	if !strings.Contains(path, "/scenarios/") || c.Request.Method != "PUT" {
+	if !strings.Contains(path, "/scenarios/") || c.Request.Method != http.MethodPut {
 		return
 	}
 
@@ -128,7 +130,7 @@ func (h *Handler) setScenarioAuditChanges(c *gin.Context, path string) {
 	collection := db.Collection("scenarios")
 	err := collection.FindOne(ctx, filter).Decode(&existingScenario)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			audit.SetAuditChanges(c, map[string]any{"new_scenario": true})
 		}
 		return

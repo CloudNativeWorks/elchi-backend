@@ -30,11 +30,12 @@ func TemplateDownstreamFiltersForGType(name, project, version, gtype string) []M
 		orConditions = getTemplateTLSSessionTicketConditions(name)
 	default:
 		// For HTTP filters and extensions
-		if isHTTPFilter(gtype) {
+		switch {
+		case isHTTPFilter(gtype):
 			orConditions = getTemplateHTTPFilterConditions(name)
-		} else if isExtension(gtype) {
+		case isExtension(gtype):
 			orConditions = getTemplateExtensionConditions(name)
-		} else {
+		default:
 			// For unknown types, check general fields
 			orConditions = bson.A{
 				bson.D{{Key: "general.config_discovery.name", Value: name}},

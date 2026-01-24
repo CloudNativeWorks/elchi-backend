@@ -15,7 +15,7 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models/downstreamfilters"
 )
 
-func (xds *AppHandler) DelExtension(ctx context.Context, _ models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
+func (extension *AppHandler) DelExtension(ctx context.Context, _ models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
 	// P1-2 FIX: Check delete permissions based on role
 	// Viewer cannot delete anything
 	if requestDetails.User.Role == models.RoleViewer {
@@ -23,7 +23,7 @@ func (xds *AppHandler) DelExtension(ctx context.Context, _ models.ResourceClass,
 	}
 
 	resourceType := requestDetails.Collection
-	collection := xds.Context.Client.Collection(resourceType)
+	collection := extension.Context.Client.Collection(resourceType)
 	filter, err := common.AddResourceIDFilter(requestDetails, buildFilter(requestDetails))
 	if err != nil {
 		return nil, errors.New("invalid id format")
@@ -32,7 +32,7 @@ func (xds *AppHandler) DelExtension(ctx context.Context, _ models.ResourceClass,
 	// Get resource to check if it's default and for permission check
 	var resourceDoc models.DBResource
 	if err := collection.FindOne(ctx, filter).Decode(&resourceDoc); err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, errors.New("resource not found")
 		}
 		return nil, err
@@ -56,17 +56,17 @@ func (xds *AppHandler) DelExtension(ctx context.Context, _ models.ResourceClass,
 		Version: requestDetails.Version,
 	}
 
-	dependList := common.IsDeletable(ctx, xds.Context, requestDetails.GType, downstreamFilterModel)
+	dependList := common.IsDeletable(ctx, extension.Context, requestDetails.GType, downstreamFilterModel)
 	if len(dependList) > 0 {
 		message := "Cannot delete resource. It is used by:\n" + strings.Join(dependList, "\n")
 		return nil, errors.New(message)
 	}
 
-	if err := checkDocumentExists(ctx, xds, collection, filter); err != nil {
+	if err := checkDocumentExists(ctx, extension, collection, filter); err != nil {
 		return nil, err
 	}
 
-	if err := deleteDocument(ctx, xds, collection, filter); err != nil {
+	if err := deleteDocument(ctx, extension, collection, filter); err != nil {
 		return nil, err
 	}
 

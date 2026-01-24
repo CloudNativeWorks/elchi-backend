@@ -1,7 +1,10 @@
+// Package profile provides user profile management functionality
+// including authentication, password management, and OTP handling.
 package profile
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -50,9 +53,8 @@ func (h *ProfileHandler) GetProfile() gin.HandlerFunc {
 			Collection("users").
 			FindOne(ctx, bson.M{"user_id": userID}).
 			Decode(&user)
-
 		if err != nil {
-			if err == mongo.ErrNoDocuments {
+			if errors.Is(err, mongo.ErrNoDocuments) {
 				c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 				return
 			}
@@ -109,7 +111,6 @@ func (h *ProfileHandler) EnableOTP() gin.HandlerFunc {
 			Collection("users").
 			FindOne(ctx, bson.M{"user_id": userID}).
 			Decode(&user)
-
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user"})
 			return
@@ -189,7 +190,6 @@ func (h *ProfileHandler) EnableOTP() gin.HandlerFunc {
 					},
 				},
 			)
-
 		if err != nil {
 			h.Logger.Errorf("Failed to save OTP settings: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save OTP settings"})
@@ -235,7 +235,6 @@ func (h *ProfileHandler) VerifyOTP() gin.HandlerFunc {
 			Collection("users").
 			FindOne(ctx, bson.M{"user_id": userID}).
 			Decode(&user)
-
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user"})
 			return
@@ -276,7 +275,6 @@ func (h *ProfileHandler) VerifyOTP() gin.HandlerFunc {
 					},
 				},
 			)
-
 		if err != nil {
 			h.Logger.Errorf("Failed to activate OTP: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to activate OTP"})
@@ -325,7 +323,6 @@ func (h *ProfileHandler) DisableOTP() gin.HandlerFunc {
 			Collection("users").
 			FindOne(ctx, bson.M{"user_id": userID}).
 			Decode(&user)
-
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user"})
 			return
@@ -387,7 +384,6 @@ func (h *ProfileHandler) DisableOTP() gin.HandlerFunc {
 					},
 				},
 			)
-
 		if err != nil {
 			h.Logger.Errorf("Failed to disable OTP: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to disable OTP"})
@@ -429,7 +425,6 @@ func (h *ProfileHandler) RegenerateBackupCodes() gin.HandlerFunc {
 			Collection("users").
 			FindOne(ctx, bson.M{"user_id": userID}).
 			Decode(&user)
-
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user"})
 			return
@@ -469,7 +464,6 @@ func (h *ProfileHandler) RegenerateBackupCodes() gin.HandlerFunc {
 					},
 				},
 			)
-
 		if err != nil {
 			h.Logger.Errorf("Failed to save backup codes: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save backup codes"})
@@ -502,7 +496,6 @@ func (h *ProfileHandler) GetOTPStatus() gin.HandlerFunc {
 			Collection("users").
 			FindOne(ctx, bson.M{"user_id": userID}).
 			Decode(&user)
-
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user"})
 			return
@@ -549,7 +542,6 @@ func (h *ProfileHandler) UpdateEmail() gin.HandlerFunc {
 			Collection("users").
 			FindOne(ctx, bson.M{"user_id": userID}).
 			Decode(&user)
-
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user"})
 			return
@@ -586,7 +578,6 @@ func (h *ProfileHandler) UpdateEmail() gin.HandlerFunc {
 					},
 				},
 			)
-
 		if err != nil {
 			h.Logger.Errorf("Failed to update email: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update email"})
@@ -630,7 +621,6 @@ func (h *ProfileHandler) UpdatePassword() gin.HandlerFunc {
 			Collection("users").
 			FindOne(ctx, bson.M{"user_id": userID}).
 			Decode(&user)
-
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user"})
 			return
@@ -677,7 +667,6 @@ func (h *ProfileHandler) UpdatePassword() gin.HandlerFunc {
 					},
 				},
 			)
-
 		if err != nil {
 			h.Logger.Errorf("Failed to update password: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update password"})

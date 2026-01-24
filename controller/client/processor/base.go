@@ -1,3 +1,5 @@
+// Package processor provides command processors for client operations,
+// validating and transforming commands before execution on connected clients.
 package processor
 
 import "github.com/CloudNativeWorks/elchi-backend/pkg/models"

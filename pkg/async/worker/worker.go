@@ -1,3 +1,5 @@
+// Package worker provides async job processing workers for background tasks
+// including ACME certificates, upgrades, and WAF operations.
 package worker
 
 import (
@@ -149,7 +151,7 @@ func (w *Worker) processSnapshotUpdateJob(ctx context.Context, j *job.Job) {
 			}
 			return
 		}
-		w.logger.Infof("✅ Parent job dependency verified for job %s", j.JobID)
+		w.logger.Infof("Parent job dependency verified for job %s", j.JobID)
 	}
 
 	// Check if job has any work to do
@@ -269,7 +271,6 @@ func (w *Worker) verifyParentJobCompleted(ctx context.Context, childJob *job.Job
 			"general.version": version,
 			"general.project": project,
 		}).Decode(&secret)
-
 		if err != nil {
 			return fmt.Errorf("secret %s (version: %s) not found in secrets collection: %w", secretName, version, err)
 		}
@@ -285,7 +286,7 @@ func (w *Worker) verifyParentJobCompleted(ctx context.Context, childJob *job.Job
 		}
 
 		if secret.General.UpdatedAt.After(maxUpdateTime) {
-			w.logger.Warnf("⚠️  Secret %s was updated at %s, which is suspiciously late after parent job completion at %s",
+			w.logger.Warnf("Secret %s was updated at %s, which is suspiciously late after parent job completion at %s",
 				secretName, secret.General.UpdatedAt.Format(time.RFC3339), parentJob.CompletedAt.Format(time.RFC3339))
 			// Don't fail - just warn, as this might be a clock skew issue
 		}
@@ -342,15 +343,15 @@ func (w *Worker) processBatch(ctx context.Context, batch []string, j *job.Job) [
 
 			// For managed listeners, send poke to EACH UNIQUE downstream address
 			if len(clients) != len(uniqueClients) {
-				w.logger.Infof("🔍 MULTI-CLIENT: Listener '%s' has %d clients, but only %d unique IPs (filtered %d duplicates)",
+				w.logger.Infof("MULTI-CLIENT: Listener '%s' has %d clients, but only %d unique IPs (filtered %d duplicates)",
 					ln, len(clients), len(uniqueClients), len(clients)-len(uniqueClients))
 			} else {
-				w.logger.Infof("🔍 MULTI-CLIENT: Listener '%s' has %d clients, sending %d pokes", ln, len(clients), len(uniqueClients))
+				w.logger.Infof("MULTI-CLIENT: Listener '%s' has %d clients, sending %d pokes", ln, len(clients), len(uniqueClients))
 			}
 
 			for i, client := range uniqueClients {
 				nodeID := fmt.Sprintf("%s::%s::%s", ln, j.Project, client.DownstreamAddress)
-				w.logger.Infof("🔍 MULTI-CLIENT: [%d/%d] Sending poke to %s", i+1, len(uniqueClients), nodeID)
+				w.logger.Infof("MULTI-CLIENT: [%d/%d] Sending poke to %s", i+1, len(uniqueClients), nodeID)
 
 				execution := w.executeSinglePoke(ctx, nodeID, j.Project, j.Version, ln, client.DownstreamAddress)
 

@@ -1,3 +1,5 @@
+// Package xds provides CRUD operations for Envoy xDS resources including
+// clusters, listeners, routes, endpoints, and related configurations.
 package xds
 
 import (

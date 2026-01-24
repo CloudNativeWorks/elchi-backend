@@ -1,3 +1,5 @@
+// Package resource provides snapshot generation and resource collection
+// for Envoy xDS configurations from listener definitions.
 package resource
 
 import (

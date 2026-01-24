@@ -78,10 +78,10 @@ func (h *UpgradeHandler) UpgradeResource(c *gin.Context) {
 	// Create job metadata with proper Listener GType
 	jobMeta := &job.JobMetadata{
 		SourceResource: &job.SourceResource{
-			Type:       string(models.Listener),               // Always use full GType for listeners
-			Name:       req.ResourceNames[0],                  // First listener name as primary source
-			Collection: models.Listener.CollectionString(),    // "listeners"
-			Action:     job.ActionTypeUpdate,                  // Upgrade is an update action
+			Type:       string(models.Listener),            // Always use full GType for listeners
+			Name:       req.ResourceNames[0],               // First listener name as primary source
+			Collection: models.Listener.CollectionString(), // "listeners"
+			Action:     job.ActionTypeUpdate,               // Upgrade is an update action
 			Version:    req.FromVersion,
 			ProjectID:  req.Project,
 		},
@@ -114,7 +114,6 @@ func (h *UpgradeHandler) UpgradeResource(c *gin.Context) {
 		Status:   job.JobStatusAnalyzing,
 		Metadata: jobMeta,
 	})
-
 	if err != nil {
 		h.setAuditResult(c, err)
 		c.JSON(500, gin.H{"error": "Failed to create upgrade job"})
@@ -123,12 +122,12 @@ func (h *UpgradeHandler) UpgradeResource(c *gin.Context) {
 
 	// Set audit success with job details
 	audit.SetAuditChanges(c, map[string]any{
-		"job_id":             createdJob.JobID,
-		"listener_names":     req.ResourceNames,
-		"total_listeners":    len(req.ResourceNames),
-		"from_version":       req.FromVersion,
-		"to_version":         req.ToVersion,
-		"options":            req.Options,
+		"job_id":          createdJob.JobID,
+		"listener_names":  req.ResourceNames,
+		"total_listeners": len(req.ResourceNames),
+		"from_version":    req.FromVersion,
+		"to_version":      req.ToVersion,
+		"options":         req.Options,
 	})
 	h.setAuditResult(c, nil)
 
@@ -136,11 +135,11 @@ func (h *UpgradeHandler) UpgradeResource(c *gin.Context) {
 	go h.analyzeUpgradeDependencies(context.Background(), createdJob)
 
 	c.JSON(200, gin.H{
-		"success":                   true,
-		"job_id":                    createdJob.JobID,
-		"job_object_id":             createdJob.ID.Hex(),
-		"status":                    createdJob.Status,
-		"message":                   "Upgrade job created. Analyzing dependencies...",
+		"success":                    true,
+		"job_id":                     createdJob.JobID,
+		"job_object_id":              createdJob.ID.Hex(),
+		"status":                     createdJob.Status,
+		"message":                    "Upgrade job created. Analyzing dependencies...",
 		"estimated_duration_seconds": 60,
 	})
 }
@@ -224,4 +223,3 @@ func (h *UpgradeHandler) setAuditResult(c *gin.Context, err error) {
 		audit.SetAuditSuccess(c, true)
 	}
 }
-

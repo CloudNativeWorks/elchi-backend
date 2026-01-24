@@ -1,3 +1,5 @@
+// Package client provides client connection management and state tracking
+// for connected Envoy proxy instances.
 package client
 
 import (

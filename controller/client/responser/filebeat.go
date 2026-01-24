@@ -5,8 +5,7 @@ import (
 	pb "github.com/CloudNativeWorks/elchi-proto/client"
 )
 
-type FilebeatResponser struct {
-}
+type FilebeatResponser struct{}
 
 func (p *FilebeatResponser) ValidateAndTransform(op models.OperationClass, response *pb.CommandResponse) any {
 	// Check if filebeat response exists

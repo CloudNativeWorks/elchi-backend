@@ -3,6 +3,7 @@ package authorization
 import (
 	"context"
 	"fmt"
+	"net/http"
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 	"github.com/gin-gonic/gin"
@@ -33,7 +34,7 @@ func ExtractProjectFromRequest(c *gin.Context) string {
 	var body struct {
 		Project string `json:"project"`
 	}
-	if c.Request.Method == "POST" || c.Request.Method == "PUT" || c.Request.Method == "PATCH" {
+	if c.Request.Method == http.MethodPost || c.Request.Method == http.MethodPut || c.Request.Method == http.MethodPatch {
 		// Try to bind JSON without consuming the body
 		if err := c.ShouldBindJSON(&body); err == nil && body.Project != "" {
 			return body.Project

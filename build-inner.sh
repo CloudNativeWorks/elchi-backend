@@ -23,7 +23,7 @@ for CONTROL_PLANE_VERSION in "${VERSIONS[@]}"; do
     # Trim whitespace
     CONTROL_PLANE_VERSION=$(echo $CONTROL_PLANE_VERSION | xargs)
     
-    echo "🔄 Processing: ${CONTROL_PLANE_VERSION}"
+    echo "Processing: ${CONTROL_PLANE_VERSION}"
     
     # Extract Envoy version
     ENVOY_VERSION=$(echo $CONTROL_PLANE_VERSION | sed -n 's/.*envoy\([0-9.]*\)/\1/p')
@@ -38,7 +38,7 @@ for CONTROL_PLANE_VERSION in "${VERSIONS[@]}"; do
     IMAGE_TAG="${IMAGE_NAME}:v${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}-arm64"
     LATEST_TAG="${IMAGE_NAME}:latest-arm64"
     
-    echo "🏗️ Building ARM64 image: ${IMAGE_TAG}"
+    echo "Building ARM64 image: ${IMAGE_TAG}"
     
     # Docker build and push
     docker buildx build \
@@ -52,7 +52,7 @@ for CONTROL_PLANE_VERSION in "${VERSIONS[@]}"; do
         --push \
         .
     
-    echo "✅ Completed: ${CONTROL_PLANE_VERSION}"
+    echo "Completed: ${CONTROL_PLANE_VERSION}"
     
     # Reset Go mod changes
     git checkout -- go.mod go.sum

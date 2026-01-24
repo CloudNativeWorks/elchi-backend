@@ -61,12 +61,12 @@ func ValidateTLSCertificatesInResource(resource models.ResourceClass, requestDet
 func convertResourceToMap(resource models.ResourceClass) (map[string]any, error) {
 	jsonData, err := json.Marshal(resource)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal resource: %v", err)
+		return nil, fmt.Errorf("failed to marshal resource: %w", err)
 	}
 
 	var resourceMap map[string]any
 	if err := json.Unmarshal(jsonData, &resourceMap); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal resource: %v", err)
+		return nil, fmt.Errorf("failed to unmarshal resource: %w", err)
 	}
 
 	return resourceMap, nil

@@ -1,6 +1,9 @@
+// Package router provides HTTP route definitions and middleware configuration
+// for the controller REST API using Gin framework.
 package router
 
 import (
+	"github.com/gin-contrib/pprof"
 	"github.com/gin-gonic/gin"
 
 	"github.com/CloudNativeWorks/elchi-backend/controller/api/middleware"
@@ -20,6 +23,11 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 	e.Use(middleware.ValidateSearchInput()) // Add early search input validation BEFORE PathCheck
 	e.Use(middleware.PathCheck())
 	e.Use(middleware.GinLog(logger.Logger), gin.Recovery())
+
+	// Register pprof endpoints at /debug/pprof/*
+	// Access: http://localhost:8099/debug/pprof/
+	pprof.Register(e)
+	logger.Logger.Info("pprof profiling endpoints enabled at /debug/pprof/")
 
 	e.POST("/logout", middleware.Authentication(h.XDS.Context), h.Settings.Logout())
 	e.POST("/refresh", middleware.Refresh(), h.Settings.Refresh())
@@ -74,6 +82,9 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 	apiWAF := v3.Group("/waf")
 	apiMaintenance := apiSettings.Group("/maintenance") // Maintenance routes under settings
 	apiACME := v3.Group("/acme")
+	apiDNS := e.Group("/dns")                               // GSLB DNS API routes (zone-based authentication via middleware)
+	apiDNS.Use(middleware.DNSAuthMiddleware(h.XDS.Context)) // Zone-based DNS authentication
+	apiGSLB := v3.Group("/gslb")                            // GSLB CRUD API routes (handlers perform own Admin/Owner checks)
 
 	initAuthRoutes(apiAuth, h)
 	initSettingRoutes(apiSettings, h)
@@ -99,7 +110,9 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 	initWAFRoutes(apiWAF, h)
 	initMaintenanceRoutes(apiMaintenance, h) // Maintenance/cleanup routes
 	initOpenStackRoutes(apiClient, h)        // OpenStack routes under /api/op/clients
-	initACMERoutes(apiACME, h) // ACME routes under /api/v3/acme
+	initACMERoutes(apiACME, h)               // ACME routes under /api/v3/acme
+	initDNSRoutes(apiDNS, h)                 // GSLB DNS routes under /api/v3/dns
+	initGSLBRoutes(apiGSLB, h)               // GSLB CRUD routes under /api/v3/gslb
 
 	// logRoutes(e)
 	return e
@@ -111,4 +124,4 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 		log.Printf("Method: %s, Path: %s\n", route.Method, route.Path)
 	}
 }
- */
+*/

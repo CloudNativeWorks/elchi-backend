@@ -1,3 +1,5 @@
+// Package handlers provides HTTP request handlers for the controller REST API,
+// including XDS resources, clients, services, and administrative operations.
 package handlers
 
 import (
@@ -66,6 +68,8 @@ type Handler struct {
 	Maintenance  *MaintenanceHandler
 	ACME         *ACMEHandler
 	CAProviders  *CAProvidersHandler
+	DNS          *DNSHandler
+	GSLB         *GSLBHandler
 }
 
 // getDatabaseConnection returns the first available database connection from handlers
@@ -89,7 +93,7 @@ func (h *Handler) getDatabaseConnection() *mongo.Database {
 	return nil
 }
 
-func NewHandler(xds *xds.AppHandler, extension *extension.AppHandler, custom *custom.AppHandler, settings *settings.AppHandler, dependency *dependency.AppHandler, stats *bridge.AppHandler, scenario *scenario.AppHandler, client *client.AppHandler, service *service.AppHandler, discovery *discovery.DiscoveryHandler, jobs *JobHandler, registry *RegistryHandler, openstack *openstack.Handler, auditService *audit.Service, template *ResourceTemplateHandler, routeMap *routemap.RouteMapHandler, maintenance *MaintenanceHandler, upgrade *UpgradeHandler, acme *ACMEHandler, caProviders *CAProvidersHandler) *Handler {
+func NewHandler(xds *xds.AppHandler, extension *extension.AppHandler, custom *custom.AppHandler, settings *settings.AppHandler, dependency *dependency.AppHandler, stats *bridge.AppHandler, scenario *scenario.AppHandler, client *client.AppHandler, service *service.AppHandler, discovery *discovery.DiscoveryHandler, jobs *JobHandler, registry *RegistryHandler, openstack *openstack.Handler, auditService *audit.Service, template *ResourceTemplateHandler, routeMap *routemap.RouteMapHandler, maintenance *MaintenanceHandler, upgrade *UpgradeHandler, acme *ACMEHandler, caProviders *CAProvidersHandler, dnsHandler *DNSHandler, gslbHandler *GSLBHandler) *Handler {
 	handler := &Handler{
 		XDS:          xds,
 		Extension:    extension,
@@ -111,6 +115,8 @@ func NewHandler(xds *xds.AppHandler, extension *extension.AppHandler, custom *cu
 		Upgrade:      upgrade,
 		ACME:         acme,
 		CAProviders:  caProviders,
+		DNS:          dnsHandler,
+		GSLB:         gslbHandler,
 	}
 
 	// Initialize profile handler
@@ -188,7 +194,7 @@ func (h *Handler) handleRequest(c *gin.Context, resFunc ResFunc) {
 	h.setResourceAuditContext(c, requestDetails)
 
 	// For PUT requests, capture changes BEFORE the database update
-	if c.Request.Method == "PUT" {
+	if c.Request.Method == http.MethodPut {
 		h.setAuditChanges(c)
 	}
 
@@ -196,7 +202,7 @@ func (h *Handler) handleRequest(c *gin.Context, resFunc ResFunc) {
 	h.setAuditResult(c, err)
 
 	// For POST requests, update audit context with response data (resource ID, etc.)
-	if c.Request.Method == "POST" && err == nil {
+	if c.Request.Method == http.MethodPost && err == nil {
 		h.updateAuditContextFromResponse(c, response)
 	}
 
@@ -607,7 +613,7 @@ func (h *Handler) GetSubnetAvailableIPs(c *gin.Context) {
 // ================== SETTINGS WRAPPERS ==================
 // Settings handlers wrapped with audit functionality
 
-// User Management
+// SetUpdateUserWithAudit handles user creation or update with audit logging.
 func (h *Handler) SetUpdateUserWithAudit(c *gin.Context) {
 	requestDetails, _ := h.getRequestDetails(c)
 	h.setResourceAuditContext(c, requestDetails)
@@ -634,7 +640,7 @@ func (h *Handler) DeleteUserWithAudit(c *gin.Context) {
 	}
 }
 
-// Group Management
+// SetUpdateGroupWithAudit handles group creation or update with audit logging.
 func (h *Handler) SetUpdateGroupWithAudit(c *gin.Context) {
 	requestDetails, _ := h.getRequestDetails(c)
 	h.setResourceAuditContext(c, requestDetails)
@@ -661,7 +667,7 @@ func (h *Handler) DeleteGroupWithAudit(c *gin.Context) {
 	}
 }
 
-// Project Management
+// SetUpdateProjectWithAudit handles project creation or update with audit logging.
 func (h *Handler) SetUpdateProjectWithAudit(c *gin.Context) {
 	requestDetails, _ := h.getRequestDetails(c)
 	h.setResourceAuditContext(c, requestDetails)
@@ -688,7 +694,7 @@ func (h *Handler) DeleteProjectWithAudit(c *gin.Context) {
 	}
 }
 
-// Token Management
+// SetTokenWithAudit handles token creation with audit logging.
 func (h *Handler) SetTokenWithAudit(c *gin.Context) {
 	// Set audit context manually since handleRequest expects ResourceClass operations
 	// Get proper request details
@@ -722,7 +728,7 @@ func (h *Handler) DeleteTokenWithAudit(c *gin.Context) {
 	}
 }
 
-// OpenRouter Token Management
+// SetOpenRouterTokenWithAudit handles OpenRouter token creation with audit logging.
 func (h *Handler) SetOpenRouterTokenWithAudit(c *gin.Context) {
 	requestDetails, _ := h.getRequestDetails(c)
 	h.setResourceAuditContext(c, requestDetails)
@@ -756,7 +762,7 @@ func (h *Handler) DeleteOpenRouterTokenWithAudit(c *gin.Context) {
 	}
 }
 
-// Discovery Token Management
+// GenerateDiscoveryTokenWithAudit handles discovery token generation with audit logging.
 func (h *Handler) GenerateDiscoveryTokenWithAudit(c *gin.Context) {
 	requestDetails, _ := h.getRequestDetails(c)
 	h.setResourceAuditContext(c, requestDetails)
@@ -779,7 +785,7 @@ func (h *Handler) DeleteDiscoveryTokenWithAudit(c *gin.Context) {
 	}
 }
 
-// Cloud Config Management
+// SetCloudWithAudit handles cloud configuration creation with audit logging.
 func (h *Handler) SetCloudWithAudit(c *gin.Context) {
 	requestDetails, _ := h.getRequestDetails(c)
 	h.setResourceAuditContext(c, requestDetails)
@@ -874,6 +880,44 @@ func (h *Handler) TestLDAPConfigWithAudit(c *gin.Context) {
 // TestLDAPAuthWithAudit wraps TestLDAPAuth (no audit for test endpoints)
 func (h *Handler) TestLDAPAuthWithAudit(c *gin.Context) {
 	h.Settings.TestLDAPAuth(c)
+}
+
+// ================== GSLB CONFIGURATION AUDIT WRAPPERS ==================
+
+// SetGSLBConfigWithAudit wraps SetGSLBConfig with audit logging
+func (h *Handler) SetGSLBConfigWithAudit(c *gin.Context) {
+	requestDetails, _ := h.getRequestDetails(c)
+	h.setGSLBAuditContext(c, requestDetails)
+	h.Settings.SetGSLBConfig(c)
+	if c.Writer.Status() >= 400 {
+		h.setAuditResult(c, fmt.Errorf("GSLB config creation failed"))
+	} else {
+		h.setAuditResult(c, nil)
+	}
+}
+
+// UpdateGSLBConfigWithAudit wraps UpdateGSLBConfig with audit logging
+func (h *Handler) UpdateGSLBConfigWithAudit(c *gin.Context) {
+	requestDetails, _ := h.getRequestDetails(c)
+	h.setGSLBAuditContext(c, requestDetails)
+	h.Settings.UpdateGSLBConfig(c)
+	if c.Writer.Status() >= 400 {
+		h.setAuditResult(c, fmt.Errorf("GSLB config update failed"))
+	} else {
+		h.setAuditResult(c, nil)
+	}
+}
+
+// DeleteGSLBConfigWithAudit wraps DeleteGSLBConfig with audit logging
+func (h *Handler) DeleteGSLBConfigWithAudit(c *gin.Context) {
+	requestDetails, _ := h.getRequestDetails(c)
+	h.setGSLBAuditContext(c, requestDetails)
+	h.Settings.DeleteGSLBConfig(c)
+	if c.Writer.Status() >= 400 {
+		h.setAuditResult(c, fmt.Errorf("GSLB config deletion failed"))
+	} else {
+		h.setAuditResult(c, nil)
+	}
 }
 
 // updateScenarioAuditFromResponse extracts scenario ID and name from CREATE response

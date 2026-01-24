@@ -23,7 +23,7 @@ type ClearErrorsResponse struct {
 func (custom *AppHandler) ClearErrorsByID(ctx context.Context, _ models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
 	// AUTHORIZATION CHECK: Only Admin and Owner can clear errors
 	if !requestDetails.User.IsOwner && requestDetails.User.Role != models.RoleAdmin {
-		custom.Logger.Warnf("🔐 CLEAR-ERRORS: Permission denied for user %s (role: %s)",
+		custom.Logger.Warnf("CLEAR-ERRORS: Permission denied for user %s (role: %s)",
 			requestDetails.User.UserID, requestDetails.User.Role)
 		return ClearErrorsResponse{Success: false}, fmt.Errorf("insufficient privileges: only admin and owner can clear errors")
 	}
@@ -54,7 +54,7 @@ func (custom *AppHandler) ClearErrorsByID(ctx context.Context, _ models.Resource
 		errorIDs[i] = strings.TrimSpace(errorIDs[i])
 	}
 
-	custom.Logger.Debugf("🧹 CLEAR-ERRORS: %s error IDs: %v from project: %s", strings.ToUpper(mode), errorIDs, requestDetails.Project)
+	custom.Logger.Debugf("CLEAR-ERRORS: %s error IDs: %v from project: %s", strings.ToUpper(mode), errorIDs, requestDetails.Project)
 
 	collection := custom.Context.Client.Collection("envoys")
 
@@ -103,10 +103,10 @@ func (custom *AppHandler) ClearErrorsByID(ctx context.Context, _ models.Resource
 
 	if err != nil {
 		custom.Logger.Errorf("Failed to %s enhanced errors: %v", mode, err)
-		return ClearErrorsResponse{Success: false}, fmt.Errorf("failed to %s errors: %v", mode, err)
+		return ClearErrorsResponse{Success: false}, fmt.Errorf("failed to %s errors: %w", mode, err)
 	}
 
-	custom.Logger.Infof("🧹 CLEAR-ERRORS: Successfully %s %d errors from %d services",
+	custom.Logger.Infof("CLEAR-ERRORS: Successfully %s %d errors from %d services",
 		mode, len(errorIDs), result.ModifiedCount)
 
 	return ClearErrorsResponse{Success: true}, nil

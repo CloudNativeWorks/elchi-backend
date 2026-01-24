@@ -7,8 +7,7 @@ import (
 	pb "github.com/CloudNativeWorks/elchi-proto/client"
 )
 
-type WafVersionResponser struct {
-}
+type WafVersionResponser struct{}
 
 func (p *WafVersionResponser) ValidateAndTransform(op models.OperationClass, response *pb.CommandResponse) any {
 	// Check if waf_version response exists

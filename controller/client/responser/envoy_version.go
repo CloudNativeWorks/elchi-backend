@@ -7,8 +7,7 @@ import (
 	pb "github.com/CloudNativeWorks/elchi-proto/client"
 )
 
-type EnvoyVersionResponser struct {
-}
+type EnvoyVersionResponser struct{}
 
 func (p *EnvoyVersionResponser) ValidateAndTransform(op models.OperationClass, response *pb.CommandResponse) any {
 	// Check if envoy_version response exists

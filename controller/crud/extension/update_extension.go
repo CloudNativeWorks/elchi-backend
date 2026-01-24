@@ -75,7 +75,7 @@ func updateResource(ctx context.Context, extension *AppHandler, resource models.
 		newResource,
 		extension.ResourceService,
 	); err != nil {
-		return nil, fmt.Errorf("%v", err)
+		return nil, fmt.Errorf("%w", err)
 	}
 
 	resource.SetTypedConfig(resources.DecodeSetTypedConfigs(resource, extension.Logger))

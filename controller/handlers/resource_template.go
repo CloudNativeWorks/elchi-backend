@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -94,9 +95,8 @@ func (h *ResourceTemplateHandler) GetTemplate(c *gin.Context) {
 
 	var template models.ResourceTemplate
 	err := collection.FindOne(context.Background(), filter).Decode(&template)
-
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			c.JSON(http.StatusNotFound, gin.H{
 				"success": false,
 				"error":   "Template not found",
@@ -189,7 +189,7 @@ func (h *ResourceTemplateHandler) CreateOrUpdateTemplate(c *gin.Context) {
 	// Check if template exists for comparison
 	var existingTemplate models.ResourceTemplate
 	err := collection.FindOne(context.Background(), filter).Decode(&existingTemplate)
-	isCreate := err == mongo.ErrNoDocuments
+	isCreate := errors.Is(err, mongo.ErrNoDocuments)
 
 	var diffString string
 	auditAction := "TEMPLATE_CREATE"
@@ -230,7 +230,6 @@ func (h *ResourceTemplateHandler) CreateOrUpdateTemplate(c *gin.Context) {
 
 	result, err := collection.UpdateOne(context.Background(), filter, update,
 		options.Update().SetUpsert(true))
-
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,

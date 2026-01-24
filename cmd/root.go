@@ -1,3 +1,5 @@
+// Package cmd provides the command-line interface for elchi-backend.
+// It contains the main entry points for controller, control-plane, and registry processes.
 package cmd
 
 import (

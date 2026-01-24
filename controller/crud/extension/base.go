@@ -1,3 +1,5 @@
+// Package extension provides CRUD operations for Envoy extension resources
+// including filters, access loggers, and other typed configurations.
 package extension
 
 import (

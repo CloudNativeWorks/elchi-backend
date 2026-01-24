@@ -32,10 +32,10 @@ func (h *CAProvidersHandler) ListSupportedProviders(c *gin.Context) {
 		}
 
 		provider := map[string]any{
-			"provider":    providerKey,
-			"name":        providerConfig.Name,
-			"description": providerConfig.Description,
-			"supported":   providerConfig.Supported,
+			"provider":     providerKey,
+			"name":         providerConfig.Name,
+			"description":  providerConfig.Description,
+			"supported":    providerConfig.Supported,
 			"requires_eab": providerConfig.RequiresEAB,
 			"environments": environments,
 		}
@@ -69,7 +69,7 @@ func (h *CAProvidersHandler) ValidateEABCredentials(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Invalid request body",
+			"error":   "Invalid request body",
 			"details": err.Error(),
 		})
 		return
@@ -116,8 +116,8 @@ func (h *CAProvidersHandler) ValidateEABCredentials(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "EAB credentials format validated successfully",
 		"data": gin.H{
-			"provider":    provider,
-			"environment": req.Environment,
+			"provider":        provider,
+			"environment":     req.Environment,
 			"validation_note": "Full validation requires test registration with CA",
 		},
 	})

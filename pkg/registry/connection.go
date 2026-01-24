@@ -1,3 +1,5 @@
+// Package registry provides client implementations for connecting to the registry service
+// including controller registration and control-plane management.
 package registry
 
 import (
@@ -50,13 +52,13 @@ func RetryWithBackoff(ctx context.Context, operation string, config RetryConfig,
 
 	// Log initial attempt for important operations
 	if attempt == 1 {
-		logger.Debugf("🔄 Starting %s (attempt %d)", operation, attempt)
+		logger.Debugf("Starting %s (attempt %d)", operation, attempt)
 	}
 
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Warnf("🔄 %s cancelled after %d attempts due to context timeout: %v", operation, attempt-1, ctx.Err())
+			logger.Warnf("%s canceled after %d attempts due to context timeout: %v", operation, attempt-1, ctx.Err())
 			return ctx.Err()
 		default:
 		}
@@ -64,26 +66,26 @@ func RetryWithBackoff(ctx context.Context, operation string, config RetryConfig,
 		err := fn()
 		if err == nil {
 			if attempt > 1 {
-				logger.Infof("✅ Successfully completed %s after %d attempts", operation, attempt)
+				logger.Infof("Successfully completed %s after %d attempts", operation, attempt)
 			} else {
-				logger.Debugf("✅ Successfully completed %s on first attempt", operation)
+				logger.Debugf("Successfully completed %s on first attempt", operation)
 			}
 			return nil
 		}
 
 		// Check if we've reached max attempts
 		if config.MaxAttempts > 0 && attempt >= config.MaxAttempts {
-			logger.Errorf("❌ Failed to complete %s after %d attempts (max reached): %v", operation, config.MaxAttempts, err)
+			logger.Errorf("Failed to complete %s after %d attempts (max reached): %v", operation, config.MaxAttempts, err)
 			return err
 		}
 
 		// Log retry attempt with backoff info
-		logger.Warnf("⚠️  Failed to %s (attempt %d): %v - retrying in %v", operation, attempt, err, backoff)
+		logger.Warnf("Failed to %s (attempt %d): %v - retrying in %v", operation, attempt, err, backoff)
 
 		// Wait before retry
 		select {
 		case <-ctx.Done():
-			logger.Warnf("🔄 %s cancelled during backoff after %d attempts: %v", operation, attempt, ctx.Err())
+			logger.Warnf("%s canceled during backoff after %d attempts: %v", operation, attempt, ctx.Err())
 			return ctx.Err()
 		case <-time.After(backoff):
 		}
@@ -110,7 +112,7 @@ func RetryWithBackoff(ctx context.Context, operation string, config RetryConfig,
 
 		// Log progress for long-running retry sequences
 		if attempt%5 == 0 {
-			logger.Infof("🔄 Still retrying %s - attempt %d, current backoff: %v", operation, attempt, backoff)
+			logger.Infof("Still retrying %s - attempt %d, current backoff: %v", operation, attempt, backoff)
 		}
 	}
 }

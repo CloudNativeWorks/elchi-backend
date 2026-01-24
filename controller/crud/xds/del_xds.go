@@ -82,15 +82,15 @@ func (xds *AppHandler) DelResource(ctx context.Context, _ models.ResourceClass, 
 	} else {
 		return nil, err
 	}
-		
+
 	// Only check service deployments for managed listeners
 	if isManaged {
 		// Check if service has active client deployments
 		if err := xds.checkServiceHasActiveClients(ctx, requestDetails); err != nil {
-			xds.Logger.Errorf("❌ BLOCKING DELETE: %v", err)
+			xds.Logger.Errorf("BLOCKING DELETE: %v", err)
 			return nil, err
 		}
-		xds.Logger.Infof("✅ Managed listener delete allowed: no active clients found")
+		xds.Logger.Infof("Managed listener delete allowed: no active clients found")
 	}
 
 	if err := deleteDocument(ctx, collection, filter); err != nil {
@@ -104,7 +104,7 @@ func (xds *AppHandler) DelResource(ctx context.Context, _ models.ResourceClass, 
 			xds.Logger.Errorf("Failed to delete bootstrap: %v", err)
 			return nil, err
 		}
-		xds.Logger.Infof("✅ Successfully deleted bootstrap for listener: %s", requestDetails.Name)
+		xds.Logger.Infof("Successfully deleted bootstrap for listener: %s", requestDetails.Name)
 
 		// Only delete service and admin_port if listener was managed
 		if isManaged {
@@ -113,14 +113,14 @@ func (xds *AppHandler) DelResource(ctx context.Context, _ models.ResourceClass, 
 				xds.Logger.Errorf("Failed to delete service: %v", err)
 				return nil, err
 			}
-			xds.Logger.Infof("✅ Successfully deleted service for listener: %s", requestDetails.Name)
+			xds.Logger.Infof("Successfully deleted service for listener: %s", requestDetails.Name)
 
 			xds.Logger.Debugf("Attempting to delete admin_port for managed listener: %s", requestDetails.Name)
 			if err := xds.delAdminPort(ctx, requestDetails); err != nil {
 				xds.Logger.Errorf("Failed to delete admin_port: %v", err)
 				return nil, err
 			}
-			xds.Logger.Infof("✅ Successfully deleted admin_port for listener: %s", requestDetails.Name)
+			xds.Logger.Infof("Successfully deleted admin_port for listener: %s", requestDetails.Name)
 		}
 	}
 
@@ -146,6 +146,19 @@ func (xds *AppHandler) delService(ctx context.Context, requestDetails models.Req
 	filter := bson.M{"name": requestDetails.Name, "project": requestDetails.Project, "version": requestDetails.Version}
 	if err := checkDocumentExists(ctx, collection, filter); err != nil {
 		return err
+	}
+
+	// NEW: Get service ID before deletion for GSLB cleanup
+	var service struct {
+		ID primitive.ObjectID `bson:"_id"`
+	}
+	if err := collection.FindOne(ctx, filter).Decode(&service); err == nil {
+		serviceID := service.ID.Hex()
+		// Delete associated GSLB record AND all IP health records (cascading delete)
+		if err := xds.deleteGSLBRecordWithCleanup(ctx, serviceID, requestDetails.Project, requestDetails.Version); err != nil {
+			xds.Logger.Errorf("Failed to delete GSLB record for service %s: %v", requestDetails.Name, err)
+			// Don't fail service deletion if GSLB record deletion fails
+		}
 	}
 
 	if err := deleteDocument(ctx, collection, filter); err != nil {
@@ -177,7 +190,7 @@ func (xds *AppHandler) checkServiceHasActiveClients(ctx context.Context, request
 		"project": requestDetails.Project,
 		"version": requestDetails.Version,
 	}
-	
+
 	var service models.Service
 	err := serviceCollection.FindOne(ctx, serviceFilter).Decode(&service)
 	if err != nil {
@@ -187,21 +200,21 @@ func (xds *AppHandler) checkServiceHasActiveClients(ctx context.Context, request
 		}
 		return fmt.Errorf("failed to check service status: %w", err)
 	}
-	
+
 	// Check if service has active clients
 	if len(service.Clients) > 0 {
 		clientDetails := make([]string, 0, len(service.Clients))
 		for _, client := range service.Clients {
-			clientDetails = append(clientDetails, fmt.Sprintf("Client: %s (IP: %s)", 
+			clientDetails = append(clientDetails, fmt.Sprintf("Client: %s (IP: %s)",
 				client.ClientID, client.DownstreamAddress))
 		}
-		
-		return fmt.Errorf("cannot delete listener '%s': service has %d active deployment(s):\n%s", 
-			requestDetails.Name, 
-			len(service.Clients), 
+
+		return fmt.Errorf("cannot delete listener '%s': service has %d active deployment(s):\n%s",
+			requestDetails.Name,
+			len(service.Clients),
 			strings.Join(clientDetails, "\n"))
 	}
-	
+
 	return nil
 }
 

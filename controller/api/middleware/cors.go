@@ -9,9 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-var (
-	allowedOrigins string = "*" // Default value, will be updated from config
-)
+var allowedOrigins string = "*" // Default value, will be updated from config
 
 // SetCORSConfig sets the CORS configuration from app config
 func SetCORSConfig(corsAllowedOrigins string) {
@@ -32,10 +30,8 @@ func CORS() gin.HandlerFunc {
 		} else if origin != "" && isOriginAllowed(origin, allowedOrigins) {
 			// Allow specific origin
 			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
-		} else {
-			// Origin not allowed, don't set CORS headers
-			// But continue processing for non-browser requests
 		}
+		// Origin not allowed: no CORS headers set (continues processing for non-browser requests)
 
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With, from-elchi, envoy-version, x-openrouter-token")

@@ -1,3 +1,5 @@
+// Package poker provides resource change detection and snapshot triggering
+// for propagating configuration updates to control-planes.
 package poker
 
 import (
@@ -29,11 +31,11 @@ func DetectChangedResource(ctx context.Context, gType models.GType, version, res
 	}
 
 	// DEBUG: Log dependency detection
-	context.Logger.Debugf("🔍 DEPENDENCY DEBUG: Detecting changed %s '%s' (envoy.version=%s)",
+	context.Logger.Debugf("DEPENDENCY DEBUG: Detecting changed %s '%s' (envoy.version=%s)",
 		gType.String(), resourceName, version)
 
 	if helper.Contains(processed.ProcessedResources, pathWithGtype) {
-		context.Logger.Debugf("🔍 DEPENDENCY DEBUG: %s '%s' already processed, skipping",
+		context.Logger.Debugf("DEPENDENCY DEBUG: %s '%s' already processed, skipping",
 			gType.String(), resourceName)
 		return processed
 	}
@@ -44,15 +46,15 @@ func DetectChangedResource(ctx context.Context, gType models.GType, version, res
 		if !helper.Contains(processed.Listeners, resourceName) {
 			if managed {
 				clients := services.FetchDownstreamAddressFromService(context.Client, resourceName, project, version)
-				context.Logger.Infof("🔍 MULTI-CLIENT DEBUG: Listener '%s' has %d clients to update", resourceName, len(clients))
+				context.Logger.Infof("MULTI-CLIENT DEBUG: Listener '%s' has %d clients to update", resourceName, len(clients))
 
 				for i, client := range clients {
-					context.Logger.Infof("🔍 MULTI-CLIENT DEBUG: [%d/%d] Sending poke to client: %s",
+					context.Logger.Infof("MULTI-CLIENT DEBUG: [%d/%d] Sending poke to client: %s",
 						i+1, len(clients), client.DownstreamAddress)
 					HandlePoke(ctx, context, resourceName, project, version, processed, poke, client.DownstreamAddress)
 				}
 			} else {
-				context.Logger.Infof("🔍 MULTI-CLIENT DEBUG: Listener '%s' has managed=false, sending single poke", resourceName)
+				context.Logger.Infof("MULTI-CLIENT DEBUG: Listener '%s' has managed=false, sending single poke", resourceName)
 				HandlePoke(ctx, context, resourceName, project, version, processed, poke, "")
 			}
 		}
@@ -69,21 +71,21 @@ func HandlePoke(ctx context.Context, context *db.AppContext, resourceName, proje
 
 	// If poke service is nil, we're only doing dependency analysis - skip actual poke
 	if poke == nil {
-		context.Logger.Debugf("🔍 POKE DEBUG: Skipping poke for listener '%s' (analysis mode only)", resourceName)
+		context.Logger.Debugf("POKE DEBUG: Skipping poke for listener '%s' (analysis mode only)", resourceName)
 		result := strings.Join(processed.Depends, " \n ")
 		context.Logger.Infof("Listener '%s' added to dependency analysis. Processed resource paths: \n %s", resourceName, result)
 		return
 	}
 
 	// DEBUG: Log poke initiation
-	context.Logger.Debugf("🔍 POKE DEBUG: Initiating poke for listener '%s' (envoy.version=%s, project=%s)",
+	context.Logger.Debugf("POKE DEBUG: Initiating poke for listener '%s' (envoy.version=%s, project=%s)",
 		resourceName, version, project)
 
 	_, err := bridgeClient.PokeNode(ctx, *poke, resourceName, project, version, downstreamAddress)
 	if err != nil {
 		context.Logger.Debugf("Poke failed: %s\n", err)
 	} else {
-		context.Logger.Debugf("🔍 POKE DEBUG: Poke successful for listener '%s'", resourceName)
+		context.Logger.Debugf("POKE DEBUG: Poke successful for listener '%s'", resourceName)
 	}
 
 	result := strings.Join(processed.Depends, " \n ")

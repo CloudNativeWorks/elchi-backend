@@ -2,6 +2,7 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -85,27 +86,27 @@ var indexFieldMappings = map[string]map[string]string{
 
 // duplicateKeyMessages provides collection-specific error messages for duplicate key conflicts
 var duplicateKeyMessages = map[string]string{
-	"users":               "Username already exists in database (case-insensitive). The existing user was preserved. To import this user, please rename in the backup or remove the existing user.",
-	"groups":              "Group name already exists in target project (case-insensitive). The existing group was preserved. To import this group, please rename in the backup or remove the existing group.",
-	"services":            "Service name already exists in target project (case-insensitive). The existing service was preserved.",
-	"clusters":            "Cluster already exists in target project with same name and version (case-insensitive). The existing cluster was preserved.",
-	"listeners":           "Listener name already exists in target project (case-insensitive, no version). The existing listener was preserved. Note: Listeners don't use version in unique constraint.",
-	"routes":              "Route already exists in target project with same name and version (case-insensitive). The existing route was preserved.",
-	"endpoints":           "Endpoint already exists in target project with same name and version (case-insensitive). The existing endpoint was preserved.",
-	"filters":             "Filter already exists in target project with same name and version (case-insensitive). The existing filter was preserved.",
-	"extensions":          "Extension already exists in target project with same name and version (case-insensitive). The existing extension was preserved.",
-	"secrets":             "Secret already exists in target project with same name and version (case-insensitive). The existing secret was preserved.",
-	"bootstrap":           "Bootstrap config already exists in target project with same name and version (case-insensitive). The existing config was preserved.",
-	"tls":                 "TLS config already exists in target project with same name and version (case-insensitive). The existing config was preserved.",
-	"virtual_hosts":       "Virtual host already exists in target project with same name and version (case-insensitive). The existing virtual host was preserved.",
-	"scenarios":           "Scenario ID already exists. The existing scenario was preserved.",
-	"clients":             "Client ID already exists (case-insensitive). The existing client was preserved.",
-	"resource_templates":  "Template already exists in target project with same type and version (case-insensitive). The existing template was preserved.",
-	"snippets":            "Snippet name already exists in target project for this resource type (case-insensitive). The existing snippet was preserved.",
-	"acme_accounts":       "ACME account already exists with same email/provider/environment in target project. The existing account was preserved.",
-	"acme_certificates":   "ACME certificate already exists with same secret name in target project. The existing certificate was preserved.",
+	"users":                "Username already exists in database (case-insensitive). The existing user was preserved. To import this user, please rename in the backup or remove the existing user.",
+	"groups":               "Group name already exists in target project (case-insensitive). The existing group was preserved. To import this group, please rename in the backup or remove the existing group.",
+	"services":             "Service name already exists in target project (case-insensitive). The existing service was preserved.",
+	"clusters":             "Cluster already exists in target project with same name and version (case-insensitive). The existing cluster was preserved.",
+	"listeners":            "Listener name already exists in target project (case-insensitive, no version). The existing listener was preserved. Note: Listeners don't use version in unique constraint.",
+	"routes":               "Route already exists in target project with same name and version (case-insensitive). The existing route was preserved.",
+	"endpoints":            "Endpoint already exists in target project with same name and version (case-insensitive). The existing endpoint was preserved.",
+	"filters":              "Filter already exists in target project with same name and version (case-insensitive). The existing filter was preserved.",
+	"extensions":           "Extension already exists in target project with same name and version (case-insensitive). The existing extension was preserved.",
+	"secrets":              "Secret already exists in target project with same name and version (case-insensitive). The existing secret was preserved.",
+	"bootstrap":            "Bootstrap config already exists in target project with same name and version (case-insensitive). The existing config was preserved.",
+	"tls":                  "TLS config already exists in target project with same name and version (case-insensitive). The existing config was preserved.",
+	"virtual_hosts":        "Virtual host already exists in target project with same name and version (case-insensitive). The existing virtual host was preserved.",
+	"scenarios":            "Scenario ID already exists. The existing scenario was preserved.",
+	"clients":              "Client ID already exists (case-insensitive). The existing client was preserved.",
+	"resource_templates":   "Template already exists in target project with same type and version (case-insensitive). The existing template was preserved.",
+	"snippets":             "Snippet name already exists in target project for this resource type (case-insensitive). The existing snippet was preserved.",
+	"acme_accounts":        "ACME account already exists with same email/provider/environment in target project. The existing account was preserved.",
+	"acme_certificates":    "ACME certificate already exists with same secret name in target project. The existing certificate was preserved.",
 	"acme_dns_credentials": "ACME DNS credential already exists with same name in target project. The existing credential was preserved.",
-	"acme_temp_keys":      "ACME temporary key already exists with same certificate request ID. The existing key was preserved.",
+	"acme_temp_keys":       "ACME temporary key already exists with same certificate request ID. The existing key was preserved.",
 }
 
 // Importer handles backup import/restore operations
@@ -133,14 +134,14 @@ func (i *Importer) Import(ctx context.Context, backup *BackupData, username stri
 		return nil, fmt.Errorf("target project validation failed: %w", err)
 	}
 
-	i.Logger.Infof("📥 Starting backup import - backup_id=%s, dry_run=%v, user=%s, target_project=%s",
+	i.Logger.Infof("Starting backup import - backup_id=%s, dry_run=%v, user=%s, target_project=%s",
 		backup.Metadata.BackupID, dryRun, username, targetProjectID)
 
 	// STEP 2: Skip projects collection (we don't import projects, only resources)
 	if len(backup.Settings.Projects) > 0 {
 		projectCount := len(backup.Settings.Projects)
 		backup.Settings.Projects = nil
-		i.Logger.Infof("⏭️  Skipped projects collection (%d projects) - only importing resources to target project", projectCount)
+		i.Logger.Infof("Skipped projects collection (%d projects) - only importing resources to target project", projectCount)
 	}
 
 	response := &ImportResponse{
@@ -166,17 +167,17 @@ func (i *Importer) Import(ctx context.Context, backup *BackupData, username stri
 			continue
 		}
 
-		i.Logger.Infof("📦 Processing phase: %s (%d collections)", phaseName, len(collections))
+		i.Logger.Infof("Processing phase: %s (%d collections)", phaseName, len(collections))
 
 		// Process collections in this phase in parallel (pass targetProjectID)
 		i.importPhaseParallel(ctx, backup, collections, dryRun, targetProjectID, response)
 	}
 
 	if response.Success {
-		i.Logger.Infof("✅ Backup import completed - total=%d, created=%d, updated=%d, skipped=%d, failed=%d",
+		i.Logger.Infof("Backup import completed - total=%d, created=%d, updated=%d, skipped=%d, failed=%d",
 			response.Summary.TotalResources, response.Summary.Created, response.Summary.Updated, response.Summary.Skipped, response.Summary.Failed)
 	} else {
-		i.Logger.Warnf("⚠️ Backup import completed with errors - total=%d, created=%d, updated=%d, skipped=%d, failed=%d, errors=%d",
+		i.Logger.Warnf("Backup import completed with errors - total=%d, created=%d, updated=%d, skipped=%d, failed=%d, errors=%d",
 			response.Summary.TotalResources, response.Summary.Created, response.Summary.Updated, response.Summary.Skipped, response.Summary.Failed, len(response.Errors))
 	}
 
@@ -365,25 +366,16 @@ func (i *Importer) importCollection(ctx context.Context, collectionName string, 
 
 		// STEP 0: Skip default/system resources (they already exist in target system)
 		if i.isDefaultResource(doc) {
-			i.Logger.Debugf("⏭️  Skipping default resource %s in %s (system resource)", objectID.Hex(), collectionName)
+			i.Logger.Debugf("Skipping default resource %s in %s (system resource)", objectID.Hex(), collectionName)
 			detail.Skipped++
 			continue
 		}
 
 		// STEP 1: Remap project IDs to target project
-		if err := i.remapProjectIDs(doc, targetProjectID, collectionName); err != nil {
-			i.Logger.Warnf("Failed to remap project IDs for document %s in %s: %v",
-				objectID.Hex(), collectionName, err)
-			detail.Failed++
-			detail.Warnings = append(detail.Warnings, fmt.Sprintf("Project remapping failed for %s: %v", objectID.Hex(), err))
-			continue
-		}
+		i.remapProjectIDs(doc, targetProjectID, collectionName)
 
 		// STEP 2: Clear permissions (always, for security)
-		if err := i.clearPermissions(doc); err != nil {
-			i.Logger.Warnf("Failed to clear permissions for document %s: %v", objectID.Hex(), err)
-			// Non-fatal, continue with import
-		}
+		i.clearPermissions(doc)
 
 		// Fix date fields that might be stored as strings
 		i.fixDateFields(doc)
@@ -411,7 +403,8 @@ func (i *Importer) importCollection(ctx context.Context, collectionName string, 
 
 	if err != nil {
 		// Handle bulk write errors
-		if bulkErr, ok := err.(mongo.BulkWriteException); ok {
+		var bulkErr mongo.BulkWriteException
+		if errors.As(err, &bulkErr) {
 			// Partial success - some operations succeeded, some failed
 			detail.Failed += len(bulkErr.WriteErrors)
 			for _, writeErr := range bulkErr.WriteErrors {
@@ -451,13 +444,11 @@ func (i *Importer) importCollection(ctx context.Context, collectionName string, 
 			detail.Failed = len(operations)
 			return detail, fmt.Errorf("bulk write failed: %w", err)
 		}
-	} else {
+	} else if result != nil {
 		// Complete success
-		if result != nil {
-			detail.Created = int(result.UpsertedCount)
-			// MatchedCount includes both modified and unmodified existing documents
-			detail.Updated = int(result.MatchedCount)
-		}
+		detail.Created = int(result.UpsertedCount)
+		// MatchedCount includes both modified and unmodified existing documents
+		detail.Updated = int(result.MatchedCount)
 	}
 
 	// Verify counts match
@@ -692,12 +683,12 @@ func (i *Importer) validateTargetProject(ctx context.Context, projectID string) 
 		return fmt.Errorf("target project %s does not exist - please create the project first", projectID)
 	}
 
-	i.Logger.Infof("✅ Target project validation successful: %s", projectID)
+	i.Logger.Infof("Target project validation successful: %s", projectID)
 	return nil
 }
 
 // remapProjectIDs remaps project IDs in a document to the target project
-func (i *Importer) remapProjectIDs(doc bson.M, targetProjectID string, collectionName string) error {
+func (i *Importer) remapProjectIDs(doc bson.M, targetProjectID string, collectionName string) {
 	// Find collection category from RestoreOrder
 	var category string
 	for _, coll := range RestoreOrder {
@@ -710,7 +701,7 @@ func (i *Importer) remapProjectIDs(doc bson.M, targetProjectID string, collectio
 	// If category not found, log warning and skip (might be a new collection)
 	if category == "" {
 		i.Logger.Debugf("Collection %s not found in RestoreOrder, skipping project remapping", collectionName)
-		return nil
+		return
 	}
 
 	remapped := false
@@ -758,15 +749,13 @@ func (i *Importer) remapProjectIDs(doc bson.M, targetProjectID string, collectio
 	}
 
 	if remapped {
-		i.Logger.Debugf("🔄 Remapped project ID for %s document (category: %s) to target project: %s",
+		i.Logger.Debugf("Remapped project ID for %s document (category: %s) to target project: %s",
 			collectionName, category, targetProjectID)
 	}
-
-	return nil
 }
 
 // clearPermissions clears all permissions from a document for security
-func (i *Importer) clearPermissions(doc bson.M) error {
+func (i *Importer) clearPermissions(doc bson.M) {
 	// Check if document has general.permissions field
 	if generalAny, exists := doc["general"]; exists {
 		if general, ok := generalAny.(primitive.M); ok {
@@ -776,8 +765,8 @@ func (i *Importer) clearPermissions(doc bson.M) error {
 					"users":  []string{},
 					"groups": []string{},
 				}
-				i.Logger.Debugf("🔒 Cleared permissions for document (security best practice)")
-				return nil
+				i.Logger.Debugf("Cleared permissions for document (security best practice)")
+				return
 			}
 		} else if general, ok := generalAny.(map[string]interface{}); ok {
 			if _, hasPermissions := general["permissions"]; hasPermissions {
@@ -786,14 +775,11 @@ func (i *Importer) clearPermissions(doc bson.M) error {
 					"users":  []string{},
 					"groups": []string{},
 				}
-				i.Logger.Debugf("🔒 Cleared permissions for document (security best practice)")
-				return nil
+				i.Logger.Debugf("Cleared permissions for document (security best practice)")
+				return
 			}
 		}
 	}
-
-	// No permissions field found - this is normal for most resources
-	return nil
 }
 
 // parseDuplicateKeyError extracts index name from MongoDB duplicate key error

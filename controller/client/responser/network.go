@@ -5,8 +5,7 @@ import (
 	pb "github.com/CloudNativeWorks/elchi-proto/client"
 )
 
-type NetworkResponser struct {
-}
+type NetworkResponser struct{}
 
 func (p *NetworkResponser) ValidateAndTransform(op models.OperationClass, response *pb.CommandResponse) any {
 	// Enhanced response processing for new network operations

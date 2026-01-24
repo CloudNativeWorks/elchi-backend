@@ -1,3 +1,5 @@
+// Package envoys provides Envoy instance management for the control-plane
+// including tracking, error handling, heartbeat, and synchronization.
 package envoys
 
 import (
@@ -27,19 +29,31 @@ type EnvoyConnTracker struct {
 	mu       sync.RWMutex
 	Counter  map[string]int
 	dbOpChan chan dbOperation
+	stopChan chan struct{}
+	wg       sync.WaitGroup
 }
 
 func NewEnvoyConnTracker() *EnvoyConnTracker {
 	tracker := &EnvoyConnTracker{
 		Counter:  make(map[string]int),
 		dbOpChan: make(chan dbOperation, 1000),
+		stopChan: make(chan struct{}),
 	}
 
+	tracker.wg.Add(1)
 	go tracker.processDBOperations()
 	return tracker
 }
 
+// Shutdown gracefully stops the tracker and waits for pending operations
+func (e *EnvoyConnTracker) Shutdown() {
+	close(e.stopChan)
+	close(e.dbOpChan)
+	e.wg.Wait()
+}
+
 func (e *EnvoyConnTracker) processDBOperations() {
+	defer e.wg.Done()
 	for op := range e.dbOpChan {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		switch op.op {

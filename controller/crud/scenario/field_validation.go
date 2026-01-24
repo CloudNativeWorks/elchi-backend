@@ -282,7 +282,7 @@ func (fve *FieldValidationEngine) applyValidationRule(comp models.ComponentInsta
 
 	default:
 		// Unknown rule - log but don't fail
-		fmt.Printf("⚠️  Unknown validation rule '%s' for field '%s' in component '%s'\n", rule, field.Name, comp.Name)
+		fmt.Printf("Unknown validation rule '%s' for field '%s' in component '%s'\n", rule, field.Name, comp.Name)
 	}
 
 	return errors

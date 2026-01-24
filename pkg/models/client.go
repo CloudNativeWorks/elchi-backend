@@ -7,9 +7,11 @@ import (
 	pb "github.com/CloudNativeWorks/elchi-proto/client"
 )
 
-type CommandTypeJSON pb.CommandType
-type SubCommandTypeJSON pb.SubCommandType
-type FRRProtocolTypeJSON pb.FrrProtocolType
+type (
+	CommandTypeJSON     pb.CommandType
+	SubCommandTypeJSON  pb.SubCommandType
+	FRRProtocolTypeJSON pb.FrrProtocolType
+)
 
 type OperationClass interface {
 	GetType() string
@@ -53,10 +55,10 @@ type OperationClass interface {
 
 	GetClients() []ServiceClients
 
-	AppendClient(ServiceClients)
+	AppendClient(client ServiceClients)
 }
 
-// Network operation structures for new proto format
+// NetplanConfig represents network configuration for netplan operations.
 type NetplanConfig struct {
 	YamlContent                  string `json:"yaml_content"`
 	TestMode                     bool   `json:"test_mode"`
@@ -64,7 +66,7 @@ type NetplanConfig struct {
 	PreserveControllerConnection bool   `json:"preserve_controller_connection"`
 }
 
-// Use proto structs directly instead of duplicating
+// RouteOperation represents a routing table operation (ADD, DELETE, REPLACE).
 type RouteOperation struct {
 	Action string    `json:"action"` // ADD, DELETE, REPLACE
 	Route  *pb.Route `json:"route"`
@@ -80,14 +82,14 @@ type TableOperation struct {
 	Table  *pb.RoutingTableDefinition `json:"table"`
 }
 
-// JSON wrapper for RequestEnvoyVersion to handle string->enum conversion
+// RequestEnvoyVersionJSON is a JSON wrapper for RequestEnvoyVersion to handle string->enum conversion.
 type RequestEnvoyVersionJSON struct {
 	Operation     string `json:"operation"`      // String from JSON: "GET_VERSIONS", "SET_VERSION"
 	Version       string `json:"version"`        // Required for SET_VERSION
 	ForceDownload bool   `json:"force_download"` // Optional for SET_VERSION
 }
 
-// Convert to protobuf struct
+// ToPB converts RequestEnvoyVersionJSON to protobuf struct
 func (r *RequestEnvoyVersionJSON) ToPB() *pb.RequestEnvoyVersion {
 	if r == nil {
 		return nil
@@ -110,14 +112,14 @@ func (r *RequestEnvoyVersionJSON) ToPB() *pb.RequestEnvoyVersion {
 	}
 }
 
-// JSON wrapper for RequestWafVersion to handle string->enum conversion
+// RequestWafVersionJSON is a JSON wrapper for RequestWafVersion to handle string->enum conversion.
 type RequestWafVersionJSON struct {
 	Operation     string `json:"operation"`      // String from JSON: "GET_VERSIONS", "SET_VERSION"
 	Version       string `json:"version"`        // Required for SET_VERSION
 	ForceDownload bool   `json:"force_download"` // Optional for SET_VERSION
 }
 
-// Convert to protobuf struct
+// ToPB converts RequestWafVersionJSON to protobuf struct
 func (r *RequestWafVersionJSON) ToPB() *pb.RequestWafVersion {
 	if r == nil {
 		return nil
@@ -140,16 +142,16 @@ func (r *RequestWafVersionJSON) ToPB() *pb.RequestWafVersion {
 	}
 }
 
-// JSON wrapper for ElasticsearchOutput to handle oneof auth (api_key or basic_auth)
+// ElasticsearchOutputJSON is a JSON wrapper for ElasticsearchOutput to handle oneof auth (api_key or basic_auth).
 type ElasticsearchOutputJSON struct {
 	Hosts         []string      `json:"hosts,omitempty"`
 	Loadbalance   bool          `json:"loadbalance,omitempty"`
-	ApiKey        string        `json:"api_key,omitempty"`
+	APIKey        string        `json:"api_key,omitempty"`
 	BasicAuth     *pb.BasicAuth `json:"basic_auth,omitempty"`
 	SkipSslVerify bool          `json:"skip_ssl_verify,omitempty"`
 }
 
-// Convert to protobuf struct
+// ToPB converts ElasticsearchOutputJSON to protobuf struct
 func (e *ElasticsearchOutputJSON) ToPB() *pb.ElasticsearchOutput {
 	if e == nil {
 		return nil
@@ -162,9 +164,9 @@ func (e *ElasticsearchOutputJSON) ToPB() *pb.ElasticsearchOutput {
 	}
 
 	// Handle oneof auth field
-	if e.ApiKey != "" {
+	if e.APIKey != "" {
 		output.Auth = &pb.ElasticsearchOutput_ApiKey{
-			ApiKey: e.ApiKey,
+			ApiKey: e.APIKey,
 		}
 	} else if e.BasicAuth != nil {
 		output.Auth = &pb.ElasticsearchOutput_BasicAuth{
@@ -175,13 +177,13 @@ func (e *ElasticsearchOutputJSON) ToPB() *pb.ElasticsearchOutput {
 	return output
 }
 
-// JSON wrapper for FilebeatOutput to handle oneof (elasticsearch or logstash)
+// FilebeatOutputJSON is a JSON wrapper for FilebeatOutput to handle oneof (elasticsearch or logstash).
 type FilebeatOutputJSON struct {
 	Elasticsearch *ElasticsearchOutputJSON `json:"elasticsearch,omitempty"`
 	Logstash      *pb.LogstashOutput       `json:"logstash,omitempty"`
 }
 
-// Convert to protobuf struct
+// ToPB converts FilebeatOutputJSON to protobuf struct
 func (f *FilebeatOutputJSON) ToPB() *pb.FilebeatOutput {
 	if f == nil {
 		return nil
@@ -202,7 +204,7 @@ func (f *FilebeatOutputJSON) ToPB() *pb.FilebeatOutput {
 	return output
 }
 
-// JSON wrapper for RequestFilebeat to handle nested JSON->Proto conversion
+// RequestFilebeatJSON is a JSON wrapper for RequestFilebeat to handle nested JSON->Proto conversion.
 type RequestFilebeatJSON struct {
 	Inputs              []*pb.FilebeatInput     `json:"inputs,omitempty"`
 	TimestampProcessor  *pb.TimestampProcessor  `json:"timestamp_processor,omitempty"`
@@ -210,7 +212,7 @@ type RequestFilebeatJSON struct {
 	FilebeatOutput      *FilebeatOutputJSON     `json:"filebeat_output,omitempty"`
 }
 
-// Convert to protobuf struct
+// ToPB converts RequestFilebeatJSON to protobuf struct
 func (r *RequestFilebeatJSON) ToPB() *pb.RequestFilebeat {
 	if r == nil {
 		return nil
@@ -277,15 +279,15 @@ type RequestBgpJSON struct {
 	Operation     string               `json:"operation,omitempty"`
 	Config        *pb.BgpConfig        `json:"config,omitempty"`
 	Neighbor      *pb.BgpNeighbor      `json:"neighbor,omitempty"`
-	PeerIp        string               `json:"peer_ip,omitempty"`
+	PeerIP        string               `json:"peer_ip,omitempty"`
 	NetworkPrefix string               `json:"network_prefix,omitempty"`
 	RouteMap      *pb.BgpRouteMap      `json:"route_map,omitempty"`
 	CommunityList *pb.BgpCommunityList `json:"community_list,omitempty"`
 	PrefixList    *pb.BgpPrefixList    `json:"prefix_list,omitempty"`
 	Community     string               `json:"community,omitempty"`
 	AsNumber      uint32               `json:"as_number,omitempty"`
-	LocalAs       uint32               `json:"local_as,omitempty"`  // New field
-	RemoteAs      uint32               `json:"remote_as,omitempty"` // New field
+	LocalAs       uint32               `json:"local_as,omitempty"`
+	RemoteAs      uint32               `json:"remote_as,omitempty"`
 	Clear         *pb.ClearBgp         `json:"clear,omitempty"`
 }
 
@@ -303,7 +305,7 @@ func (r *RequestBgpJSON) ToPB() *pb.RequestBgp {
 		Operation:     pb.BgpOperationType(operation),
 		Config:        r.Config,
 		Neighbor:      r.Neighbor,
-		PeerIp:        r.PeerIp,
+		PeerIp:        r.PeerIP,
 		RouteMap:      r.RouteMap,
 		CommunityList: r.CommunityList,
 		PrefixList:    r.PrefixList,
@@ -500,7 +502,7 @@ func (f *FRRProtocolTypeJSON) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Network operation methods implementation
+// GetOperation builds and returns a pb.Command from operations data
 func (o *Operations) GetOperation() *pb.Command {
 	// Build pb.Command from operations data
 	command := &pb.Command{

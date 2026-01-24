@@ -2,6 +2,7 @@ package responser
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -9,10 +10,13 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/controller/cloud/openstack"
 	"github.com/CloudNativeWorks/elchi-backend/controller/crud/xds"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/bridge"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/gslb"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 	pb "github.com/CloudNativeWorks/elchi-proto/client"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -56,6 +60,23 @@ func (p *UnDeployResponser) ValidateAndTransform(op models.OperationClass, respo
 	}
 
 	p.Logger.Infof("Client ID: %s, Service: %s successfully removed", clientID, serviceName)
+
+	// Step 1.5: Remove IP from GSLB record if enabled
+	ctx := context.Background()
+	serviceCollection := p.XDSHandler.Context.Client.Collection("services")
+	var service struct {
+		ID primitive.ObjectID `bson:"_id"`
+	}
+	serviceFilter := bson.M{"name": serviceName, "project": projectName, "version": version}
+	if err := serviceCollection.FindOne(ctx, serviceFilter).Decode(&service); err == nil {
+		serviceID := service.ID.Hex()
+		if err := p.removeIPFromGSLBRecord(ctx, serviceID, projectName, version, clientID, downstreamAddress); err != nil {
+			p.Logger.Errorf("Failed to remove IP from GSLB for client %s: %v", clientID, err)
+			// Don't fail undeploy if GSLB IP removal fails
+		}
+	} else if !errors.Is(err, mongo.ErrNoDocuments) {
+		p.Logger.Errorf("Failed to fetch service ID for GSLB: %v", err)
+	}
 
 	// Step 2: OpenStack integration (if required)
 	if interfaceID != "" && ipMode != "" {
@@ -315,7 +336,7 @@ func (p *UnDeployResponser) handleOpenStackIntegration(clientID, downstreamAddre
 	// Get client information to check provider
 	client, err := p.Service.GetClientByClientID(context.Background(), clientID)
 	if err != nil {
-		return fmt.Errorf("failed to get client info: %v", err)
+		return fmt.Errorf("failed to get client info: %w", err)
 	}
 
 	// Only process OpenStack clients
@@ -337,7 +358,7 @@ func (p *UnDeployResponser) handleOpenStackIntegration(clientID, downstreamAddre
 			downstreamAddress, interfaceID, clientID)
 
 		if err := p.OpenStackHandler.RemoveAllowedAddressPair(context.Background(), interfaceID, downstreamAddress, projectName); err != nil {
-			return fmt.Errorf("failed to remove allowed address pair: %v", err)
+			return fmt.Errorf("failed to remove allowed address pair: %w", err)
 		}
 
 		p.Logger.Infof("Successfully removed allowed address pair %s from interface %s", downstreamAddress, interfaceID)
@@ -349,7 +370,7 @@ func (p *UnDeployResponser) handleOpenStackIntegration(clientID, downstreamAddre
 			downstreamAddress, interfaceID, clientID)
 
 		if err := p.OpenStackHandler.RemoveFixedIP(context.Background(), interfaceID, downstreamAddress, projectName); err != nil {
-			return fmt.Errorf("failed to remove fixed IP: %v", err)
+			return fmt.Errorf("failed to remove fixed IP: %w", err)
 		}
 
 		p.Logger.Infof("Successfully removed fixed IP %s from interface %s", downstreamAddress, interfaceID)
@@ -359,4 +380,43 @@ func (p *UnDeployResponser) handleOpenStackIntegration(clientID, downstreamAddre
 		p.Logger.Warnf("Unknown ip_mode '%s' for client %s - skipping OpenStack IP removal", ipMode, clientID)
 		return nil
 	}
+}
+
+// ================== GSLB IP ADDRESS MANAGEMENT ==================
+
+// removeIPFromGSLBRecord removes client's downstream address from GSLB IP health collection
+func (p *UnDeployResponser) removeIPFromGSLBRecord(ctx context.Context, serviceID, projectName, version, clientID, downstreamAddress string) error {
+	if downstreamAddress == "" {
+		return nil
+	}
+
+	gslbCollection := p.XDSHandler.Context.Client.Collection("gslb_records")
+
+	filter := bson.M{
+		"service_id": serviceID,
+		"project":    projectName,
+		"version":    version,
+	}
+
+	var gslbRecord models.GSLBRecord
+	err := gslbCollection.FindOne(ctx, filter).Decode(&gslbRecord)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		// No GSLB record - GSLB not enabled for this service
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	// Create IPHealthManager directly
+	ipHealthManager := gslb.NewIPHealthManager(p.XDSHandler.Context.Client, p.Logger)
+
+	// Remove IP from gslb_ip_health collection
+	err = ipHealthManager.RemoveIP(ctx, gslbRecord.ID, downstreamAddress)
+	if err != nil {
+		return fmt.Errorf("failed to remove IP from GSLB health collection: %w", err)
+	}
+
+	p.Logger.Infof("Removed IP %s from GSLB health collection for client %s", downstreamAddress, clientID)
+	return nil
 }

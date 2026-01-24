@@ -1,3 +1,5 @@
+// Package errstr provides common error definitions and messages
+// used throughout the application for consistent error handling.
 package errstr
 
 import "errors"

@@ -13,8 +13,10 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 )
 
-var generalName = "general.name"
-var versionNum = "general.version"
+var (
+	generalName = "general.name"
+	versionNum  = "general.version"
+)
 
 func (handler *AppHandler) GetPermissions(c *gin.Context) {
 	ctx := c.Request.Context()
@@ -98,7 +100,7 @@ func (handler *AppHandler) SetPermission(permissions models.Permission, userOrGr
 }
 
 func (handler *AppHandler) GetData(ctx context.Context, filter bson.M, typ string) ([]bson.M, error) {
-	var resourceCollection *mongo.Collection = handler.Context.Client.Collection(typ)
+	resourceCollection := handler.Context.Client.Collection(typ)
 	opts := options.Find().SetProjection(bson.M{generalName: 1, versionNum: 1})
 
 	cursor, err := resourceCollection.Find(ctx, filter, opts)

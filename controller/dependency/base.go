@@ -1,3 +1,5 @@
+// Package dependency provides resource dependency analysis and tracking for Envoy XDS configurations,
+// enabling automatic detection of upstream and downstream resource relationships.
 package dependency
 
 import (

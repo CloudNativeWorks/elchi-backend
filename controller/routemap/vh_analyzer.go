@@ -323,7 +323,7 @@ func (ra *RouteAnalyzer) processVirtualHostRouteMatches(route any, match extract
 }
 
 // processVirtualHostRouteActionFromMatch processes route actions connected to match nodes
-func (ra *RouteAnalyzer) processVirtualHostRouteActionFromMatch(route any, sourceNodeID string, action extractors.RouteAction, routeName, domain string, routeIndex int) {
+func (ra *RouteAnalyzer) processVirtualHostRouteActionFromMatch(_ any, sourceNodeID string, action extractors.RouteAction, routeName, domain string, routeIndex int) {
 	ra.logger.Debugf("processVirtualHostRouteActionFromMatch called with action: %+v", action)
 
 	switch action.Type {

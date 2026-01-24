@@ -1,3 +1,5 @@
+// Package generators provides resource generators for the scenario system,
+// creating Envoy XDS configurations from scenario component definitions.
 package generators
 
 import (

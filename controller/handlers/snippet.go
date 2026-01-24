@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -45,7 +46,7 @@ func (sh *SnippetHandler) validateSnippetData(data any) error {
 	// Size limit check (100KB)
 	jsonBytes, err := json.Marshal(data)
 	if err != nil {
-		return fmt.Errorf("invalid JSON data: %v", err)
+		return fmt.Errorf("invalid JSON data: %w", err)
 	}
 	if len(jsonBytes) > 100*1024 {
 		return fmt.Errorf("snippet data too large (max 100KB)")
@@ -111,14 +112,14 @@ func (sh *SnippetHandler) CreateSnippet(c *gin.Context) {
 	// Check for duplicates
 	ctx := context.Background()
 	collection := sh.handler.XDS.Context.Client.Collection("snippets")
-	
+
 	var existingSnippet models.ResourceSnippet
 	err = collection.FindOne(ctx, bson.M{
 		"data_hash": dataHash,
 		"project":   req.Project,
 		"gtype":     req.GType,
 	}).Decode(&existingSnippet)
-	
+
 	if err == nil {
 		c.JSON(http.StatusConflict, gin.H{
 			"error": "Duplicate snippet detected",
@@ -172,7 +173,7 @@ func (sh *SnippetHandler) GetSnippet(c *gin.Context) {
 	var snippet models.ResourceSnippet
 	err = collection.FindOne(ctx, bson.M{"_id": objID}).Decode(&snippet)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Snippet not found"})
 			return
 		}
@@ -286,7 +287,7 @@ func (sh *SnippetHandler) UpdateSnippet(c *gin.Context) {
 	var existingSnippet models.ResourceSnippet
 	err = collection.FindOne(ctx, bson.M{"_id": objID}).Decode(&existingSnippet)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Snippet not found"})
 			return
 		}
@@ -303,18 +304,18 @@ func (sh *SnippetHandler) UpdateSnippet(c *gin.Context) {
 
 	// Build update document
 	update := bson.M{"$set": bson.M{"updated_at": time.Now()}}
-	
+
 	if req.Name != nil {
 		update["$set"].(bson.M)["name"] = *req.Name
 	}
-	
+
 	if req.SnippetData != nil {
 		// Validate new snippet data
 		if err := sh.validateSnippetData(*req.SnippetData); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid snippet data", "details": err.Error()})
 			return
 		}
-		
+
 		// Generate new hash
 		dataHash := sh.generateDataHash(*req.SnippetData)
 		update["$set"].(bson.M)["snippet_data"] = *req.SnippetData
@@ -515,7 +516,7 @@ func (sh *SnippetHandler) BatchDeleteSnippets(c *gin.Context) {
 // GetSnippetStats returns statistics about snippets
 func (sh *SnippetHandler) GetSnippetStats(c *gin.Context) {
 	project := c.Query("project")
-	
+
 	ctx := context.Background()
 	collection := sh.handler.XDS.Context.Client.Collection("snippets")
 
@@ -619,9 +620,9 @@ func (sh *SnippetHandler) SearchSnippets(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"query":    query,
-		"results":  snippets,
-		"count":    len(snippets),
-		"project":  project,
+		"query":   query,
+		"results": snippets,
+		"count":   len(snippets),
+		"project": project,
 	})
 }

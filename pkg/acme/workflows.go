@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto"
 	"crypto/ecdsa"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -234,7 +235,7 @@ func (m *CertificateManager) GetDNSChallengesFromLetsEncrypt(ctx context.Context
 	if err != nil {
 		// Check if it's a rate limit error
 		if strings.Contains(err.Error(), "rateLimited") || strings.Contains(err.Error(), "429") {
-			return nil, fmt.Errorf("let's Encrypt rate limit exceeded: too many failed authorizations for this domain in the last hour. Please wait 1 hour or use a different subdomain. Original error: %v", err)
+			return nil, fmt.Errorf("let's Encrypt rate limit exceeded: too many failed authorizations for this domain in the last hour. Please wait 1 hour or use a different subdomain. Original error: %w", err)
 		}
 		return nil, fmt.Errorf("failed to create ACME order and capture challenges: %w", err)
 	}
@@ -314,7 +315,8 @@ func (m *CertificateManager) VerifyCertificate(ctx context.Context, certID strin
 	// Complete DNS verification - different approach for manual vs automatic
 	var certPEM []byte
 
-	if cert.DNSVerification.Provider == "manual" {
+	switch {
+	case cert.DNSVerification.Provider == "manual":
 		// MANUAL DNS: Use order-based verification to reuse existing ACME order
 		m.logger.Infof("Starting manual DNS verification for domains: %v", cert.Domains)
 
@@ -365,7 +367,7 @@ func (m *CertificateManager) VerifyCertificate(ctx context.Context, certID strin
 			_ = m.updateCertificateStatus(ctx, certObjID, project, "verification_failed", err.Error())
 			return nil, fmt.Errorf("DNS verification failed: %w. If DNS records are correct, wait 5-10 minutes for propagation and retry. If verification keeps failing after 1 hour, use refresh=true parameter on GET /dns-challenges endpoint to get new challenge values", err)
 		}
-	} else if cert.DNSVerification.DNSCredentialID != nil {
+	case cert.DNSVerification.DNSCredentialID != nil:
 		// AUTOMATIC DNS: Use traditional ObtainCertificate (creates new order each time, but that's OK for automatic)
 		m.logger.Infof("Starting automatic DNS verification for domains: %v", cert.Domains)
 		m.logger.Infof("Setting up automatic DNS provider: %s", cert.DNSVerification.Provider)
@@ -430,7 +432,7 @@ func (m *CertificateManager) VerifyCertificate(ctx context.Context, certID strin
 			return nil, fmt.Errorf("DNS verification failed: %w", err)
 		}
 		certPEM = certResource.Certificate
-	} else {
+	default:
 		return nil, fmt.Errorf("no DNS verification method specified")
 	}
 
@@ -778,7 +780,7 @@ func (m *CertificateManager) VerifyCertificateWithDNSProviderAsync(
 	// This is where the timeout will most likely occur if DNS takes too long
 	certResource, err := acmeClient.ObtainCertificate(cert.Domains, privateKey)
 	if err != nil {
-		// Check if context was cancelled (timeout)
+		// Check if context was canceled (timeout)
 		if ctx.Err() == context.DeadlineExceeded {
 			errMsg := "DNS verification timeout after 5 minutes"
 			_ = m.updateCertificateStatus(ctx, certObjID, project, "verification_failed", errMsg)
@@ -1044,10 +1046,7 @@ func (m *CertificateManager) RenewCertificate(ctx context.Context, certID string
 	// Trigger snapshot update for dependent resources (TLS contexts, listeners)
 	// This updates ALL versions that use this certificate
 	if m.appContext != nil && m.pokeService != nil {
-		if err := m.triggerSnapshotUpdate(ctx, cert.SecretName, cert.SecretVersions, project); err != nil {
-			// Log error but don't fail the renewal
-			m.logger.Errorf("Failed to trigger snapshot update after renewal: %v", err)
-		}
+		m.triggerSnapshotUpdate(ctx, cert.SecretName, cert.SecretVersions, project)
 	}
 
 	return updatedCert, nil
@@ -1250,7 +1249,8 @@ func (m *CertificateManager) storeCertificateInSecrets(
 		var existing models.DBResource
 		err = collection.FindOne(ctx, filter).Decode(&existing)
 
-		if err == mongo.ErrNoDocuments {
+		switch {
+		case errors.Is(err, mongo.ErrNoDocuments):
 			// Insert new secret for this version
 			_, err = collection.InsertOne(ctx, resource)
 			if err != nil {
@@ -1258,7 +1258,7 @@ func (m *CertificateManager) storeCertificateInSecrets(
 				continue
 			}
 			m.logger.Infof("Created secret %s for version %s", cert.SecretName, version)
-		} else if err == nil {
+		case err == nil:
 			// Update existing secret for this version
 			update := bson.M{
 				"$set": bson.M{
@@ -1274,7 +1274,7 @@ func (m *CertificateManager) storeCertificateInSecrets(
 				continue
 			}
 			m.logger.Infof("Updated secret %s for version %s", cert.SecretName, version)
-		} else {
+		default:
 			m.logger.Warnf("Failed to check existing secret for version %s: %v", version, err)
 			continue
 		}

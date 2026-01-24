@@ -1,7 +1,10 @@
+// Package settings provides API handlers for system configuration management
+// including users, groups, projects, tokens, and cloud integrations.
 package settings
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -15,7 +18,7 @@ import (
 // GetClouds retrieves all cloud configurations for a project
 func (handler *AppHandler) GetClouds(c *gin.Context) {
 	ctx := context.Background()
-	var settingsCollection *mongo.Collection = handler.Context.Client.Collection("settings")
+	settingsCollection := handler.Context.Client.Collection("settings")
 
 	project := c.Query("project")
 	if project == "" {
@@ -28,15 +31,15 @@ func (handler *AppHandler) GetClouds(c *gin.Context) {
 	var settings bson.M
 	err := settingsCollection.FindOne(ctx, filter).Decode(&settings)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
-			c.JSON(http.StatusOK, gin.H{"clouds": map[string]interface{}{}, "message": "no clouds configured for this project"})
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			c.JSON(http.StatusOK, gin.H{"clouds": map[string]any{}, "message": "no clouds configured for this project"})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"message": "could not get clouds"})
 		return
 	}
 
-	clouds := map[string]interface{}{}
+	clouds := map[string]any{}
 	if cloudsData, ok := settings["clouds"].(bson.M); ok {
 		// Mask sensitive credentials before sending response
 		for cloudName, cloudData := range cloudsData {
@@ -56,7 +59,7 @@ func (handler *AppHandler) GetClouds(c *gin.Context) {
 // GetCloud retrieves a specific cloud configuration
 func (handler *AppHandler) GetCloud(c *gin.Context) {
 	ctx := context.Background()
-	var settingsCollection *mongo.Collection = handler.Context.Client.Collection("settings")
+	settingsCollection := handler.Context.Client.Collection("settings")
 
 	cloudName := c.Param("cloud_name")
 	project := c.Query("project")
@@ -76,7 +79,7 @@ func (handler *AppHandler) GetCloud(c *gin.Context) {
 	var settings bson.M
 	err := settingsCollection.FindOne(ctx, filter).Decode(&settings)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			c.JSON(http.StatusNotFound, gin.H{"message": "project not found"})
 			return
 		}
@@ -104,7 +107,7 @@ func (handler *AppHandler) GetCloud(c *gin.Context) {
 // SetCloud creates or updates a cloud configuration
 func (handler *AppHandler) SetCloud(c *gin.Context) {
 	ctx := context.Background()
-	var settingsCollection *mongo.Collection = handler.Context.Client.Collection("settings")
+	settingsCollection := handler.Context.Client.Collection("settings")
 
 	cloudName := c.Param("cloud_name")
 	project := c.Query("project")
@@ -164,7 +167,7 @@ func (handler *AppHandler) SetCloud(c *gin.Context) {
 				return
 			}
 		}
-	} else if err != mongo.ErrNoDocuments {
+	} else if !errors.Is(err, mongo.ErrNoDocuments) {
 		c.JSON(http.StatusInternalServerError, gin.H{"message": "could not check existing cloud configurations"})
 		return
 	}
@@ -241,7 +244,7 @@ func (handler *AppHandler) SetCloud(c *gin.Context) {
 // UpdateCloud updates specific fields of a cloud configuration
 func (handler *AppHandler) UpdateCloud(c *gin.Context) {
 	ctx := context.Background()
-	var settingsCollection *mongo.Collection = handler.Context.Client.Collection("settings")
+	settingsCollection := handler.Context.Client.Collection("settings")
 
 	cloudName := c.Param("cloud_name")
 	project := c.Query("project")
@@ -276,7 +279,7 @@ func (handler *AppHandler) UpdateCloud(c *gin.Context) {
 	var existingSettings bson.M
 	err := settingsCollection.FindOne(ctx, filter).Decode(&existingSettings)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			c.JSON(http.StatusNotFound, gin.H{"message": "project not found"})
 			return
 		}
@@ -364,7 +367,7 @@ func isMaskedCredential(value string) bool {
 // DeleteCloud deletes a cloud configuration
 func (handler *AppHandler) DeleteCloud(c *gin.Context) {
 	ctx := context.Background()
-	var settingsCollection *mongo.Collection = handler.Context.Client.Collection("settings")
+	settingsCollection := handler.Context.Client.Collection("settings")
 
 	cloudName := c.Param("cloud_name")
 	project := c.Query("project")

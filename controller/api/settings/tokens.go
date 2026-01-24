@@ -2,6 +2,7 @@ package settings
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -16,7 +17,7 @@ import (
 
 func (handler *AppHandler) GetTokens(c *gin.Context) {
 	ctx := context.Background()
-	var settingsCollection *mongo.Collection = handler.Context.Client.Collection("settings")
+	settingsCollection := handler.Context.Client.Collection("settings")
 
 	project := c.Query("project")
 	if project == "" {
@@ -48,12 +49,10 @@ func (handler *AppHandler) GetTokens(c *gin.Context) {
 							visible := tokenValue[:dashIndex]
 							masked := strings.Repeat("*", len(tokenValue)-dashIndex)
 							token["token"] = visible + masked
-						} else {
-							if len(tokenValue) > 4 {
-								visible := tokenValue[:4]
-								masked := strings.Repeat("*", len(tokenValue)-4)
-								token["token"] = visible + masked
-							}
+						} else if len(tokenValue) > 4 {
+							visible := tokenValue[:4]
+							masked := strings.Repeat("*", len(tokenValue)-4)
+							token["token"] = visible + masked
 						}
 					}
 				} else if token, ok := tokenInterface.(primitive.M); ok {
@@ -63,12 +62,10 @@ func (handler *AppHandler) GetTokens(c *gin.Context) {
 							visible := tokenValue[:dashIndex]
 							masked := strings.Repeat("*", len(tokenValue)-dashIndex)
 							token["token"] = visible + masked
-						} else {
-							if len(tokenValue) > 4 {
-								visible := tokenValue[:4]
-								masked := strings.Repeat("*", len(tokenValue)-4)
-								token["token"] = visible + masked
-							}
+						} else if len(tokenValue) > 4 {
+							visible := tokenValue[:4]
+							masked := strings.Repeat("*", len(tokenValue)-4)
+							token["token"] = visible + masked
 						}
 					}
 				}
@@ -81,7 +78,7 @@ func (handler *AppHandler) GetTokens(c *gin.Context) {
 
 func (handler *AppHandler) SetToken(c *gin.Context) {
 	ctx := context.Background()
-	var settingsCollection *mongo.Collection = handler.Context.Client.Collection("settings")
+	settingsCollection := handler.Context.Client.Collection("settings")
 
 	project := c.Query("project")
 	name := c.Query("name")
@@ -148,7 +145,7 @@ func (handler *AppHandler) SetToken(c *gin.Context) {
 
 func (handler *AppHandler) DeleteToken(c *gin.Context) {
 	ctx := context.Background()
-	var settingsCollection *mongo.Collection = handler.Context.Client.Collection("settings")
+	settingsCollection := handler.Context.Client.Collection("settings")
 
 	tokenID := c.Param("token_id")
 	project := c.Query("project")
@@ -194,7 +191,7 @@ func (handler *AppHandler) DeleteToken(c *gin.Context) {
 
 func (handler *AppHandler) GetOpenRouterToken(c *gin.Context) {
 	ctx := context.Background()
-	var settingsCollection *mongo.Collection = handler.Context.Client.Collection("settings")
+	settingsCollection := handler.Context.Client.Collection("settings")
 
 	project := c.Query("project")
 	if project == "" {
@@ -207,7 +204,7 @@ func (handler *AppHandler) GetOpenRouterToken(c *gin.Context) {
 	var settings bson.M
 	err := settingsCollection.FindOne(ctx, filter).Decode(&settings)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			c.JSON(http.StatusOK, gin.H{"openrouter_token": "", "ai_default_model": "", "message": "no OpenRouter token set for this project"})
 			return
 		}
@@ -240,7 +237,7 @@ func (handler *AppHandler) GetOpenRouterToken(c *gin.Context) {
 
 func (handler *AppHandler) SetOpenRouterToken(c *gin.Context) {
 	ctx := context.Background()
-	var settingsCollection *mongo.Collection = handler.Context.Client.Collection("settings")
+	settingsCollection := handler.Context.Client.Collection("settings")
 
 	project := c.Query("project")
 	if project == "" {
@@ -296,7 +293,7 @@ func (handler *AppHandler) SetOpenRouterToken(c *gin.Context) {
 
 func (handler *AppHandler) UpdateOpenRouterToken(c *gin.Context) {
 	ctx := context.Background()
-	var settingsCollection *mongo.Collection = handler.Context.Client.Collection("settings")
+	settingsCollection := handler.Context.Client.Collection("settings")
 
 	project := c.Query("project")
 	if project == "" {
@@ -357,7 +354,7 @@ func (handler *AppHandler) UpdateOpenRouterToken(c *gin.Context) {
 
 func (handler *AppHandler) DeleteOpenRouterToken(c *gin.Context) {
 	ctx := context.Background()
-	var settingsCollection *mongo.Collection = handler.Context.Client.Collection("settings")
+	settingsCollection := handler.Context.Client.Collection("settings")
 
 	project := c.Query("project")
 	if project == "" {
@@ -393,7 +390,7 @@ func (handler *AppHandler) DeleteOpenRouterToken(c *gin.Context) {
 // GetDiscoveryToken retrieves the discovery token for a project
 func (handler *AppHandler) GetDiscoveryToken(c *gin.Context) {
 	ctx := context.Background()
-	var settingsCollection *mongo.Collection = handler.Context.Client.Collection("settings")
+	settingsCollection := handler.Context.Client.Collection("settings")
 
 	project := c.Query("project")
 	if project == "" {
@@ -406,7 +403,7 @@ func (handler *AppHandler) GetDiscoveryToken(c *gin.Context) {
 	var settings bson.M
 	err := settingsCollection.FindOne(ctx, filter).Decode(&settings)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			c.JSON(http.StatusOK, gin.H{"discovery_token": "", "message": "no discovery token set for this project"})
 			return
 		}
@@ -429,7 +426,7 @@ func (handler *AppHandler) GetDiscoveryToken(c *gin.Context) {
 // DeleteDiscoveryToken deletes the discovery token for a project
 func (handler *AppHandler) DeleteDiscoveryToken(c *gin.Context) {
 	ctx := context.Background()
-	var settingsCollection *mongo.Collection = handler.Context.Client.Collection("settings")
+	settingsCollection := handler.Context.Client.Collection("settings")
 
 	project := c.Query("project")
 	if project == "" {
@@ -462,7 +459,7 @@ func (handler *AppHandler) DeleteDiscoveryToken(c *gin.Context) {
 // GenerateDiscoveryToken generates a new UUID-based discovery token for a project
 func (handler *AppHandler) GenerateDiscoveryToken(c *gin.Context) {
 	ctx := context.Background()
-	var settingsCollection *mongo.Collection = handler.Context.Client.Collection("settings")
+	settingsCollection := handler.Context.Client.Collection("settings")
 
 	project := c.Query("project")
 	if project == "" {

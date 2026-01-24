@@ -2,6 +2,7 @@ package acme
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -27,8 +28,8 @@ type CertificateManager struct {
 	acmeConfig  *config.ACMEConfig
 	caProviders map[string]config.CAProviderConfig
 	logger      *logger.Logger
-	appContext  *db.AppContext             // For dependency tracking
-	pokeService *bridge.PokeServiceClient  // For snapshot updates
+	appContext  *db.AppContext            // For dependency tracking
+	pokeService *bridge.PokeServiceClient // For snapshot updates
 }
 
 // NewCertificateManager creates a new certificate manager
@@ -141,7 +142,7 @@ func (m *CertificateManager) GetCertificate(ctx context.Context, certID primitiv
 	var cert ACMECertificate
 	err := collection.FindOne(ctx, filter).Decode(&cert)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, fmt.Errorf("certificate not found")
 		}
 		return nil, fmt.Errorf("failed to get certificate: %w", err)
@@ -170,7 +171,7 @@ func (m *CertificateManager) getCertificateByName(ctx context.Context, secretNam
 	var cert ACMECertificate
 	err := collection.FindOne(ctx, filter).Decode(&cert)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, nil // Not an error - certificate just doesn't exist yet
 		}
 		return nil, fmt.Errorf("failed to get certificate by name: %w", err)
@@ -267,9 +268,9 @@ func (m *CertificateManager) DeleteCertificate(ctx context.Context, certID primi
 
 	for _, version := range cert.SecretVersions {
 		secretFilter := bson.M{
-			"general.name":    cert.SecretName,
-			"general.version": version,
-			"general.project": project,
+			"general.name":                  cert.SecretName,
+			"general.version":               version,
+			"general.project":               project,
 			"general.metadata.acme_enabled": true, // Only delete if managed by ACME
 		}
 
@@ -423,10 +424,10 @@ func (m *CertificateManager) GetCertificatesForRenewal(ctx context.Context, proj
 
 	collection := m.db.Collection("acme_certificates")
 	filter := bson.M{
-		"project":            project,                               // PROJECT ISOLATION
-		"auto_renew":         true,                                  // Only auto-renew enabled
-		"status":             StatusActive,                          // Only active certificates
-		"renewal_starts_at": bson.M{"$lte": time.Now()},           // Renewal window reached
+		"project":           project,                    // PROJECT ISOLATION
+		"auto_renew":        true,                       // Only auto-renew enabled
+		"status":            StatusActive,               // Only active certificates
+		"renewal_starts_at": bson.M{"$lte": time.Now()}, // Renewal window reached
 	}
 
 	cursor, err := collection.Find(ctx, filter)
@@ -507,7 +508,7 @@ func (m *CertificateManager) GetDNSCredential(ctx context.Context, credID primit
 	var cred DNSCredential
 	err := collection.FindOne(ctx, filter).Decode(&cred)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, "", fmt.Errorf("credential not found")
 		}
 		return nil, "", fmt.Errorf("failed to get credential: %w", err)
@@ -636,7 +637,7 @@ func (m *CertificateManager) DeleteDNSCredential(ctx context.Context, credID pri
 	// Count certificates using this DNS credential
 	certCollection := m.db.Collection("acme_certificates")
 	filter := bson.M{
-		"project":                          project,
+		"project":                            project,
 		"dns_verification.dns_credential_id": credID,
 	}
 
@@ -756,7 +757,7 @@ func (m *CertificateManager) GetTempKey(ctx context.Context, certRequestID primi
 	var tempKey TempKey
 	err := collection.FindOne(ctx, filter).Decode(&tempKey)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, fmt.Errorf("temp key not found")
 		}
 		return nil, fmt.Errorf("failed to get temp key: %w", err)
@@ -798,7 +799,7 @@ func (m *CertificateManager) triggerSnapshotUpdate(
 	secretName string,
 	secretVersions []string,
 	project string,
-) error {
+) {
 	totalListeners := 0
 	allListeners := make([]string, 0)
 
@@ -869,8 +870,6 @@ func (m *CertificateManager) triggerSnapshotUpdate(
 			secretName,
 		)
 	}
-
-	return nil
 }
 
 // loadSecretResource loads a secret resource from the secrets collection

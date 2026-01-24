@@ -38,8 +38,8 @@ type User struct {
 
 	// OTP/2FA fields
 	OTPEnabled     *bool    `json:"otp_enabled" bson:"otp_enabled"`
-	OTPSecret      *string  `json:"-" bson:"otp_secret"` // Never expose in JSON
-	OTPBackupCodes []string `json:"-" bson:"otp_backup_codes"` // Hashed backup codes
+	OTPSecret      *string  `json:"-" bson:"otp_secret"`              // Never expose in JSON
+	OTPBackupCodes []string `json:"-" bson:"otp_backup_codes"`        // Hashed backup codes
 	OTPVerified    *bool    `json:"otp_verified" bson:"otp_verified"` // Setup completed
 }
 

@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CloudNativeWorks/elchi-backend/pkg/bridge"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/registry/models"
 	"github.com/CloudNativeWorks/elchi-backend/registry/service"
-	pb "github.com/CloudNativeWorks/elchi-proto/client"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -17,7 +17,7 @@ import (
 
 // ControlPlaneGRPCServer implements the gRPC control-plane routing service
 type ControlPlaneGRPCServer struct {
-	pb.UnimplementedEnvoyRoutingServiceServer
+	bridge.UnimplementedEnvoyRoutingServiceServer
 	controlPlaneRoutingService *service.RoutingService
 	extProcessorServer         *ExternalProcessorServer
 	logger                     *logger.Logger
@@ -33,7 +33,7 @@ func NewControlPlaneGRPCServer(controlPlaneRoutingService *service.RoutingServic
 }
 
 // RegisterControlPlane handles control plane registration
-func (s *ControlPlaneGRPCServer) RegisterControlPlane(ctx context.Context, req *pb.RegisterControlPlaneRequest) (*pb.RegisterControlPlaneResponse, error) {
+func (s *ControlPlaneGRPCServer) RegisterControlPlane(ctx context.Context, req *bridge.RegisterControlPlaneRequest) (*bridge.RegisterControlPlaneResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request cannot be nil")
 	}
@@ -47,21 +47,21 @@ func (s *ControlPlaneGRPCServer) RegisterControlPlane(ctx context.Context, req *
 
 	if err := s.controlPlaneRoutingService.RegisterControlPlane(ctx, controlPlane); err != nil {
 		s.logger.Errorf("Failed to register control plane %s: %v", req.ControlPlaneId, err)
-		return &pb.RegisterControlPlaneResponse{
+		return &bridge.RegisterControlPlaneResponse{
 			Success: false,
 			Message: "failed: " + err.Error(),
 		}, nil
 	}
 
 	s.logger.Infof("Control plane registered successfully: %s", req.ControlPlaneId)
-	return &pb.RegisterControlPlaneResponse{
+	return &bridge.RegisterControlPlaneResponse{
 		Success: true,
 		Message: "control plane registered successfully",
 	}, nil
 }
 
 // GetControlPlaneCluster handles routing requests from Envoy
-func (s *ControlPlaneGRPCServer) GetControlPlaneCluster(ctx context.Context, req *pb.GetControlPlaneClusterRequest) (*pb.GetControlPlaneClusterResponse, error) {
+func (s *ControlPlaneGRPCServer) GetControlPlaneCluster(ctx context.Context, req *bridge.GetControlPlaneClusterRequest) (*bridge.GetControlPlaneClusterResponse, error) {
 	if req == nil || req.NodeId == "" || req.Version == "" {
 		return nil, status.Error(codes.InvalidArgument, "node ID and version cannot be empty")
 	}
@@ -69,27 +69,27 @@ func (s *ControlPlaneGRPCServer) GetControlPlaneCluster(ctx context.Context, req
 	controlPlane, err := s.controlPlaneRoutingService.GetControlPlaneCluster(ctx, req.NodeId, req.Version)
 	if err != nil {
 		s.logger.Errorf("Failed to find control plane for node %s version %s: %v", req.NodeId, req.Version, err)
-		return &pb.GetControlPlaneClusterResponse{
+		return &bridge.GetControlPlaneClusterResponse{
 			Found: false,
 		}, nil
 	}
 
 	s.logger.Infof("Control-plane routing decision: %s:%s -> %s", req.NodeId, req.Version, controlPlane.ID)
-	return &pb.GetControlPlaneClusterResponse{
+	return &bridge.GetControlPlaneClusterResponse{
 		Found:          true,
 		ControlPlaneId: controlPlane.ID,
 	}, nil
 }
 
 // NotifySnapshotDelivered handles snapshot delivery notifications
-func (s *ControlPlaneGRPCServer) NotifySnapshotDelivered(ctx context.Context, req *pb.NotifySnapshotDeliveredRequest) (*pb.NotifySnapshotDeliveredResponse, error) {
+func (s *ControlPlaneGRPCServer) NotifySnapshotDelivered(ctx context.Context, req *bridge.NotifySnapshotDeliveredRequest) (*bridge.NotifySnapshotDeliveredResponse, error) {
 	if req == nil || req.ControlPlaneId == "" || req.NodeId == "" || req.Version == "" {
 		return nil, status.Error(codes.InvalidArgument, "control plane ID, node ID and version cannot be empty")
 	}
 
 	if err := s.controlPlaneRoutingService.NotifySnapshotDelivered(ctx, req.ControlPlaneId, req.NodeId, req.Version); err != nil {
 		s.logger.Errorf("Failed to notify snapshot delivered: %v", err)
-		return &pb.NotifySnapshotDeliveredResponse{
+		return &bridge.NotifySnapshotDeliveredResponse{
 			Success: false,
 			Message: "failed: " + err.Error(),
 		}, nil
@@ -99,14 +99,14 @@ func (s *ControlPlaneGRPCServer) NotifySnapshotDelivered(ctx context.Context, re
 	s.extProcessorServer.ClearPendingNodeAssignment(req.NodeId, req.ControlPlaneId)
 
 	s.logger.Infof("Snapshot delivered notification processed: %s -> %s", req.ControlPlaneId, req.NodeId)
-	return &pb.NotifySnapshotDeliveredResponse{
+	return &bridge.NotifySnapshotDeliveredResponse{
 		Success: true,
 		Message: "snapshot delivered notification processed",
 	}, nil
 }
 
 // UpdateNodeList handles bulk node list updates
-func (s *ControlPlaneGRPCServer) UpdateNodeList(ctx context.Context, req *pb.UpdateNodeListRequest) (*pb.UpdateNodeListResponse, error) {
+func (s *ControlPlaneGRPCServer) UpdateNodeList(ctx context.Context, req *bridge.UpdateNodeListRequest) (*bridge.UpdateNodeListResponse, error) {
 	if req == nil || req.ControlPlaneId == "" {
 		return nil, status.Error(codes.InvalidArgument, "control plane ID cannot be empty")
 	}
@@ -123,7 +123,7 @@ func (s *ControlPlaneGRPCServer) UpdateNodeList(ctx context.Context, req *pb.Upd
 
 	if err := s.controlPlaneRoutingService.UpdateNodeList(ctx, req.ControlPlaneId, nodes, req.Version); err != nil {
 		s.logger.Errorf("Failed to update node list for control plane %s: %v", req.ControlPlaneId, err)
-		return &pb.UpdateNodeListResponse{
+		return &bridge.UpdateNodeListResponse{
 			Success:      false,
 			Message:      "failed: " + err.Error(),
 			UpdatedCount: 0,
@@ -143,7 +143,7 @@ func (s *ControlPlaneGRPCServer) UpdateNodeList(ctx context.Context, req *pb.Upd
 		updatedCount = int32(nodeCount) // #nosec G115 - overflow checked above
 	}
 
-	return &pb.UpdateNodeListResponse{
+	return &bridge.UpdateNodeListResponse{
 		Success:      true,
 		Message:      "node list updated successfully",
 		UpdatedCount: updatedCount,
@@ -151,14 +151,14 @@ func (s *ControlPlaneGRPCServer) UpdateNodeList(ctx context.Context, req *pb.Upd
 }
 
 // HealthCheck handles health check requests
-func (s *ControlPlaneGRPCServer) HealthCheck(ctx context.Context, req *pb.HealthCheckRequest) (*pb.HealthCheckResponse, error) {
+func (s *ControlPlaneGRPCServer) HealthCheck(ctx context.Context, req *bridge.EnvoyHealthCheckRequest) (*bridge.EnvoyHealthCheckResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request cannot be nil")
 	}
 
 	s.logger.Debugf("Health check request from: %s", req.Service)
 
-	return &pb.HealthCheckResponse{
+	return &bridge.EnvoyHealthCheckResponse{
 		Healthy:   true,
 		Message:   "control-plane routing service is healthy",
 		Timestamp: timestamppb.New(time.Now()),
@@ -166,7 +166,7 @@ func (s *ControlPlaneGRPCServer) HealthCheck(ctx context.Context, req *pb.Health
 }
 
 // ListControlPlanes handles list control planes requests
-func (s *ControlPlaneGRPCServer) ListControlPlanes(ctx context.Context, req *pb.ListControlPlanesRequest) (*pb.ListControlPlanesResponse, error) {
+func (s *ControlPlaneGRPCServer) ListControlPlanes(ctx context.Context, req *bridge.ListControlPlanesRequest) (*bridge.ListControlPlanesResponse, error) {
 	s.logger.Infof("Listing all control planes")
 
 	controlPlanes, err := s.controlPlaneRoutingService.ListControlPlanes(ctx)
@@ -175,9 +175,9 @@ func (s *ControlPlaneGRPCServer) ListControlPlanes(ctx context.Context, req *pb.
 		return nil, status.Errorf(codes.Internal, "failed to list control planes: %v", err)
 	}
 
-	var protoControlPlanes []*pb.ControlPlaneInfo
+	var protoControlPlanes []*bridge.ControlPlaneInfo
 	for _, cp := range controlPlanes {
-		protoControlPlanes = append(protoControlPlanes, &pb.ControlPlaneInfo{
+		protoControlPlanes = append(protoControlPlanes, &bridge.ControlPlaneInfo{
 			ControlPlaneId: cp.ID,
 			Version:        cp.Version,
 			LastSeen:       timestamppb.New(cp.LastSeen),
@@ -185,13 +185,13 @@ func (s *ControlPlaneGRPCServer) ListControlPlanes(ctx context.Context, req *pb.
 	}
 
 	s.logger.Infof("Found %d control planes", len(protoControlPlanes))
-	return &pb.ListControlPlanesResponse{
+	return &bridge.ListControlPlanesResponse{
 		ControlPlanes: protoControlPlanes,
 	}, nil
 }
 
 // ListNodesByControlPlane handles list nodes by control plane requests
-func (s *ControlPlaneGRPCServer) ListNodesByControlPlane(ctx context.Context, req *pb.ListNodesByControlPlaneRequest) (*pb.ListNodesByControlPlaneResponse, error) {
+func (s *ControlPlaneGRPCServer) ListNodesByControlPlane(ctx context.Context, req *bridge.ListNodesByControlPlaneRequest) (*bridge.ListNodesByControlPlaneResponse, error) {
 	if req == nil || req.ControlPlaneId == "" {
 		return nil, status.Error(codes.InvalidArgument, "control plane ID cannot be empty")
 	}
@@ -204,9 +204,9 @@ func (s *ControlPlaneGRPCServer) ListNodesByControlPlane(ctx context.Context, re
 		return nil, status.Errorf(codes.Internal, "failed to get nodes: %v", err)
 	}
 
-	var protoNodes []*pb.NodeInfo
+	var protoNodes []*bridge.NodeInfo
 	for _, node := range nodes {
-		protoNodes = append(protoNodes, &pb.NodeInfo{
+		protoNodes = append(protoNodes, &bridge.NodeInfo{
 			NodeId:   node.NodeID,
 			Version:  node.Version,
 			LastSeen: timestamppb.New(node.LastSeen),
@@ -214,13 +214,13 @@ func (s *ControlPlaneGRPCServer) ListNodesByControlPlane(ctx context.Context, re
 	}
 
 	s.logger.Infof("Found %d nodes for control plane %s", len(protoNodes), req.ControlPlaneId)
-	return &pb.ListNodesByControlPlaneResponse{
+	return &bridge.ListNodesByControlPlaneResponse{
 		Nodes: protoNodes,
 	}, nil
 }
 
 // DeleteControlPlane handles control plane deletion requests
-func (s *ControlPlaneGRPCServer) DeleteControlPlane(ctx context.Context, req *pb.DeleteControlPlaneRequest) (*pb.DeleteControlPlaneResponse, error) {
+func (s *ControlPlaneGRPCServer) DeleteControlPlane(ctx context.Context, req *bridge.DeleteControlPlaneRequest) (*bridge.DeleteControlPlaneResponse, error) {
 	if req == nil || req.ControlPlaneId == "" {
 		return nil, status.Error(codes.InvalidArgument, "control plane ID cannot be empty")
 	}
@@ -229,14 +229,14 @@ func (s *ControlPlaneGRPCServer) DeleteControlPlane(ctx context.Context, req *pb
 
 	if err := s.controlPlaneRoutingService.DeleteControlPlane(ctx, req.ControlPlaneId); err != nil {
 		s.logger.Errorf("Failed to delete control plane %s: %v", req.ControlPlaneId, err)
-		return &pb.DeleteControlPlaneResponse{
+		return &bridge.DeleteControlPlaneResponse{
 			Success: false,
 			Message: "failed: " + err.Error(),
 		}, nil
 	}
 
 	s.logger.Infof("Control plane deleted successfully: %s", req.ControlPlaneId)
-	return &pb.DeleteControlPlaneResponse{
+	return &bridge.DeleteControlPlaneResponse{
 		Success: true,
 		Message: "control plane deleted successfully",
 	}, nil

@@ -1,3 +1,5 @@
+// Package bridge provides controller-side bridge service clients
+// for communicating with control-plane poke and snapshot services.
 package bridge
 
 import (

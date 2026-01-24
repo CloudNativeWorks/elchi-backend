@@ -1,3 +1,5 @@
+// Package waf provides Web Application Firewall management functionality
+// including rule configuration, WASM injection, and propagation to Envoy proxies.
 package waf
 
 import (

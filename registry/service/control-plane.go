@@ -310,7 +310,7 @@ func (s *RoutingService) ListAllData(ctx context.Context) (*models.RegistryData,
 	}
 
 	// Get node mappings for each control plane
-	var nodesByControlPlane = make(map[string][]*models.NodeInfo)
+	nodesByControlPlane := make(map[string][]*models.NodeInfo)
 	for _, cp := range controlPlanes {
 		nodes, err := s.storage.GetNodesByControlPlane(ctx, cp.ID)
 		if err != nil {

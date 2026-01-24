@@ -47,7 +47,7 @@ const (
 func NewControlPlaneManager(config *ControlPlaneConfig, logger *logger.Logger, snapshotContext *snapshot.Context) (*ControlPlaneManager, error) {
 	client, err := NewControlPlaneRegistryClient(config, logger)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create registry client: %v", err)
+		return nil, fmt.Errorf("failed to create registry client: %w", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -96,7 +96,7 @@ func (m *ControlPlaneManager) Stop() error {
 	m.wg.Wait()
 
 	if err := m.client.Disconnect(); err != nil {
-		return fmt.Errorf("failed to disconnect from registry: %v", err)
+		return fmt.Errorf("failed to disconnect from registry: %w", err)
 	}
 
 	m.logger.Info("Registry manager stopped")
@@ -117,14 +117,14 @@ func (m *ControlPlaneManager) initialConnect() {
 func (m *ControlPlaneManager) continuousReconnectLoop() {
 	defer m.wg.Done()
 
-	m.logger.Infof("🔄 Continuous reconnect loop started")
+	m.logger.Infof("Continuous reconnect loop started")
 	ticker := time.NewTicker(15 * time.Second) // Check every 15 seconds
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-m.ctx.Done():
-			m.logger.Infof("🔄 Continuous reconnect loop terminated")
+			m.logger.Infof("Continuous reconnect loop terminated")
 			return
 		case <-ticker.C:
 			if !m.getReconnectEnabled() {
@@ -133,7 +133,7 @@ func (m *ControlPlaneManager) continuousReconnectLoop() {
 
 			state := m.getConnectionState()
 			if state == StateDisconnected {
-				m.logger.Infof("🔄 Detected disconnected state, attempting reconnection...")
+				m.logger.Infof("Detected disconnected state, attempting reconnection...")
 				go m.attemptReconnection()
 			}
 		}
@@ -147,10 +147,10 @@ func (m *ControlPlaneManager) attemptReconnection() {
 		return
 	}
 
-	m.logger.Infof("🔄 Starting reconnection attempt...")
+	m.logger.Infof("Starting reconnection attempt...")
 
 	if err := m.connectAndRegister(); err != nil {
-		m.logger.Errorf("🔄 Reconnection failed: %v", err)
+		m.logger.Errorf("Reconnection failed: %v", err)
 		m.setConnectionState(StateDisconnected)
 	}
 }
@@ -170,17 +170,17 @@ func (m *ControlPlaneManager) connectAndRegister() error {
 
 	// Connect with retry - now includes real connectivity test
 	if err := m.client.ConnectWithRetry(ctx); err != nil {
-		m.logger.Errorf("❌ Registry connection failed: %v", err)
-		return fmt.Errorf("failed to connect to registry: %v", err)
+		m.logger.Errorf("Registry connection failed: %v", err)
+		return fmt.Errorf("failed to connect to registry: %w", err)
 	}
 
 	// CRITICAL: Explicit registration with version BEFORE any node list operations
-	m.logger.Infof("📝 Explicitly registering control-plane %s with version %s", m.Config.ControlPlaneID, m.Config.Version)
+	m.logger.Infof("Explicitly registering control-plane %s with version %s", m.Config.ControlPlaneID, m.Config.Version)
 	if err := m.client.RegisterControlPlaneWithRetry(ctx, m.Config); err != nil {
-		m.logger.Errorf("❌ Control-plane registration failed: %v", err)
-		return fmt.Errorf("failed to register control-plane: %v", err)
+		m.logger.Errorf("Control-plane registration failed: %v", err)
+		return fmt.Errorf("failed to register control-plane: %w", err)
 	}
-	m.logger.Infof("✅ Control-plane explicitly registered with version")
+	m.logger.Infof("Control-plane explicitly registered with version")
 
 	// Update states
 	m.setConnectionState(StateConnected)
@@ -190,25 +190,25 @@ func (m *ControlPlaneManager) connectAndRegister() error {
 
 	// Send empty node list ONLY AFTER successful registration
 	// This prevents auto-registration attempts that cause EOF errors
-	m.logger.Infof("🧹 Sending initial empty node list (control-plane is now registered)")
+	m.logger.Infof("Sending initial empty node list (control-plane is now registered)")
 	if err := m.client.UpdateNodeList(m.Config.ControlPlaneID, []ControlPlaneNodeInfo{}, m.Config.Version); err != nil {
 		m.logger.Errorf("Failed to send empty node list after registration: %v", err)
 		// Don't fail here since registration succeeded
 	} else {
-		m.logger.Infof("✅ Initial empty node list sent successfully")
+		m.logger.Infof("Initial empty node list sent successfully")
 	}
 
 	// Sync existing nodes if any
 	nodes := m.GetConnectedNodes()
 	if len(nodes) > 0 {
-		m.logger.Infof("🔄 Syncing %d existing nodes after reconnection", len(nodes))
+		m.logger.Infof("Syncing %d existing nodes after reconnection", len(nodes))
 		getAllNodes := func() []ControlPlaneNodeInfo {
 			return m.GetAllNodes()
 		}
 		if err := m.client.SyncAllNodesWithRegistry(ctx, m.Config.ControlPlaneID, getAllNodes, m.Config.Version); err != nil {
 			m.logger.Errorf("Failed to sync existing nodes: %v", err)
 		} else {
-			m.logger.Infof("✅ Node sync completed successfully")
+			m.logger.Infof("Node sync completed successfully")
 		}
 	}
 
@@ -250,11 +250,11 @@ func (m *ControlPlaneManager) setReconnectEnabled(enabled bool) {
 
 // NotifySnapshotDelivered notifies registry about snapshot delivery
 func (m *ControlPlaneManager) NotifySnapshotDelivered(nodeID, version string) {
-	m.logger.Infof("🔍 DEBUG: NotifySnapshotDelivered called for node: %s, version: %s", nodeID, version)
+	m.logger.Infof("DEBUG: NotifySnapshotDelivered called for node: %s, version: %s", nodeID, version)
 
 	// CRITICAL: Defense-in-depth validation - never allow empty nodeID to reach registry
 	if nodeID == "" {
-		m.logger.Errorf("🚨 CRITICAL: Attempted to notify registry with empty nodeID - blocking!")
+		m.logger.Errorf("CRITICAL: Attempted to notify registry with empty nodeID - blocking!")
 		return
 	}
 
@@ -269,7 +269,7 @@ func (m *ControlPlaneManager) NotifySnapshotDelivered(nodeID, version string) {
 	m.NodeVersions[nodeID] = version
 	m.NodesMutex.Unlock()
 
-	m.logger.Infof("🔍 DEBUG: Node version stored, notifying registry")
+	m.logger.Infof("DEBUG: Node version stored, notifying registry")
 
 	// Notify registry with retry logic
 	go func() {
@@ -288,7 +288,7 @@ func (m *ControlPlaneManager) NotifySnapshotDelivered(nodeID, version string) {
 func (m *ControlPlaneManager) RemoveNode(nodeID string) {
 	// CRITICAL: Validate nodeID before removal
 	if nodeID == "" {
-		m.logger.Errorf("🚨 CRITICAL: Attempted to remove node with empty nodeID - blocking!")
+		m.logger.Errorf("CRITICAL: Attempted to remove node with empty nodeID - blocking!")
 		return
 	}
 
@@ -311,7 +311,7 @@ func (m *ControlPlaneManager) NotifyNodeDisconnected(nodeID, version string) {
 
 	// CRITICAL: Defense-in-depth validation
 	if nodeID == "" {
-		m.logger.Errorf("🚨 CRITICAL: Attempted to notify registry with empty nodeID - blocking!")
+		m.logger.Errorf("CRITICAL: Attempted to notify registry with empty nodeID - blocking!")
 		return
 	}
 
@@ -339,14 +339,14 @@ func (m *ControlPlaneManager) NotifyNodeDisconnected(nodeID, version string) {
 func (m *ControlPlaneManager) healthCheckLoop() {
 	defer m.wg.Done()
 
-	m.logger.Infof("🔍 DEBUG: Health check loop started")
+	m.logger.Infof("DEBUG: Health check loop started")
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-m.ctx.Done():
-			m.logger.Debugf("🔍 Health check loop terminated by context")
+			m.logger.Debugf("Health check loop terminated by context")
 			return
 		case <-ticker.C:
 			// Check if we're connected
@@ -376,17 +376,17 @@ func (m *ControlPlaneManager) healthCheckLoop() {
 func (m *ControlPlaneManager) nodeListUpdateLoop() {
 	defer m.wg.Done()
 
-	m.logger.Infof("🔍 DEBUG: Node list update loop started")
+	m.logger.Infof("DEBUG: Node list update loop started")
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-m.ctx.Done():
-			m.logger.Debug("🔍 Node list update loop terminated by context")
+			m.logger.Debug("Node list update loop terminated by context")
 			return
 		case <-ticker.C:
-			m.logger.Debug("🔍 Node list update tick")
+			m.logger.Debug("Node list update tick")
 
 			// Check if we're connected and registered
 			if m.getConnectionState() != StateConnected {
@@ -411,7 +411,7 @@ func (m *ControlPlaneManager) nodeListUpdateLoop() {
 				m.logger.Errorf("Failed to update node list: %v", err)
 				m.handleConnectionFailure("node list update")
 			} else {
-				m.logger.Infof("✅ Node list update completed successfully: %d nodes", len(nodes))
+				m.logger.Infof("Node list update completed successfully: %d nodes", len(nodes))
 			}
 		}
 	}
@@ -442,7 +442,7 @@ func (m *ControlPlaneManager) GetAllNodes() []ControlPlaneNodeInfo {
 	for _, nodeID := range statusKeys {
 		status := m.snapshotContext.Cache.Cache.GetStatusInfo(nodeID)
 		if status != nil {
-			// 🛡️ ROBUST VERSION RESOLUTION for all nodes
+			// ROBUST VERSION RESOLUTION for all nodes
 			finalVersion := m.resolveNodeVersion(nodeID, false) // false = may not be connected
 
 			// Get last watch time
@@ -462,7 +462,7 @@ func (m *ControlPlaneManager) GetAllNodes() []ControlPlaneNodeInfo {
 	return nodes
 }
 
-// 🛡️ resolveNodeVersion provides robust version resolution for nodes with context-aware logging
+// resolveNodeVersion provides robust version resolution for nodes with context-aware logging
 func (m *ControlPlaneManager) resolveNodeVersion(nodeID string, isConnected bool) string {
 	// 1. Primary: Use stored version from NotifySnapshotDelivered (most reliable)
 	if storedVersion, exists := m.NodeVersions[nodeID]; exists && storedVersion != "" {
@@ -474,10 +474,10 @@ func (m *ControlPlaneManager) resolveNodeVersion(nodeID string, isConnected bool
 		// Use different log levels based on whether the node is connected
 		if isConnected {
 			// Connected nodes should have version, so this is more critical
-			m.logger.Errorf("🚨 CRITICAL: No reliable version for connected node %s, falling back to control-plane version: %s", nodeID, m.Config.Version)
+			m.logger.Errorf("CRITICAL: No reliable version for connected node %s, falling back to control-plane version: %s", nodeID, m.Config.Version)
 		} else {
 			// Disconnected nodes might not have version, less critical
-			m.logger.Warnf("⚠️  No reliable version for node %s, falling back to control-plane version: %s", nodeID, m.Config.Version)
+			m.logger.Warnf("No reliable version for node %s, falling back to control-plane version: %s", nodeID, m.Config.Version)
 		}
 		// Store fallback version
 		m.NodeVersions[nodeID] = m.Config.Version
@@ -485,7 +485,7 @@ func (m *ControlPlaneManager) resolveNodeVersion(nodeID string, isConnected bool
 	}
 
 	// 3. Absolute fallback: Use unknown but warn heavily
-	m.logger.Errorf("🚨 FATAL: No version available anywhere for node %s, using 'unknown' - THIS SHOULD NEVER HAPPEN!", nodeID)
+	m.logger.Errorf("FATAL: No version available anywhere for node %s, using 'unknown' - THIS SHOULD NEVER HAPPEN!", nodeID)
 	return "unknown"
 }
 
@@ -500,7 +500,7 @@ func (m *ControlPlaneManager) GetConnectedNodes() []ControlPlaneNodeInfo {
 	var nodes []ControlPlaneNodeInfo
 	for _, node := range connectedNodes {
 		if node.Connected {
-			// 🛡️ ROBUST VERSION RESOLUTION with prioritized fallbacks
+			// ROBUST VERSION RESOLUTION with prioritized fallbacks
 			finalVersion := m.resolveNodeVersion(node.NodeID, true) // true = connected node
 
 			nodes = append(nodes, ControlPlaneNodeInfo{

@@ -1,8 +1,11 @@
+// Package backup provides data export and import functionality
+// for backing up and restoring Envoy configurations and settings.
 package backup
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -31,7 +34,7 @@ func NewExporter(context *db.AppContext, logger *logger.Logger) *Exporter {
 
 // Export creates a backup based on the request
 func (e *Exporter) Export(ctx context.Context, req ExportRequest, username string) (*BackupData, error) {
-	e.Logger.Infof("📦 Starting backup export - type=%s, project=%s, user=%s", req.BackupType, req.ProjectID, username)
+	e.Logger.Infof("Starting backup export - type=%s, project=%s, user=%s", req.BackupType, req.ProjectID, username)
 
 	// Validate request - ONLY allow project backups
 	if req.BackupType != "project" {
@@ -104,7 +107,7 @@ func (e *Exporter) Export(ctx context.Context, req ExportRequest, username strin
 	data, _ := json.Marshal(backup)
 	backup.Metadata.Statistics.TotalSizeBytes = int64(len(data))
 
-	e.Logger.Infof("✅ Backup export completed - id=%s, total_resources=%d, size=%d bytes",
+	e.Logger.Infof("Backup export completed - id=%s, total_resources=%d, size=%d bytes",
 		backup.Metadata.BackupID, totalResources, len(data))
 
 	return backup, nil
@@ -396,7 +399,7 @@ func (e *Exporter) getProjectName(ctx context.Context, projectID string) (string
 	var project models.Project
 	err = collection.FindOne(ctx, bson.M{"_id": objectID}).Decode(&project)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return "", fmt.Errorf("project not found: %s", projectID)
 		}
 		return "", err

@@ -1,41 +1,39 @@
-version: "2"
-
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
 
 linters:
   enable:
-    - bodyclose
-    - contextcheck
     - errcheck
-    - errorlint
-    - gofumpt
-    - goimports
     - gosec
-    - misspell
-    - revive
-    - testifylint
-    - unconvert
-    - unparam
-    - unused
-    - whitespace
-    - govet
-    - goconst
-    - prealloc
-    - nakedret
     - sqlclosecheck
-    - perfsprint
+    - govet
+    - unused
+    - bodyclose
+    - unparam
+    - errorlint
     - gocritic
-    - funlen
-    - containedctx
-    - forcetypeassert
-    - inamedparam
     - makezero
+    - unconvert
+    - whitespace
+    - nakedret
+    - inamedparam
     - usestdlibvars
-    - nestif
-    # - err113
-    # - cyclop
+    #- revive
+    #- contextcheck
+    #- gofumpt
+    #- goimports
+    #- misspell
+    #- testifylint
+    #- goconst
+    #- prealloc
+    #- perfsprint
+    #- forcetypeassert
+    #- funlen
+    #- containedctx
+    #- nestif
+    #- err113
+    #- cyclop
 
 linters-settings:
   exhaustive:

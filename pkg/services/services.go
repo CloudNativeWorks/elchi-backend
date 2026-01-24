@@ -1,3 +1,5 @@
+// Package services provides service data access utilities
+// for querying and managing service records in MongoDB.
 package services
 
 import (
@@ -19,7 +21,6 @@ func FetchDownstreamAddressFromService(db *mongo.Database, name, project, versio
 		context.TODO(),
 		bson.M{"name": name, "project": project},
 	).Decode(&serviceClients)
-
 	if err != nil {
 		// Log error and return empty slice
 		// Note: serviceClients.Clients will be nil if FindOne failed

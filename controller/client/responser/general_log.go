@@ -5,8 +5,7 @@ import (
 	pb "github.com/CloudNativeWorks/elchi-proto/client"
 )
 
-type GeneralLogResponser struct {
-}
+type GeneralLogResponser struct{}
 
 func (p *GeneralLogResponser) ValidateAndTransform(op models.OperationClass, response *pb.CommandResponse) any {
 	return response

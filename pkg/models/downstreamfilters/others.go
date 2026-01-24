@@ -136,3 +136,30 @@ func GenericSecretDownstreamFilters(dfm DownstreamFilter) []MongoFilters {
 		},
 	}
 }
+
+// DNSResolverDownstreamFilters returns downstream filters for DNS resolver extensions
+// DNS resolvers can be used in both Bootstrap (typed_dns_resolver_config) and Cluster (typed_dns_resolver_config)
+func DNSResolverDownstreamFilters(dfm DownstreamFilter) []MongoFilters {
+	return []MongoFilters{
+		{
+			Collection: "bootstrap",
+			Filter: bson.D{
+				{Key: "$and", Value: bson.A{
+					bson.D{{Key: generalProject, Value: dfm.Project}},
+					bson.D{{Key: generalVersion, Value: dfm.Version}},
+					bson.D{{Key: "general.typed_config.name", Value: dfm.Name}},
+				}},
+			},
+		},
+		{
+			Collection: "clusters",
+			Filter: bson.D{
+				{Key: "$and", Value: bson.A{
+					bson.D{{Key: generalProject, Value: dfm.Project}},
+					bson.D{{Key: generalVersion, Value: dfm.Version}},
+					bson.D{{Key: "general.typed_config.name", Value: dfm.Name}},
+				}},
+			},
+		},
+	}
+}

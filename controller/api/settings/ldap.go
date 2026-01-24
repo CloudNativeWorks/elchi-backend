@@ -2,6 +2,7 @@ package settings
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -23,7 +24,7 @@ func (handler *AppHandler) GetLDAPConfig(c *gin.Context) {
 
 	ldapConfig, err := handler.getLDAPConfig(project)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			c.JSON(http.StatusOK, gin.H{
 				"ldap_config": nil,
 				"project":     project,

@@ -203,11 +203,7 @@ func (h *Handler) GlobalSearch(c *gin.Context) {
 	}
 
 	// Perform search
-	results, err := performGlobalSearch(ctx, db, requestDetails, query)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": fmt.Sprintf("search failed: %v", err)})
-		return
-	}
+	results := performGlobalSearch(ctx, db, requestDetails, query)
 
 	response := SearchResponse{
 		Query:        query,
@@ -219,13 +215,13 @@ func (h *Handler) GlobalSearch(c *gin.Context) {
 }
 
 // performGlobalSearch executes the search across all relevant collections using configurations
-func performGlobalSearch(ctx context.Context, db *mongo.Database, requestDetails models.RequestDetails, query string) ([]SearchResult, error) {
+func performGlobalSearch(ctx context.Context, db *mongo.Database, requestDetails models.RequestDetails, query string) []SearchResult {
 	var allResults []SearchResult
 
 	// Sanitize input first
 	sanitizedQuery, valid := security.SanitizeSearchInput(query)
 	if !valid || sanitizedQuery == "" {
-		return []SearchResult{}, nil
+		return []SearchResult{}
 	}
 
 	// Determine search type (IP or domain)
@@ -237,15 +233,16 @@ func performGlobalSearch(ctx context.Context, db *mongo.Database, requestDetails
 		var fieldConfigs []SearchFieldConfig
 		var searchQuery string
 
-		if isIP && len(config.IPFields) > 0 {
+		switch {
+		case isIP && len(config.IPFields) > 0:
 			fieldConfigs = config.IPFields
 			// For IPs, escape dots for literal matching
 			searchQuery = "^" + strings.ReplaceAll(sanitizedQuery, ".", "\\.")
-		} else if !isIP && len(config.DomainFields) > 0 {
+		case !isIP && len(config.DomainFields) > 0:
 			fieldConfigs = config.DomainFields
 			// For domains, use sanitized query as-is
 			searchQuery = sanitizedQuery
-		} else {
+		default:
 			continue // Skip this collection
 		}
 
@@ -258,7 +255,7 @@ func performGlobalSearch(ctx context.Context, db *mongo.Database, requestDetails
 		allResults = append(allResults, results...)
 	}
 
-	return allResults, nil
+	return allResults
 }
 
 // searchCollection performs a generic search on a MongoDB collection
@@ -348,7 +345,7 @@ func extractMatches(doc bson.M, config CollectionSearchConfig, query string) *Se
 	switch config.Collection {
 	case "discovery":
 		// Discovery: cluster_name instead of general.name
-		result.ResourceID = getObjectIDString(doc, "_id")
+		result.ResourceID = getObjectIDString(doc)
 		result.ResourceName = getStringField(doc, "cluster_name")
 		result.Project = getStringField(doc, "project")
 		result.URL = "/discovery"
@@ -368,7 +365,7 @@ func extractMatches(doc bson.M, config CollectionSearchConfig, query string) *Se
 
 	case "services":
 		// Services: name instead of general.name
-		result.ResourceID = getObjectIDString(doc, "_id")
+		result.ResourceID = getObjectIDString(doc)
 		result.ResourceName = getStringField(doc, "name")
 		result.Project = getStringField(doc, "project")
 		result.URL = "/services"
@@ -403,7 +400,7 @@ func extractMatches(doc bson.M, config CollectionSearchConfig, query string) *Se
 		gtypeStr := getStringField(general, "gtype")
 		gtype := models.GType(gtypeStr)
 
-		result.ResourceID = getObjectIDString(doc, "_id")
+		result.ResourceID = getObjectIDString(doc)
 		result.ResourceName = getStringField(general, "name")
 		result.Project = getStringField(general, "project")
 		result.Version = getStringField(general, "version")
@@ -478,7 +475,7 @@ func extractSimpleMatches(resource bson.M, config CollectionSearchConfig, query 
 		// Check address.socket_address.address
 		if address := getMapField(resourceContent, "address"); address != nil {
 			if socketAddress := getMapField(address, "socket_address"); socketAddress != nil {
-				checkIPField(socketAddress, "address", query, matches, "resource.resource.address.socket_address.address", map[string]any{"port": getIntField(socketAddress, "port_value")})
+				checkIPField(socketAddress, "address", query, matches, "resource.resource.address.socket_address.address", map[string]any{"port": getIntField(socketAddress)})
 			}
 		}
 	case "bootstrap":
@@ -486,7 +483,7 @@ func extractSimpleMatches(resource bson.M, config CollectionSearchConfig, query 
 		if admin := getMapField(resourceContent, "admin"); admin != nil {
 			if address := getMapField(admin, "address"); address != nil {
 				if socketAddress := getMapField(address, "socket_address"); socketAddress != nil {
-					checkIPField(socketAddress, "address", query, matches, "resource.resource.admin.address.socket_address.address", map[string]any{"port": getIntField(socketAddress, "port_value")})
+					checkIPField(socketAddress, "address", query, matches, "resource.resource.admin.address.socket_address.address", map[string]any{"port": getIntField(socketAddress)})
 				}
 			}
 		}
@@ -507,7 +504,7 @@ func extractLbEndpointIPs(ep bson.M, epIdx int, query string, matches *[]SearchM
 									FieldPath: fmt.Sprintf("%s[%d].lb_endpoints[%d].endpoint.address.socket_address.address", basePath, epIdx, lbIdx),
 									Value:     ipAddress,
 									Context: map[string]any{
-										"port": getIntField(socketAddress, "port_value"),
+										"port": getIntField(socketAddress),
 									},
 								})
 							}
@@ -554,7 +551,7 @@ func extractVirtualHostMatches(doc bson.M, query string) *SearchResult {
 
 	result := &SearchResult{
 		Collection:   "virtual_hosts",
-		ResourceID:   getObjectIDString(doc, "_id"),
+		ResourceID:   getObjectIDString(doc),
 		ResourceName: getStringField(general, "name"),
 		Project:      getStringField(general, "project"),
 		Version:      getStringField(general, "version"),
@@ -668,7 +665,7 @@ func extractRouteMatches(doc bson.M, query string) *SearchResult {
 
 	result := &SearchResult{
 		Collection:   "routes",
-		ResourceID:   getObjectIDString(doc, "_id"),
+		ResourceID:   getObjectIDString(doc),
 		ResourceName: getStringField(general, "name"),
 		Project:      getStringField(general, "project"),
 		Version:      getStringField(general, "version"),
@@ -772,7 +769,7 @@ func extractFilterMatches(doc bson.M, query string) *SearchResult {
 
 	result := &SearchResult{
 		Collection:   "filters",
-		ResourceID:   getObjectIDString(doc, "_id"),
+		ResourceID:   getObjectIDString(doc),
 		ResourceName: getStringField(general, "name"),
 		Project:      getStringField(general, "project"),
 		Version:      getStringField(general, "version"),
@@ -881,7 +878,7 @@ func extractEndpointMatches(doc bson.M, query string) *SearchResult {
 
 	result := &SearchResult{
 		Collection:   "endpoints",
-		ResourceID:   getObjectIDString(doc, "_id"),
+		ResourceID:   getObjectIDString(doc),
 		ResourceName: getStringField(general, "name"),
 		Project:      getStringField(general, "project"),
 		Version:      getStringField(general, "version"),
@@ -931,7 +928,7 @@ func extractEndpointMatches(doc bson.M, query string) *SearchResult {
 							Value:     ipAddress,
 							Context: map[string]any{
 								"locality": locality,
-								"port":     getIntField(socketAddress, "port_value"),
+								"port":     getIntField(socketAddress),
 							},
 						})
 					}
@@ -984,11 +981,11 @@ func getStringField(m bson.M, key string) string {
 	return ""
 }
 
-func getIntField(m bson.M, key string) int {
+func getIntField(m bson.M) int {
 	if m == nil {
 		return 0
 	}
-	switch v := m[key].(type) {
+	switch v := m["port_value"].(type) {
 	case int:
 		return v
 	case int32:
@@ -1009,11 +1006,11 @@ func getIntField(m bson.M, key string) int {
 	}
 }
 
-func getObjectIDString(m bson.M, key string) string {
+func getObjectIDString(m bson.M) string {
 	if m == nil {
 		return ""
 	}
-	if val, ok := m[key]; ok {
+	if val, ok := m["_id"]; ok {
 		// Try to convert primitive.ObjectID to hex string
 		if objID, ok := val.(primitive.ObjectID); ok {
 			return objID.Hex()

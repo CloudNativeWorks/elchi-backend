@@ -1,3 +1,5 @@
+// Package common provides shared utilities for CRUD operations including
+// MongoDB filters, permission checks, and dependency management.
 package common
 
 import (

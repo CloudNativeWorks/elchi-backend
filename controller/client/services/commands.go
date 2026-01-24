@@ -74,7 +74,7 @@ func (s *ClientService) SendCommand(clientID string, cmdType pb.CommandType, sub
 			return nil, fmt.Errorf("client %s connection closed", clientID)
 		}
 
-		return nil, fmt.Errorf("failed to send command to client %s: %v", clientID, err)
+		return nil, fmt.Errorf("failed to send command to client %s: %w", clientID, err)
 	}
 
 	// Set timeout based on command type

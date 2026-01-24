@@ -22,7 +22,7 @@ func ProcessWAFInjection(ctx context.Context, resource models.ResourceClass, db 
 		return nil
 	}
 
-	// Case 1: WAF is specified → Inject WAF config
+	// Case 1: WAF is specified -> Inject WAF config
 	if general.WAF != "" {
 		injector := waf.NewWAFWasmInjector(db, logger)
 		updatedResource, err := injector.InjectWAFConfig(ctx, resource, general.WAF)
@@ -36,7 +36,7 @@ func ProcessWAFInjection(ctx context.Context, resource models.ResourceClass, db 
 		return nil
 	}
 
-	// Case 2: WAF is empty → Clear/remove WAF configuration
+	// Case 2: WAF is empty -> Clear/remove WAF configuration
 	logger.Infof("WAF field is empty for HTTP WASM extension '%s', clearing WAF configuration", general.Name)
 	return clearWAFConfiguration(resource, logger)
 }

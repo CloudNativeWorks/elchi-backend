@@ -118,13 +118,13 @@ func IsDefaultResource(ctx context.Context, appCtx *db.AppContext, name string, 
 // This function expects the resource to already be loaded (no additional DB query)
 func IsDefaultXDSResource(resource models.ResourceClass) bool {
 	general := resource.GetGeneral()
-	
+
 	// Check metadata.is_default field
 	if isDefault, exists := general.Metadata["is_default"]; exists {
 		if defaultBool, ok := isDefault.(bool); ok && defaultBool {
 			return true
 		}
 	}
-	
+
 	return false
 }

@@ -26,7 +26,6 @@ func PokeNode(ctx context.Context, poke bridge.PokeServiceClient, nodeID, projec
 		DownstreamAddress: downstreamAddress,
 		IsConfigUpdate:    true, // This is called when config changes (real updates)
 	})
-
 	if err != nil {
 		return nil, err
 	}

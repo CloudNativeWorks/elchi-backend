@@ -2,6 +2,7 @@ package waf
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -69,7 +70,7 @@ func (p *AsyncWAFProcessor) ProcessWAFPropagationJob(ctx context.Context, wafNam
 			allAffectedListeners[listener] = true
 		}
 
-		p.logger.Infof("✓ Successfully processed WASM %s, affected %d listener(s)", wasmName, len(listeners))
+		p.logger.Infof("Successfully processed WASM %s, affected %d listener(s)", wasmName, len(listeners))
 	}
 
 	// Convert map to slice
@@ -131,11 +132,7 @@ func (p *AsyncWAFProcessor) processSingleWASM(ctx context.Context, wasmName stri
 	}
 
 	// Trigger dependency analysis and snapshot update with user context
-	affectedListeners, err := p.triggerDependencyAnalysis(ctx, &dbResource, collection, userDetails)
-	if err != nil {
-		p.logger.Warnf("Failed to trigger dependency analysis for %s: %v", wasmName, err)
-		return []string{}, nil // Don't fail the entire job
-	}
+	affectedListeners := p.triggerDependencyAnalysis(ctx, &dbResource, collection, userDetails)
 
 	return affectedListeners, nil
 }
@@ -159,7 +156,7 @@ func (p *AsyncWAFProcessor) loadWAFConfig(ctx context.Context, configName, proje
 	var config WAFConfig
 	err := collection.FindOne(ctx, bson.M{"name": configName, "project": project}).Decode(&config)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, fmt.Errorf("WAF config '%s' not found in project '%s'", configName, project)
 		}
 		return nil, fmt.Errorf("failed to load WAF config: %w", err)
@@ -170,7 +167,7 @@ func (p *AsyncWAFProcessor) loadWAFConfig(ctx context.Context, configName, proje
 
 // triggerDependencyAnalysis triggers dependency analysis for the updated WASM
 // This will cause snapshot updates for affected listeners
-func (p *AsyncWAFProcessor) triggerDependencyAnalysis(ctx context.Context, resource *models.DBResource, collection string, userDetails models.UserDetails) ([]string, error) {
+func (p *AsyncWAFProcessor) triggerDependencyAnalysis(ctx context.Context, resource *models.DBResource, collection string, userDetails models.UserDetails) []string {
 	// Use the propagation service's public method
 	propagationService := NewWAFPropagationService(p.dbContext, p.logger)
 
@@ -184,24 +181,22 @@ func (p *AsyncWAFProcessor) triggerDependencyAnalysis(ctx context.Context, resou
 		GType:         resource.General.GType.String(),
 	}
 
-	p.logger.Debugf("🔍 WAF DEPENDENCY: Starting analysis for WASM '%s' (canonical: %s, gtype: %s)",
+	p.logger.Debugf("WAF DEPENDENCY: Starting analysis for WASM '%s' (canonical: %s, gtype: %s)",
 		wasmInfo.Name, wasmInfo.CanonicalName, wasmInfo.GType)
 
 	// Trigger dependency analysis with actual user who triggered the WAF update
 	changedResources := propagationService.TriggerDependencyAnalysis(ctx, wasmInfo, resource, p.pokeService, userDetails)
 
 	if changedResources != nil {
-		p.logger.Debugf("🔍 WAF DEPENDENCY: Analysis returned %d listeners, %d dependencies",
+		p.logger.Debugf("WAF DEPENDENCY: Analysis returned %d listeners, %d dependencies",
 			len(changedResources.Listeners), len(changedResources.Depends))
-		p.logger.Debugf("🔍 WAF DEPENDENCY: Listeners: %v", changedResources.Listeners)
-		p.logger.Debugf("🔍 WAF DEPENDENCY: Dependencies: %v", changedResources.Depends)
 
 		if changedResources.Listeners != nil {
-			return changedResources.Listeners, nil
+			return changedResources.Listeners
 		}
 	} else {
-		p.logger.Warnf("🔍 WAF DEPENDENCY: Analysis returned nil for WASM '%s'", wasmInfo.Name)
+		p.logger.Warnf("WAF DEPENDENCY: Analysis returned nil for WASM '%s'", wasmInfo.Name)
 	}
 
-	return []string{}, nil
+	return []string{}
 }

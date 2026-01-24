@@ -1,7 +1,10 @@
+// Package discovery provides Kubernetes endpoint discovery functionality
+// for automatic service endpoint synchronization.
 package discovery
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -159,7 +162,7 @@ func (ds *DiscoveryService) ProcessK8sDiscovery(
 }
 
 // updateEndpointFromNodes compares and updates endpoint with K8s nodes
-func (ds *DiscoveryService) updateEndpointFromNodes(ctx context.Context, endpoint models.DBResource, nodes []NodeInfo, clusterName string) EndpointUpdateResult {
+func (ds *DiscoveryService) updateEndpointFromNodes(_ context.Context, endpoint models.DBResource, nodes []NodeInfo, clusterName string) EndpointUpdateResult {
 	updateResult := EndpointUpdateResult{
 		EndpointName: endpoint.General.Name,
 		ClusterName:  clusterName,
@@ -545,7 +548,7 @@ func (ds *DiscoveryService) ValidateDiscoveryToken(ctx context.Context, token, p
 	var settings bson.M
 	err := settingsCollection.FindOne(ctx, filter).Decode(&settings)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return false, nil
 		}
 		return false, err
@@ -561,7 +564,7 @@ func (ds *DiscoveryService) getClusterByID(ctx context.Context, clusterID, proje
 	// Convert string ID to ObjectID
 	objectID, err := primitive.ObjectIDFromHex(clusterID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid cluster ID format: %v", err)
+		return nil, fmt.Errorf("invalid cluster ID format: %w", err)
 	}
 
 	filter := bson.M{
@@ -572,10 +575,10 @@ func (ds *DiscoveryService) getClusterByID(ctx context.Context, clusterID, proje
 	var cluster ClusterDiscovery
 	err = discoveryCollection.FindOne(ctx, filter).Decode(&cluster)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, fmt.Errorf("cluster not found with ID: %s", clusterID)
 		}
-		return nil, fmt.Errorf("failed to get cluster: %v", err)
+		return nil, fmt.Errorf("failed to get cluster: %w", err)
 	}
 
 	return &cluster, nil
@@ -586,7 +589,7 @@ func (ds *DiscoveryService) GetClusterUsage(ctx context.Context, clusterID, proj
 	// First, get the cluster name from the cluster ID
 	cluster, err := ds.getClusterByID(ctx, clusterID, project)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get cluster: %v", err)
+		return nil, fmt.Errorf("failed to get cluster: %w", err)
 	}
 
 	// Find endpoints that reference this cluster in their elchi_discovery configs
@@ -601,7 +604,7 @@ func (ds *DiscoveryService) GetClusterUsage(ctx context.Context, clusterID, proj
 
 	cursor, err := ds.dbContext.Client.Collection("endpoints").Find(ctx, filter)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query endpoints: %v", err)
+		return nil, fmt.Errorf("failed to query endpoints: %w", err)
 	}
 	defer cursor.Close(ctx)
 
@@ -631,7 +634,7 @@ func (ds *DiscoveryService) GetClusterUsage(ctx context.Context, clusterID, proj
 	}
 
 	if err := cursor.Err(); err != nil {
-		return nil, fmt.Errorf("cursor error: %v", err)
+		return nil, fmt.Errorf("cursor error: %w", err)
 	}
 
 	return usage, nil
@@ -651,11 +654,11 @@ func (ds *DiscoveryService) registerCluster(ctx context.Context, request K8sDisc
 
 	var existingCluster ClusterDiscovery
 	err := discoveryCollection.FindOne(ctx, filter).Decode(&existingCluster)
-	if err != nil && err != mongo.ErrNoDocuments {
-		return fmt.Errorf("failed to check existing cluster: %v", err)
+	if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
+		return fmt.Errorf("failed to check existing cluster: %w", err)
 	}
 
-	if err == mongo.ErrNoDocuments {
+	if errors.Is(err, mongo.ErrNoDocuments) {
 		// Create new cluster record
 		newCluster := ClusterDiscovery{
 			ClusterName:       request.Data.ClusterInfo.ClusterName,
@@ -672,7 +675,7 @@ func (ds *DiscoveryService) registerCluster(ctx context.Context, request K8sDisc
 
 		_, err = discoveryCollection.InsertOne(ctx, newCluster)
 		if err != nil {
-			return fmt.Errorf("failed to insert cluster: %v", err)
+			return fmt.Errorf("failed to insert cluster: %w", err)
 		}
 
 		ds.logger.Infof("Registered new cluster: %s for project: %s with %d nodes", request.Data.ClusterInfo.ClusterName, project, len(request.Data.Nodes))
@@ -692,7 +695,7 @@ func (ds *DiscoveryService) registerCluster(ctx context.Context, request K8sDisc
 
 		_, err = discoveryCollection.UpdateOne(ctx, filter, update)
 		if err != nil {
-			return fmt.Errorf("failed to update cluster: %v", err)
+			return fmt.Errorf("failed to update cluster: %w", err)
 		}
 
 		ds.logger.Infof("Updated cluster: %s for project: %s with %d nodes", request.Data.ClusterInfo.ClusterName, project, len(request.Data.Nodes))
@@ -708,13 +711,13 @@ func (ds *DiscoveryService) GetClusters(ctx context.Context, project string) ([]
 	filter := bson.M{"project": project}
 	cursor, err := discoveryCollection.Find(ctx, filter, options.Find().SetSort(bson.M{"updated_at": -1}))
 	if err != nil {
-		return nil, fmt.Errorf("failed to query clusters: %v", err)
+		return nil, fmt.Errorf("failed to query clusters: %w", err)
 	}
 	defer cursor.Close(ctx)
 
 	var clusters []ClusterDiscovery
 	if err = cursor.All(ctx, &clusters); err != nil {
-		return nil, fmt.Errorf("failed to decode clusters: %v", err)
+		return nil, fmt.Errorf("failed to decode clusters: %w", err)
 	}
 
 	return clusters, nil
@@ -759,7 +762,7 @@ func (ds *DiscoveryService) updateClusterLastSeen(ctx context.Context, clusterNa
 	opts := options.Update().SetUpsert(false)
 	result, err := discoveryCollection.UpdateOne(ctx, filter, update, opts)
 	if err != nil {
-		return fmt.Errorf("failed to update last_seen: %v", err)
+		return fmt.Errorf("failed to update last_seen: %w", err)
 	}
 
 	// If update was successful, update cache
@@ -918,7 +921,7 @@ func (ds *DiscoveryService) updateClusterNodeIPs(ctx context.Context, request K8
 
 	_, err := discoveryCollection.UpdateOne(ctx, filter, update)
 	if err != nil {
-		return fmt.Errorf("failed to update cluster nodes: %v", err)
+		return fmt.Errorf("failed to update cluster nodes: %w", err)
 	}
 
 	nodeIPs := ds.extractNodeIPsFromRequest(request, "") // Use default behavior for logging
@@ -997,7 +1000,7 @@ func (ds *DiscoveryService) DeleteCluster(ctx context.Context, clusterID, projec
 
 	err = discoveryCollection.FindOne(ctx, filter).Decode(&cluster)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return fmt.Errorf("cluster not found")
 		}
 		return fmt.Errorf("failed to find cluster: %w", err)

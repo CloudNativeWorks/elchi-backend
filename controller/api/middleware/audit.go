@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"net/http"
 	"strings"
 	"time"
 
@@ -17,7 +18,7 @@ import (
 func AuditMiddleware(auditService *audit.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Skip GET requests and health checks
-		if c.Request.Method == "GET" ||
+		if c.Request.Method == http.MethodGet ||
 			strings.Contains(c.Request.UserAgent(), "kube-probe") ||
 			strings.Contains(c.Request.UserAgent(), "Envoy/HC") ||
 			strings.Contains(c.Request.UserAgent(), "Consul Health Check") {
@@ -85,7 +86,7 @@ func AuditMiddleware(auditService *audit.Service) gin.HandlerFunc {
 		}
 
 		// Capture command body for client commands
-		if entry.APIType == models.AuditAPITypeClientCommand && (c.Request.Method == "POST" || c.Request.Method == "PUT") {
+		if entry.APIType == models.AuditAPITypeClientCommand && (c.Request.Method == http.MethodPost || c.Request.Method == http.MethodPut) {
 			if bodyBytes := captureBody(c); bodyBytes != nil {
 				var command map[string]any
 				if err := json.Unmarshal(bodyBytes, &command); err == nil {

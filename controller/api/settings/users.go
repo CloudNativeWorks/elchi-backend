@@ -41,13 +41,13 @@ func (handler *AppHandler) GetUserByID(c *gin.Context) {
 	}
 
 	// Get user from database
-	var userCollection *mongo.Collection = handler.Context.Client.Collection("users")
+	userCollection := handler.Context.Client.Collection("users")
 	var user models.User
 
 	filter := bson.M{"_id": objectID}
 	err = userCollection.FindOne(context.Background(), filter).Decode(&user)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			c.JSON(http.StatusNotFound, gin.H{"message": "User not found"})
 			return
 		}
@@ -72,7 +72,7 @@ func (handler *AppHandler) GetUserByID(c *gin.Context) {
 
 func (handler *AppHandler) SetUpdateUser(c *gin.Context) {
 	ctx := c.Request.Context()
-	var userCollection *mongo.Collection = handler.Context.Client.Collection("users")
+	userCollection := handler.Context.Client.Collection("users")
 	var status int
 	var msg, userID string
 	var userWG UserWithGroups
@@ -233,7 +233,7 @@ func (handler *AppHandler) buildUpdateFields(userWG UserWithGroups) (bson.M, err
 
 func (handler *AppHandler) ListUsers(c *gin.Context) {
 	ctx := c.Request.Context()
-	var userCollection *mongo.Collection = handler.Context.Client.Collection("users")
+	userCollection := handler.Context.Client.Collection("users")
 
 	filter := handler.GetProjectFiltersByUser(c, "base_project")
 
@@ -260,7 +260,7 @@ func (handler *AppHandler) ListUsers(c *gin.Context) {
 
 func (handler *AppHandler) GetUser(c *gin.Context) {
 	ctx := c.Request.Context()
-	var userCollection *mongo.Collection = handler.Context.Client.Collection("users")
+	userCollection := handler.Context.Client.Collection("users")
 	filter := handler.GetProjectFiltersByUser(c, "base_project")
 	filter["user_id"] = c.Param("user_id")
 
@@ -292,7 +292,7 @@ func (handler *AppHandler) GetUser(c *gin.Context) {
 }
 
 func (handler *AppHandler) Login() gin.HandlerFunc {
-	var userCollection *mongo.Collection = handler.Context.Client.Collection("users")
+	userCollection := handler.Context.Client.Collection("users")
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
 		defer cancel()
@@ -334,7 +334,7 @@ func (handler *AppHandler) Login() gin.HandlerFunc {
 			}
 		}
 
-		if err != mongo.ErrNoDocuments {
+		if !errors.Is(err, mongo.ErrNoDocuments) {
 			c.JSON(http.StatusInternalServerError, gin.H{"message": "database error occurred"})
 			return
 		}
@@ -351,7 +351,7 @@ func (handler *AppHandler) Login() gin.HandlerFunc {
 }
 
 func (handler *AppHandler) Logout() gin.HandlerFunc {
-	var userCollection *mongo.Collection = handler.Context.Client.Collection("users")
+	userCollection := handler.Context.Client.Collection("users")
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
 		defer cancel()
@@ -382,7 +382,7 @@ func (handler *AppHandler) Logout() gin.HandlerFunc {
 }
 
 func (handler *AppHandler) Refresh() gin.HandlerFunc {
-	var userCollection *mongo.Collection = handler.Context.Client.Collection("users")
+	userCollection := handler.Context.Client.Collection("users")
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
 		defer cancel()
@@ -421,11 +421,11 @@ func (handler *AppHandler) CheckUserProjectPermission(c *gin.Context) bool {
 	role, _ := roleAny.(bool)
 
 	// Debug logging
-	handler.Logger.Infof("🔍 CheckUserProjectPermission - isOwner: %v", role)
-	handler.Logger.Infof("🔍 Query project param: %s", c.Query("project"))
+	handler.Logger.Infof("CheckUserProjectPermission - isOwner: %v", role)
+	handler.Logger.Infof("Query project param: %s", c.Query("project"))
 
 	if role {
-		handler.Logger.Infof("✅ User is owner, permission granted")
+		handler.Logger.Infof("User is owner, permission granted")
 		return true
 	}
 
@@ -435,26 +435,26 @@ func (handler *AppHandler) CheckUserProjectPermission(c *gin.Context) bool {
 		userID = ""
 	}
 
-	handler.Logger.Infof("🔍 Current user_id: %s", userID)
+	handler.Logger.Infof("Current user_id: %s", userID)
 
 	projects, _ := handler.GetUserProject(ctx, userID)
 	if projects != nil {
-		handler.Logger.Infof("🔍 User has %d projects", len(*projects))
+		handler.Logger.Infof("User has %d projects", len(*projects))
 		for i, project := range *projects {
-			handler.Logger.Infof("🔍 Project[%d]: %s", i, project.ProjectID)
+			handler.Logger.Infof("Project[%d]: %s", i, project.ProjectID)
 		}
 	} else {
-		handler.Logger.Infof("⚠️ User projects is nil")
+		handler.Logger.Infof("User projects is nil")
 	}
 
 	for _, project := range *projects {
 		if project.ProjectID == c.Query("project") {
-			handler.Logger.Infof("✅ Project match found, permission granted")
+			handler.Logger.Infof("Project match found, permission granted")
 			return true
 		}
 	}
 
-	handler.Logger.Infof("❌ No project match found, permission denied")
+	handler.Logger.Infof("No project match found, permission denied")
 	return false
 }
 

@@ -1,3 +1,5 @@
+// Package db provides MongoDB database connectivity and context management
+// including connection handling, default resources, and scenario initialization.
 package db
 
 import (
@@ -66,6 +68,12 @@ var Indices = map[string]mongo.IndexModel{
 	"acme_dns_credentials": {Keys: bson.D{{Key: "name", Value: 1}, {Key: "project", Value: 1}}, Options: options.Index().SetUnique(true).SetName("name_project_1").SetCollation(&options.Collation{Locale: "en", Strength: 2})},
 	"acme_temp_keys":       {Keys: bson.M{"cert_request_id": 1}, Options: options.Index().SetUnique(true).SetName("cert_request_id_1")},
 	"acme_accounts":        {Keys: bson.D{{Key: "email", Value: 1}, {Key: "ca_provider", Value: 1}, {Key: "environment", Value: 1}, {Key: "project", Value: 1}}, Options: options.Index().SetUnique(true).SetName("email_ca_provider_environment_project_1").SetCollation(&options.Collation{Locale: "en", Strength: 2})},
+	// GSLB records collection - Global Server Load Balancing DNS records
+	"gslb_records": {Keys: bson.D{{Key: "project", Value: 1}, {Key: "fqdn", Value: 1}}, Options: options.Index().SetUnique(true).SetName("project_fqdn_1")},
+	// GSLB shards collection - Shard ownership for distributed health checking
+	"gslb_shards": {Keys: bson.D{{Key: "shard_id", Value: 1}}, Options: options.Index().SetUnique(true).SetName("shard_id_1")},
+	// GSLB IP health collection - IP health state tracking separate from records
+	"gslb_ip_health": {Keys: bson.D{{Key: "record_id", Value: 1}, {Key: "ip", Value: 1}}, Options: options.Index().SetUnique(true).SetName("record_id_ip_1")},
 }
 
 // TextSearchIndices defines text search indexes for secure search functionality
@@ -232,6 +240,131 @@ var AuditIndices = map[string]mongo.IndexModel{
 	"audit_request_id": {
 		Keys:    bson.M{"request_id": 1},
 		Options: options.Index(),
+	},
+}
+
+// GSLBIndices defines specialized indexes for GSLB collections
+var GSLBIndices = map[string][]mongo.IndexModel{
+	"gslb_records": {
+		// Shard-based queries (CRITICAL for distributed health checking)
+		{
+			Keys:    bson.D{{Key: "shard_id", Value: 1}, {Key: "enabled", Value: 1}},
+			Options: options.Index().SetName("shard_id_enabled_1"),
+		},
+		// Time Wheel queries records with matching interval: GetRecordsByShards(shards, interval)
+		{
+			Keys: bson.D{
+				{Key: "shard_id", Value: 1},
+				{Key: "sub_shard_id", Value: 1},
+				{Key: "probe.interval", Value: 1},
+			},
+			Options: options.Index().SetName("idx_shard_interval"),
+		},
+		{
+			Keys:    bson.D{{Key: "probe.enabled", Value: 1}},
+			Options: options.Index().SetName("idx_probe_enabled").SetSparse(true),
+		},
+		// Service reference queries (for auto-created records)
+		{
+			Keys:    bson.D{{Key: "service_id", Value: 1}, {Key: "project", Value: 1}, {Key: "version", Value: 1}},
+			Options: options.Index().SetName("service_id_project_version_1"),
+		},
+		// Zone-based queries (CRITICAL for DNS API query performance)
+		{
+			Keys:    bson.D{{Key: "zone", Value: 1}, {Key: "project", Value: 1}, {Key: "enabled", Value: 1}},
+			Options: options.Index().SetName("zone_project_enabled_1"),
+		},
+	},
+	"gslb_shards": {
+		// Lease expiry queries (for shard acquisition)
+		{
+			Keys:    bson.M{"lease_expiry": 1},
+			Options: options.Index().SetName("lease_expiry_1"),
+		},
+		// Controller-based queries (for shard management)
+		{
+			Keys:    bson.M{"controller_id": 1},
+			Options: options.Index().SetName("controller_id_1"),
+		},
+		// CRITICAL FIX: Compound index for shard acquisition query optimization
+		// Query: Find shards with (lease_expiry < now OR controller_id = "")
+		// This index covers both conditions efficiently
+		{
+			Keys:    bson.D{{Key: "lease_expiry", Value: 1}, {Key: "controller_id", Value: 1}},
+			Options: options.Index().SetName("idx_lease_controller"),
+		},
+	},
+	"gslb_ip_health": {
+		// Primary lookup: Get all IPs for a record
+		{
+			Keys:    bson.D{{Key: "record_id", Value: 1}},
+			Options: options.Index().SetName("record_id_1"),
+		},
+		// Health checker query: Get IPs for owned shards (CRITICAL for distributed health checking)
+		{
+			Keys:    bson.D{{Key: "shard_id", Value: 1}, {Key: "sub_shard_id", Value: 1}},
+			Options: options.Index().SetName("shard_id_sub_shard_id_1"),
+		},
+		// PERFORMANCE FIX: Compound index for backoff filtering (GetReadyIPsByShard query)
+		// Query: shard_id + sub_shard_id + backoff_until check (filters out IPs in circuit breaker)
+		// This optimizes the $or condition for backoff expiry checks (2-3x faster)
+		{
+			Keys: bson.D{
+				{Key: "shard_id", Value: 1},
+				{Key: "sub_shard_id", Value: 1},
+				{Key: "backoff_until", Value: 1},
+			},
+			Options: options.Index().SetName("idx_shard_backoff"),
+		},
+		// Query: GetWarningIPs(shards) -> finds IPs in warning state for fast-fail detection
+		{
+			Keys: bson.D{
+				{Key: "health_state", Value: 1},
+				{Key: "shard_id", Value: 1},
+				{Key: "sub_shard_id", Value: 1},
+			},
+			Options: options.Index().
+				SetName("idx_warning_state").
+				SetPartialFilterExpression(bson.D{{Key: "health_state", Value: "warning"}}),
+		},
+		// Query: Filter IPs where backoff expired (backoff_until <= now)
+		{
+			Keys: bson.D{
+				{Key: "backoff_until", Value: 1},
+				{Key: "health_state", Value: 1},
+			},
+			Options: options.Index().
+				SetName("idx_backoff_expiry").
+				SetPartialFilterExpression(bson.D{
+					{Key: "health_state", Value: "critical"},
+					{Key: "backoff_until", Value: bson.D{{Key: "$exists", Value: true}}},
+				}),
+		},
+		// IP uniqueness per record (removed from here - already in Indices as unique)
+		// Circuit breaker queries (filter out backed-off IPs)
+		{
+			Keys:    bson.D{{Key: "backoff_until", Value: 1}},
+			Options: options.Index().SetName("backoff_until_1"),
+		},
+		// DNS API query: Get healthy IPs by FQDN (CRITICAL for DNS performance)
+		{
+			Keys:    bson.D{{Key: "fqdn", Value: 1}, {Key: "health_state", Value: 1}},
+			Options: options.Index().SetName("fqdn_health_state_1"),
+		},
+		{
+			Keys:    bson.D{{Key: "fqdn", Value: 1}, {Key: "healthy", Value: 1}},
+			Options: options.Index().SetName("idx_fqdn_healthy"),
+		},
+		// Project-based filtering (for API list operations)
+		{
+			Keys:    bson.D{{Key: "fqdn", Value: 1}},
+			Options: options.Index().SetName("fqdn_1"),
+		},
+		// Client-based queries (for client undeploy operations)
+		{
+			Keys:    bson.D{{Key: "client_id", Value: 1}},
+			Options: options.Index().SetName("client_id_1"),
+		},
 	},
 }
 
@@ -624,6 +757,32 @@ func collectCreateIndex(ctx context.Context, database *mongo.Database, logger *l
 		}
 	}
 
+	// Create GSLB specialized indexes
+	for collectionName, indexes := range GSLBIndices {
+		collection := database.Collection(collectionName)
+		for _, index := range indexes {
+			indexName := getIndexName(index)
+
+			// Check if index exists first
+			exists, err := indexExists(ctx, collection, indexName)
+			if err != nil {
+				logger.Errorf("Failed to check GSLB index for %s.%s: %v", collectionName, indexName, err)
+				continue
+			}
+
+			if !exists {
+				if err := createIndex(ctx, collection, index, indexName); err != nil {
+					logger.Errorf("Failed to create GSLB index for %s.%s: %v", collectionName, indexName, err)
+					// Don't fail on GSLB index creation - continue with others
+					continue
+				}
+				logger.Debugf("Created GSLB index: %s.%s", collectionName, indexName)
+			} else {
+				logger.Debugf("GSLB index already exists: %s.%s", collectionName, indexName)
+			}
+		}
+	}
+
 	// Create ACME specialized indexes
 	for collectionName, indexes := range ACMEIndices {
 		collection := database.Collection(collectionName)
@@ -648,6 +807,37 @@ func collectCreateIndex(ctx context.Context, database *mongo.Database, logger *l
 				logger.Debugf("ACME index already exists: %s.%s", collectionName, indexName)
 			}
 		}
+	}
+
+	// Create zone unique index for settings collection (CRITICAL for GSLB zone uniqueness)
+	settingsCollection := database.Collection("settings")
+	zoneUniqueIndex := mongo.IndexModel{
+		Keys: bson.D{{Key: "gslb_config.zone", Value: 1}},
+		Options: options.Index().
+			SetUnique(true).
+			SetName("gslb_config_zone_unique_1").
+			SetPartialFilterExpression(bson.M{
+				// MongoDB partial filter doesn't support $ne operator
+				// Only check existence and type=string (empty strings will be caught at validation layer)
+				"gslb_config.zone": bson.M{
+					"$exists": true,
+					"$type":   "string",
+				},
+			}),
+	}
+	zoneIndexName := getIndexName(zoneUniqueIndex)
+	exists, err := indexExists(ctx, settingsCollection, zoneIndexName)
+	switch {
+	case err != nil:
+		logger.Errorf("Failed to check zone unique index: %v", err)
+	case !exists:
+		if err := createIndex(ctx, settingsCollection, zoneUniqueIndex, zoneIndexName); err != nil {
+			logger.Errorf("Failed to create zone unique index: %v", err)
+		} else {
+			logger.Debugf("Created GSLB zone unique index on settings collection")
+		}
+	default:
+		logger.Debugf("GSLB zone unique index already exists on settings collection")
 	}
 
 	return nil

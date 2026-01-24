@@ -1,3 +1,5 @@
+// Package models provides data structures and types used throughout the application
+// including resources, users, settings, services, and Envoy configurations.
 package models
 
 type RequestDetails struct {

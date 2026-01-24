@@ -25,7 +25,7 @@ type ACMEProcessor interface {
 
 // processACMEVerificationJob handles DNS verification in background
 func (w *Worker) processACMEVerificationJob(ctx context.Context, j *job.Job) {
-	w.logger.Infof("🔐 Processing ACME verification job: %s", j.JobID)
+	w.logger.Infof("Processing ACME verification job: %s", j.JobID)
 
 	// 1. Validate job metadata
 	if j.Metadata == nil || j.Metadata.ACMEMetadata == nil {
@@ -109,7 +109,7 @@ func (w *Worker) processACMEVerificationJob(ctx context.Context, j *job.Job) {
 			w.logger.Errorf("Failed to update job progress: %v", err)
 		}
 
-		w.logger.Infof("📊 Job %s: %s - Domain %s (%d/%d) %.1f%%",
+		w.logger.Infof("Job %s: %s - Domain %s (%d/%d) %.1f%%",
 			j.JobID, phase, domain, completed, total, basePercentage)
 	}
 
@@ -121,10 +121,9 @@ func (w *Worker) processACMEVerificationJob(ctx context.Context, j *job.Job) {
 		progressCallback,
 		metadata.IsRenewal, // Pass renewal flag - skips status check for active certificates
 	)
-
 	if err != nil {
 		// 7. Handle failure
-		w.logger.Errorf("❌ ACME verification failed for job %s: %v", j.JobID, err)
+		w.logger.Errorf("ACME verification failed for job %s: %v", j.JobID, err)
 
 		// Check if it was a timeout
 		if verificationCtx.Err() == context.DeadlineExceeded {
@@ -133,10 +132,10 @@ func (w *Worker) processACMEVerificationJob(ctx context.Context, j *job.Job) {
 		}
 
 		// Update certificate status to verification_failed in MongoDB
-		// IMPORTANT: Use background context if job context is cancelled to ensure DB update succeeds
+		// IMPORTANT: Use background context if job context is canceled to ensure DB update succeeds
 		updateCtx := ctx
 		if ctx.Err() != nil {
-			w.logger.Warnf("Job context cancelled, using background context for certificate status update")
+			w.logger.Warnf("Job context canceled, using background context for certificate status update")
 			updateCtx = context.Background()
 		}
 
@@ -157,7 +156,7 @@ func (w *Worker) processACMEVerificationJob(ctx context.Context, j *job.Job) {
 			if dbErr != nil {
 				w.logger.Errorf("Failed to update certificate status in DB: %v", dbErr)
 			} else {
-				w.logger.Infof("✅ Updated certificate %s status to verification_failed in DB", metadata.CertificateID)
+				w.logger.Infof("Updated certificate %s status to verification_failed in DB", metadata.CertificateID)
 			}
 		}
 
@@ -192,7 +191,7 @@ func (w *Worker) processACMEVerificationJob(ctx context.Context, j *job.Job) {
 	}
 
 	// 8. Success - certificate is now "active"
-	w.logger.Infof("✅ ACME verification completed for job %s", j.JobID)
+	w.logger.Infof("ACME verification completed for job %s", j.JobID)
 
 	// Store execution details
 	executionDetails := &job.ExecutionDetails{
@@ -242,7 +241,7 @@ func (w *Worker) createSnapshotUpdateJobs(
 	for _, version := range metadata.Versions {
 		// Run dependency analysis BEFORE creating the job
 		// This is the same approach as HandleResourceChange in controller/crud/base.go
-		w.logger.Infof("🔍 Running dependency analysis for certificate %s (version: %s)",
+		w.logger.Infof("Running dependency analysis for certificate %s (version: %s)",
 			metadata.CertificateName, version)
 
 		analysisStart := time.Now()
@@ -278,7 +277,7 @@ func (w *Worker) createSnapshotUpdateJobs(
 			affectedListeners = append(affectedListeners, listener)
 		}
 
-		w.logger.Infof("📊 Dependency analysis completed in %dms: found %d affected listener(s): %v",
+		w.logger.Infof("Dependency analysis completed in %dms: found %d affected listener(s): %v",
 			analysisDuration, len(affectedListeners), affectedListeners)
 
 		// Create snapshot update job with dependency analysis results
@@ -313,15 +312,15 @@ func (w *Worker) createSnapshotUpdateJobs(
 		}
 
 		jobsCreated++
-		w.logger.Infof("✅ Created snapshot update job %s for certificate %s (version: %s, %d listeners, parent: %s)",
+		w.logger.Infof("Created snapshot update job %s for certificate %s (version: %s, %d listeners, parent: %s)",
 			createdJob.JobID, metadata.CertificateName, version, len(affectedListeners), parentJob.JobID)
 	}
 
 	if jobsCreated > 0 {
-		w.logger.Infof("📊 Created %d snapshot update job(s) for certificate %s renewal",
+		w.logger.Infof("Created %d snapshot update job(s) for certificate %s renewal",
 			jobsCreated, metadata.CertificateName)
 	} else {
-		w.logger.Warnf("⚠️  No snapshot update jobs created for certificate %s (may not be in use yet)",
+		w.logger.Warnf("No snapshot update jobs created for certificate %s (may not be in use yet)",
 			metadata.CertificateName)
 	}
 }

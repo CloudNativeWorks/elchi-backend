@@ -1,3 +1,5 @@
+// Package service provides business logic for the registry service
+// including controller and control-plane registration and management.
 package service
 
 import (
@@ -39,7 +41,7 @@ func (s *ControllerRoutingService) RegisterController(ctx context.Context, contr
 	}
 
 	// Ensure GRPCAddress is set
-	if controller.HttpAddress == "" {
+	if controller.HTTPAddress == "" {
 		return fmt.Errorf("gRPC address cannot be empty")
 	}
 
@@ -137,7 +139,7 @@ func (s *ControllerRoutingService) NotifyClientConnected(ctx context.Context, co
 		controller := &models.ControllerInfo{
 			ID:          controllerID,
 			Version:     version,
-			HttpAddress: fmt.Sprintf("%s:8099", serviceName), // Default GRPC address
+			HTTPAddress: fmt.Sprintf("%s:8099", serviceName), // Default GRPC address
 			LastSeen:    time.Now(),
 		}
 
@@ -213,7 +215,7 @@ func (s *ControllerRoutingService) UpdateClientList(ctx context.Context, control
 		controller := &models.ControllerInfo{
 			ID:          controllerID,
 			Version:     version,
-			HttpAddress: fmt.Sprintf("%s:8099", serviceName),
+			HTTPAddress: fmt.Sprintf("%s:8099", serviceName),
 			LastSeen:    time.Now(),
 		}
 
@@ -278,7 +280,7 @@ func (s *ControllerRoutingService) ListAllData(ctx context.Context) (*models.Con
 	}
 
 	// Get client mappings for each controller
-	var clientsByController = make(map[string][]*models.ClientInfo)
+	clientsByController := make(map[string][]*models.ClientInfo)
 	for _, ctrl := range controllers {
 		clients, err := s.storage.GetClientsByController(ctx, ctrl.ID)
 		if err != nil {

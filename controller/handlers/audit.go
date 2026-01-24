@@ -3,7 +3,9 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/audit"
@@ -167,23 +169,24 @@ func (h *Handler) setResourceAuditContext(c *gin.Context, requestDetails models.
 
 	case isScenario:
 		collection = "scenarios"
-		if strings.Contains(path, "/scenarios/") {
+		switch {
+		case strings.Contains(path, "/scenarios/"):
 			resourceID = c.Param("scenario_id")
 			// For DELETE and PUT operations, try to get scenario name from database
-			if (c.Request.Method == "DELETE" || c.Request.Method == "PUT") && resourceID != "" {
+			if (c.Request.Method == http.MethodDelete || c.Request.Method == http.MethodPut) && resourceID != "" {
 				resourceName = h.getScenarioNameFromID(c, resourceID)
 			}
-		} else if strings.Contains(path, "/execute") {
+		case strings.Contains(path, "/execute"):
 			action = "EXECUTE_SCENARIO"
 			// For execute, try to get scenario ID and name from request body
-			if c.Request.Method == "POST" {
+			if c.Request.Method == http.MethodPost {
 				resourceID, resourceName = h.extractScenarioInfoFromExecuteRequest(c)
 			}
-		} else if strings.Contains(path, "/validate") {
+		case strings.Contains(path, "/validate"):
 			action = "VALIDATE_SCENARIO"
-		} else if strings.Contains(path, "/export") {
+		case strings.Contains(path, "/export"):
 			action = "EXPORT_SCENARIOS"
-		} else if strings.Contains(path, "/import") {
+		case strings.Contains(path, "/import"):
 			action = "IMPORT_SCENARIOS"
 		}
 
@@ -191,13 +194,13 @@ func (h *Handler) setResourceAuditContext(c *gin.Context, requestDetails models.
 		collection = "waf"
 		resourceID = c.Param("config_id")
 		// For DELETE and PUT operations, try to get WAF config name from database
-		if (c.Request.Method == "DELETE" || c.Request.Method == "PUT") && resourceID != "" {
+		if (c.Request.Method == http.MethodDelete || c.Request.Method == http.MethodPut) && resourceID != "" {
 			resourceName = h.getWAFConfigNameFromID(c, resourceID)
 		}
 	}
 
 	// For POST requests (CREATE), try to extract resource name from body if not in URL
-	if c.Request.Method == "POST" && resourceName == "" {
+	if c.Request.Method == http.MethodPost && resourceName == "" {
 		resourceName = h.extractResourceNameFromBody(c)
 	}
 
@@ -222,7 +225,7 @@ func (h *Handler) setClientCommandAuditContext(c *gin.Context) {
 	}
 
 	// Handle DELETE method specially (client deletion)
-	if c.Request.Method == "DELETE" {
+	if c.Request.Method == http.MethodDelete {
 		h.setClientDeleteAuditContext(c)
 		return
 	}
@@ -334,7 +337,7 @@ func (h *Handler) setAuditChanges(c *gin.Context) {
 	// Handle WAF config resources
 	if strings.Contains(path, "/api/v3/waf/config") {
 		configID := c.Param("config_id")
-		if configID != "" && c.Request.Method == "PUT" {
+		if configID != "" && c.Request.Method == http.MethodPut {
 			if originalBody, exists := c.Get("_original_body"); exists {
 				if bodyBytes, ok := originalBody.([]byte); ok {
 					db := h.getDatabaseConnection()
@@ -404,7 +407,7 @@ func (h *Handler) compareWithExistingResource(ctx context.Context, newResource *
 	var existingResource models.DBResource
 	err := db.Collection(collection).FindOne(ctx, filter).Decode(&existingResource)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			// Resource doesn't exist yet (should be POST not PUT, but handle gracefully)
 			return "new_resource: true"
 		}
@@ -520,7 +523,8 @@ func (h *Handler) extractResourceNameFromBody(c *gin.Context) string {
 	// Try different JSON structures based on endpoint type
 	path := c.Request.URL.Path
 
-	if strings.Contains(path, "/api/v3/xds/") {
+	switch {
+	case strings.Contains(path, "/api/v3/xds/"):
 		// XDS resources have structure: { "general": { "name": "..." }, ... }
 		var resource struct {
 			General struct {
@@ -531,7 +535,7 @@ func (h *Handler) extractResourceNameFromBody(c *gin.Context) string {
 			return resource.General.Name
 		}
 
-	} else if strings.Contains(path, "/api/v3/eo/") {
+	case strings.Contains(path, "/api/v3/eo/"):
 		// Extension resources might have "name" at root level or "general.name"
 		var resource map[string]any
 		if err := json.Unmarshal(bodyBytes, &resource); err == nil {
@@ -548,7 +552,7 @@ func (h *Handler) extractResourceNameFromBody(c *gin.Context) string {
 			}
 		}
 
-	} else if strings.Contains(path, "/api/v3/setting/") {
+	case strings.Contains(path, "/api/v3/setting/"):
 		// Settings resources have different name fields
 		var resource map[string]any
 		if err := json.Unmarshal(bodyBytes, &resource); err == nil {
@@ -561,7 +565,7 @@ func (h *Handler) extractResourceNameFromBody(c *gin.Context) string {
 			}
 		}
 
-	} else if strings.Contains(path, "/api/v3/scenario/") {
+	case strings.Contains(path, "/api/v3/scenario/"):
 		// Scenario resources have structure: { "name": "...", ... }
 		var resource struct {
 			Name string `json:"name"`
@@ -578,7 +582,7 @@ func (h *Handler) extractResourceNameFromBody(c *gin.Context) string {
 			}
 		}
 
-	} else if strings.Contains(path, "/api/v3/waf/config") {
+	case strings.Contains(path, "/api/v3/waf/config"):
 		// WAF config resources have structure: { "name": "...", ... }
 		var resource struct {
 			Name string `json:"name"`
@@ -612,9 +616,9 @@ func (h *Handler) setBridgeAuditContext(c *gin.Context) {
 		resourceName = c.Param("nodeID") // Extract node ID as resource identifier
 
 		switch c.Request.Method {
-		case "GET":
+		case http.MethodGet:
 			action = "GET_SNAPSHOT"
-		case "DELETE":
+		case http.MethodDelete:
 			action = "DELETE_SNAPSHOT"
 		}
 	}
@@ -658,18 +662,18 @@ func (h *Handler) setLDAPAuditContext(c *gin.Context, requestDetails models.Requ
 	}
 
 	// Skip audit for test endpoints and GET operations
-	if strings.Contains(path, "/test") || c.Request.Method == "GET" {
+	if strings.Contains(path, "/test") || c.Request.Method == http.MethodGet {
 		return
 	}
 
 	// Determine action based on HTTP method
 	action := ""
 	switch c.Request.Method {
-	case "POST":
+	case http.MethodPost:
 		action = "CREATE_LDAP_CONFIG"
-	case "PUT":
+	case http.MethodPut:
 		action = "UPDATE_LDAP_CONFIG"
-	case "DELETE":
+	case http.MethodDelete:
 		action = "DELETE_LDAP_CONFIG"
 	}
 
@@ -679,5 +683,43 @@ func (h *Handler) setLDAPAuditContext(c *gin.Context, requestDetails models.Requ
 
 	// Set LDAP-specific audit context
 	audit.SetAuditResource(c, "ldap", "", "ldap-config", requestDetails.Project)
+	audit.SetAuditAction(c, action)
+}
+
+// setGSLBAuditContext sets audit context specifically for GSLB operations
+func (h *Handler) setGSLBAuditContext(c *gin.Context, requestDetails models.RequestDetails) {
+	if h.AuditService == nil {
+		return
+	}
+
+	path := c.Request.URL.Path
+
+	// Only process GSLB-related endpoints
+	if !strings.Contains(path, "/gslb") {
+		return
+	}
+
+	// Skip audit for GET operations
+	if c.Request.Method == http.MethodGet {
+		return
+	}
+
+	// Determine action based on HTTP method
+	action := ""
+	switch c.Request.Method {
+	case http.MethodPost:
+		action = "CREATE_GSLB_CONFIG"
+	case http.MethodPut:
+		action = "UPDATE_GSLB_CONFIG"
+	case http.MethodDelete:
+		action = "DELETE_GSLB_CONFIG"
+	}
+
+	if action == "" {
+		return
+	}
+
+	// Set GSLB-specific audit context
+	audit.SetAuditResource(c, "gslb", "", "gslb-config", requestDetails.Project)
 	audit.SetAuditAction(c, action)
 }

@@ -113,7 +113,7 @@ jobs:
             # Push AMD64 image
             docker push "${IMAGE_TAG}"
             
-            echo "✅ Control Plane version ${CONTROL_PLANE_VERSION} (AMD64) completed"
+            echo "Control Plane version ${CONTROL_PLANE_VERSION} (AMD64) completed"
             
             # Reset go.mod changes for next iteration
             git checkout -- go.mod go.sum
@@ -209,7 +209,7 @@ jobs:
             # Push ARM64 image
             docker push "${IMAGE_TAG}"
             
-            echo "✅ Control Plane version ${CONTROL_PLANE_VERSION} (ARM64) completed"
+            echo "Control Plane version ${CONTROL_PLANE_VERSION} (ARM64) completed"
             
             # Reset go.mod changes for next iteration
             git checkout -- go.mod go.sum
@@ -270,5 +270,5 @@ jobs:
               docker manifest push "${LATEST_TAG}"
             fi
             
-            echo "✅ Manifest created for ${CONTROL_PLANE_VERSION}"
+            echo "Manifest created for ${CONTROL_PLANE_VERSION}"
           done 

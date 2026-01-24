@@ -1,7 +1,10 @@
+// Package authorization provides role-based access control functionality
+// including project filtering, permission validation, and user authorization.
 package authorization
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
@@ -46,7 +49,7 @@ func (pv *ProjectValidator) ValidateProjectAccess(ctx context.Context, userDetai
 	var project bson.M
 	err = projectCollection.FindOne(ctx, bson.M{"_id": projectObjectID}).Decode(&project)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return ErrProjectNotFound
 		}
 		return fmt.Errorf("failed to verify project: %w", err)

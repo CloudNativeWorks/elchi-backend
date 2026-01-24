@@ -1,3 +1,5 @@
+// Package resources provides utilities for Envoy resource processing
+// including validation, typed config handling, and bootstrap generation.
 package resources
 
 import (
@@ -189,7 +191,6 @@ func ValidateResourceWithClient(ctx context.Context, resourceGType models.GType,
 		Gtype:    string(resourceGType),
 		Resource: anyValue,
 	})
-
 	if err != nil {
 		return errors.New("gRPC error: " + err.Error())
 	}
@@ -223,10 +224,10 @@ func GetDBResource(db *mongo.Database, collectionName string, filter bson.M) (*m
 	var resource models.DBResource
 	err := db.Collection(collectionName).FindOne(context.Background(), filter).Decode(&resource)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, fmt.Errorf("resource not found")
 		}
-		return nil, fmt.Errorf("error fetching resource: %v", err)
+		return nil, fmt.Errorf("error fetching resource: %w", err)
 	}
 	return &resource, nil
 }
@@ -264,6 +265,6 @@ func GetAdminPort(ctx context.Context, db *db.AppContext, listenerName, project,
 		return defaultAdminPort
 	}
 
-	db.Logger.Debugf("✅ Found admin port for listener '%s': %d", listenerName, adminPortDoc.Port)
+	db.Logger.Debugf("Found admin port for listener '%s': %d", listenerName, adminPortDoc.Port)
 	return adminPortDoc.Port
 }

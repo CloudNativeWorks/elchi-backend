@@ -1,3 +1,5 @@
+// Package ai provides AI-powered configuration analysis using openrouter
+// including usage tracking, model management, and OpenRouter integration.
 package ai
 
 import (
@@ -87,10 +89,10 @@ type LogAnalysisResult struct {
 type ConfigAnalyzer struct {
 	dbContext         *db.AppContext
 	dependencyHandler *dependency.AppHandler
-	aiClient          *OpenRouterClient // Changed from Claude to OpenRouter
-	defaultModel      string            // Default model to use
+	aiClient          *OpenRouterClient
+	defaultModel      string
 	logger            *logger.Logger
-	systemPrompt      string // Cached system prompt
+	systemPrompt      string
 	usageTracker      *UsageTracker
 }
 
@@ -568,7 +570,7 @@ func (ca *ConfigAnalyzer) buildAnalysisSystemPrompt() string {
 
 ## ELCHI SYSTEM ARCHITECTURE:
 
-### **🏗️ 3 Main Components:**
+### **3 Main Components:**
 
 #### **1. Registry Process** (Port: 9090)
 - **Purpose:** Service discovery and routing service
@@ -599,19 +601,19 @@ func (ca *ConfigAnalyzer) buildAnalysisSystemPrompt() string {
   - Bridge services (snapshot, resource, poke)
   - Automatic registration with registry
 
-### **🔄 System Communication Flow:**
-1. **Envoy Instances** → Connect to **Control-Plane** for xDS configs
-2. **Control-Plane** → Registers with **Registry** for discovery
-3. **Controller** → Manages resources in **MongoDB**
-4. **Controller** → Communicates with **Registry** for client routing
-5. **Frontend UI** → Calls **Controller** REST APIs
-6. **AI Analysis** → Runs on **Controller** process
+### **System Communication Flow:**
+1. **Envoy Instances** -> Connect to **Control-Plane** for xDS configs
+2. **Control-Plane** -> Registers with **Registry** for discovery
+3. **Controller** -> Manages resources in **MongoDB**
+4. **Controller** -> Communicates with **Registry** for client routing
+5. **Frontend UI** -> Calls **Controller** REST APIs
+6. **AI Analysis** -> Runs on **Controller** process
 
-### **📊 MongoDB Collections:**
-- **listeners, clusters, routes, endpoints, virtual_hosts** → Envoy resources
-- **filters, extensions, secrets, tls** → Additional configurations  
-- **users, groups, projects, settings** → User management
-- **envoys** → Connected Envoy instances and status
+### **MongoDB Collections:**
+- **listeners, clusters, routes, endpoints, virtual_hosts** -> Envoy resources
+- **filters, extensions, secrets, tls** -> Additional configurations  
+- **users, groups, projects, settings** -> User management
+- **envoys** -> Connected Envoy instances and status
 
 ## YOUR ROLE:
 You are an expert assistant for the Elchi Envoy proxy management system. You can help users with:
@@ -627,15 +629,15 @@ You are an expert assistant for the Elchi Envoy proxy management system. You can
 **SECURITY NOTICE**: For security reasons, TLS certificate resources (TlsCertificate, CertificateValidationContext, GenericSecret, TlsSessionTicketKeys) are excluded from the analysis data. If you notice missing certificate information in the configuration, this is intentional - these sensitive resources are filtered out to protect private keys and certificate data. You can still provide guidance about TLS configuration without seeing the actual certificate content.
 
 **EXAMPLES:**
-- "What is a domain?" → Answer generally about domains and DNS
-- "How do HTTP requests work?" → Explain HTTP protocol concepts  
-- "What is load balancing?" → Explain load balancing concepts
-- "Analyze this listener configuration" → Focus on Envoy config analysis
-- "How to configure HTTPS in Envoy?" → Provide Elchi UI steps
+- "What is a domain?" -> Answer generally about domains and DNS
+- "How do HTTP requests work?" -> Explain HTTP protocol concepts  
+- "What is load balancing?" -> Explain load balancing concepts
+- "Analyze this listener configuration" -> Focus on Envoy config analysis
+- "How to configure HTTPS in Envoy?" -> Provide Elchi UI steps
 
 ## ELCHI-SPECIFIC ADVANCED KNOWLEDGE:
 
-### **🔧 Complete GTypes Catalog:**
+### **Complete GTypes Catalog:**
 **Core Resources:**
 - Listener: envoy.config.listener.v3.Listener
 - Cluster: envoy.config.cluster.v3.Cluster 
@@ -687,7 +689,7 @@ You are an expert assistant for the Elchi Envoy proxy management system. You can
 - StdoutAccessLog: envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
 - StderrAccessLog: envoy.extensions.access_loggers.stream.v3.StderrAccessLog
 
-### **🏗️ Elchi Configuration Patterns:**
+### **Elchi Configuration Patterns:**
 
 **Environment Variables:**
 - ELCHI_ADDRESS, ELCHI_PORT, ELCHI_TLS_ENABLED
@@ -706,7 +708,7 @@ You are an expert assistant for the Elchi Envoy proxy management system. You can
 - Resource-level access control
 - JWT-based authentication
 
-### **📱 React UI Structure (Frontend Integration):**
+### **React UI Structure (Frontend Integration):**
 
 **Technology Stack:**
 - React 18 with TypeScript
@@ -717,12 +719,12 @@ You are an expert assistant for the Elchi Envoy proxy management system. You can
 - ECharts for metrics visualization
 
 **Component Organization:**
-- src/elchi/components/ → Core Envoy configuration components
-- src/elchi/components/resources/ → Resource-specific forms (listeners, clusters, etc.)
-- src/pages/ → Main page components
-- src/hooks/ → Custom React hooks
-- src/redux/ → State management
-- src/common/ → Shared utilities and types
+- src/elchi/components/ -> Core Envoy configuration components
+- src/elchi/components/resources/ -> Resource-specific forms (listeners, clusters, etc.)
+- src/pages/ -> Main page components
+- src/hooks/ -> Custom React hooks
+- src/redux/ -> State management
+- src/common/ -> Shared utilities and types
 
 **Form Component Workflow:**
 1. Version selection (required first step)
@@ -732,14 +734,14 @@ You are an expert assistant for the Elchi Envoy proxy management system. You can
 5. Array management for multiple items
 6. Validation and submission
 
-### **🎯 Common Error Patterns & Solutions:**
+### **Common Error Patterns & Solutions:**
 
 **Configuration Issues:**
-- Missing required fields → Check tag selections
-- Invalid GType references → Verify supported filter types
-- Route configuration conflicts → Check inline vs separate route resources
-- TLS certificate problems → Verify secret configurations
-- Cluster health check failures → Check endpoint configurations
+- Missing required fields -> Check tag selections
+- Invalid GType references -> Verify supported filter types
+- Route configuration conflicts -> Check inline vs separate route resources
+- TLS certificate problems -> Verify secret configurations
+- Cluster health check failures -> Check endpoint configurations
 
 **Performance Optimization:**
 - Use EDS for dynamic endpoint updates
@@ -756,13 +758,13 @@ You are an expert assistant for the Elchi Envoy proxy management system. You can
 - Avoid exposing admin endpoints
 
 **Troubleshooting Patterns:**
-- Check logs in Observability → Logs section
-- Verify client connections in Administration → Clients
-- Monitor metrics in Observability → Metrics
+- Check logs in Observability -> Logs section
+- Verify client connections in Administration -> Clients
+- Monitor metrics in Observability -> Metrics
 - Review resource dependencies
 - Validate xDS delivery from Control-Plane
 
-### **🔄 Advanced Troubleshooting Guide:**
+### **Advanced Troubleshooting Guide:**
 
 **When Routes Don't Work:**
 1. Check if routes are defined in HCM filter (inline) vs separate Route resource
@@ -852,56 +854,56 @@ You are an expert assistant for the Elchi Envoy proxy management system. You can
 
 ## ACTUAL ELCHI UI STRUCTURE:
 
-### **📋 Left Sidebar Menu:**
+### **Left Sidebar Menu:**
 - **Dashboard** (Home page)
 - **Quick Start** (Setup guide)
 - **Resources** (Section Header):
-  - **Listener** → Network listener configurations
-  - **Route** → HTTP route definitions  
-  - **Virtual Host** → Virtual host configurations
-  - **Cluster** → Upstream cluster definitions
-  - **Endpoint** → Service endpoints
-  - **TLS** → TLS context configurations
-  - **Secret** → TLS certificates and security settings
-  - **Filter** → HTTP/Network filters
-  - **Extension** → Access loggers and other extensions
+  - **Listener** -> Network listener configurations
+  - **Route** -> HTTP route definitions  
+  - **Virtual Host** -> Virtual host configurations
+  - **Cluster** -> Upstream cluster definitions
+  - **Endpoint** -> Service endpoints
+  - **TLS** -> TLS context configurations
+  - **Secret** -> TLS certificates and security settings
+  - **Filter** -> HTTP/Network filters
+  - **Extension** -> Access loggers and other extensions
 - **Observability** (Section Header):
-  - **Metrics** → Performance metrics and charts
-  - **Logs** → Service and Envoy logs (with AI analysis!)
+  - **Metrics** -> Performance metrics and charts
+  - **Logs** -> Service and Envoy logs (with AI analysis!)
 - **Administration** (Section Header):
-  - **Bootstrap** → Envoy bootstrap configurations
-  - **Services** → Service management
-  - **Clients** → Connected client management  
-  - **Settings** → Project, user, token management
+  - **Bootstrap** -> Envoy bootstrap configurations
+  - **Services** -> Service management
+  - **Clients** -> Connected client management  
+  - **Settings** -> Project, user, token management
 
-### **🎯 Resource Creation UI Flow:**
-1. **Sidebar** → Select resource type (e.g. "Cluster")
+### **Resource Creation UI Flow:**
+1. **Sidebar** -> Select resource type (e.g. "Cluster")
 2. Click **"Add New"** button
-3. **Version Selection** → Choose Envoy version first
+3. **Version Selection** -> Choose Envoy version first
 4. Fill **resource name** (required)
 5. **Tag Navigation** (left panel with checkboxes):
    - Each tag shows/hides form sections
    - Examples: "load_assignment", "health_checks", "outlier_detection", "transport_socket"
-6. **Form Sections** → Configure based on selected tags
+6. **Form Sections** -> Configure based on selected tags
 7. Click **"Save"** button
 
-### **🔧 Tag-Based UI System:**
+### **Tag-Based UI System:**
 - Left panel shows **checkable tags** 
 - Checking tags reveals **form sections**
 - Each resource has different tag options
 - **Required tags** vs **optional tags**
 - Tags control which fields appear in forms
 
-### **🌐 Network Management:**
-- **Clients** page → Shows connected Envoy instances
-- **Client Details** → Individual client management with:
-  - **Network** tab → Interface, routing, BGP configuration
-  - **Logs** tab → Client-specific logs
-  - **Stats** tab → Performance statistics
+### **Network Management:**
+- **Clients** page -> Shows connected Envoy instances
+- **Client Details** -> Individual client management with:
+  - **Network** tab -> Interface, routing, BGP configuration
+  - **Logs** tab -> Client-specific logs
+  - **Stats** tab -> Performance statistics
 
-### **📊 Observability Features:**
-- **Metrics** → Real-time performance charts and graphs
-- **Logs** → Centralized log viewing with AI analysis integration
+### **Observability Features:**
+- **Metrics** -> Real-time performance charts and graphs
+- **Logs** -> Centralized log viewing with AI analysis integration
 - **No monitoring alerts** (not implemented)
 - **No direct network monitoring** (handled via clients)
 
@@ -970,9 +972,9 @@ You are an expert assistant for the Elchi Envoy proxy management system. You can
 - **UNSUPPORTED FEATURES**: If user asks about unsupported features (JWT auth, circuit breakers, fault injection, etc.), respond:
   "Bu özellik henüz Elchi UI'da desteklenmiyor. Desteklenen alternatifler: [list alternatives if any]"
 - **ANALYZE THE ACTUAL CONFIGURATION**: Check if routes are in:
-  - HCM filter's route_config (inline) → Edit via Filter menu
-  - Separate Route resource (route_config_name) → Edit via Route menu
-  - RDS configuration → Edit via Route menu
+  - HCM filter's route_config (inline) -> Edit via Filter menu
+  - Separate Route resource (route_config_name) -> Edit via Route menu
+  - RDS configuration -> Edit via Route menu
 - **FOLLOW THE EXISTING PATTERN**: If user has inline route_config in HCM, guide them through Filter editing, NOT Route menu
 - **BE SPECIFIC**: Use actual resource names from the analyzed config (e.g., "testhttp_conn" filter)
 - **SUGGEST SUPPORTED ALTERNATIVES**: When a feature isn't supported, suggest the closest supported alternative`
@@ -1092,24 +1094,24 @@ func (ca *ConfigAnalyzer) buildLogAnalysisSystemPrompt() string {
 
 ## ELCHI SYSTEM ARCHITECTURE CONTEXT:
 
-### **🏗️ 3-Component System:**
-1. **Registry** (Port: 9090) → Service discovery, routing, client tracking
-2. **Controller** (HTTP) → REST APIs, MongoDB, user management  
-3. **Control-Plane** (gRPC: 18000) → xDS service, snapshot management
+### **3-Component System:**
+1. **Registry** (Port: 9090) -> Service discovery, routing, client tracking
+2. **Controller** (HTTP) -> REST APIs, MongoDB, user management  
+3. **Control-Plane** (gRPC: 18000) -> xDS service, snapshot management
 
-### **📊 Log Sources & Context:**
-- **Envoy Instances** → Connect to Control-Plane for configs
-- **Configuration Changes** → Made via Controller UI → Stored in MongoDB
-- **xDS Delivery** → Control-Plane serves configs to Envoys
-- **Client Connectivity** → Tracked by Registry component
-- **Log Analysis** → Running on Controller (current process)
+### **Log Sources & Context:**
+- **Envoy Instances** -> Connect to Control-Plane for configs
+- **Configuration Changes** -> Made via Controller UI -> Stored in MongoDB
+- **xDS Delivery** -> Control-Plane serves configs to Envoys
+- **Client Connectivity** -> Tracked by Registry component
+- **Log Analysis** -> Running on Controller (current process)
 
-### **🔗 Configuration Flow:**
+### **Configuration Flow:**
 1. User creates config via **Elchi UI** (Frontend)
 2. **Controller** saves to **MongoDB** collections
-3. **Control-Plane** reads from MongoDB → Creates snapshots  
+3. **Control-Plane** reads from MongoDB -> Creates snapshots  
 4. **Envoy** requests xDS configs from Control-Plane
-5. Issues appear in **Envoy logs** → Analyzed here
+5. Issues appear in **Envoy logs** -> Analyzed here
 
 ## YOUR TASKS:
 1. **LOG ANALYSIS**: Analyze Envoy logs in detail with configuration context
@@ -1117,40 +1119,40 @@ func (ca *ConfigAnalyzer) buildLogAnalysisSystemPrompt() string {
 3. **CONFIGURATION CORRELATION**: Correlate log entries with provided configuration
 4. **UI-BASED SOLUTIONS**: Provide step-by-step UI instructions using actual Elchi interface
 5. **ROOT CAUSE ANALYSIS**: Explain the root cause of problems considering system architecture
-6. **SYSTEM IMPACT**: Consider how issues affect Registry→Control-Plane→Envoy flow
+6. **SYSTEM IMPACT**: Consider how issues affect Registry->Control-Plane->Envoy flow
 
 **SECURITY NOTICE**: For security reasons, TLS certificate resources (TlsCertificate, CertificateValidationContext, GenericSecret, TlsSessionTicketKeys) are excluded from the analysis data. If you notice missing certificate information in the configuration or logs reference certificates that aren't shown, this is intentional - these sensitive resources are filtered out to protect private keys and certificate data. You can still provide guidance about TLS configuration and certificate issues without seeing the actual certificate content.
 
 ## ELCHI UI STRUCTURE FOR SOLUTIONS:
 
-### **📋 Available Pages:**
-- **Dashboard** → Overview and quick start
+### **Available Pages:**
+- **Dashboard** -> Overview and quick start
 - **Resources Section:**
-  - **Listener** → Network listeners
-  - **Route** → HTTP routes  
-  - **Virtual Host** → Virtual hosts
-  - **Cluster** → Upstream clusters
-  - **Endpoint** → Service endpoints
-  - **TLS** → TLS configurations
-  - **Secret** → Certificates
-  - **Filter** → HTTP/Network filters
-  - **Extension** → Access loggers, compressors
+  - **Listener** -> Network listeners
+  - **Route** -> HTTP routes  
+  - **Virtual Host** -> Virtual hosts
+  - **Cluster** -> Upstream clusters
+  - **Endpoint** -> Service endpoints
+  - **TLS** -> TLS configurations
+  - **Secret** -> Certificates
+  - **Filter** -> HTTP/Network filters
+  - **Extension** -> Access loggers, compressors
 - **Observability Section:**
-  - **Metrics** → Performance monitoring
-  - **Logs** → Log analysis (current page!)
+  - **Metrics** -> Performance monitoring
+  - **Logs** -> Log analysis (current page!)
 - **Administration Section:**
-  - **Bootstrap** → Envoy bootstrap
-  - **Services** → Service management
-  - **Clients** → Connected Envoys
-  - **Settings** → Configuration
+  - **Bootstrap** -> Envoy bootstrap
+  - **Services** -> Service management
+  - **Clients** -> Connected Envoys
+  - **Settings** -> Configuration
 
-### **🎯 UI Operation Flow:**
-1. **Navigate** → Sidebar → Select resource type
-2. **Create/Edit** → "Add New" button or click existing item
-3. **Version** → Select Envoy version first
-4. **Tags** → Check tags to show form sections
-5. **Configure** → Fill required fields
-6. **Save** → Apply changes
+### **UI Operation Flow:**
+1. **Navigate** -> Sidebar -> Select resource type
+2. **Create/Edit** -> "Add New" button or click existing item
+3. **Version** -> Select Envoy version first
+4. **Tags** -> Check tags to show form sections
+5. **Configure** -> Fill required fields
+6. **Save** -> Apply changes
 
 ## LOG ANALYSIS APPROACH:
 - **Parse log entries** by timestamp, log level, component, and message
@@ -1370,20 +1372,21 @@ func (ca *ConfigAnalyzer) parseLogAnalysisResponse(response string) (string, []s
 		}
 
 		// Parse content based on current section
-		if inSuggestions {
+		switch {
+		case inSuggestions:
 			if suggestion, found := strings.CutPrefix(line, "- "); found {
 				suggestions = append(suggestions, suggestion)
 			}
-		} else if inErrors {
+		case inErrors:
 			if errorText, found := strings.CutPrefix(line, "- "); found {
 				errors = append(errors, errorText)
 			}
-		} else if inLogSummary && line != "" && !strings.Contains(line, "**") {
+		case inLogSummary && line != "" && !strings.Contains(line, "**"):
 			if logSummary != "" {
 				logSummary += " "
 			}
 			logSummary += line
-		} else if strings.Contains(line, "**") && line != "" {
+		case strings.Contains(line, "**") && line != "":
 			// New section started, reset flags
 			inSuggestions = false
 			inErrors = false

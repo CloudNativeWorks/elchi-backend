@@ -28,8 +28,8 @@ type CertificateManager struct {
 	acmeConfig  *config.ACMEConfig
 	caProviders map[string]config.CAProviderConfig
 	logger      *logger.Logger
-	appContext  *db.AppContext             // For dependency tracking
-	pokeService *bridge.PokeServiceClient  // For snapshot updates
+	appContext  *db.AppContext            // For dependency tracking
+	pokeService *bridge.PokeServiceClient // For snapshot updates
 }
 
 // NewCertificateManager creates a new certificate manager
@@ -268,9 +268,9 @@ func (m *CertificateManager) DeleteCertificate(ctx context.Context, certID primi
 
 	for _, version := range cert.SecretVersions {
 		secretFilter := bson.M{
-			"general.name":    cert.SecretName,
-			"general.version": version,
-			"general.project": project,
+			"general.name":                  cert.SecretName,
+			"general.version":               version,
+			"general.project":               project,
 			"general.metadata.acme_enabled": true, // Only delete if managed by ACME
 		}
 
@@ -424,10 +424,10 @@ func (m *CertificateManager) GetCertificatesForRenewal(ctx context.Context, proj
 
 	collection := m.db.Collection("acme_certificates")
 	filter := bson.M{
-		"project":            project,                               // PROJECT ISOLATION
-		"auto_renew":         true,                                  // Only auto-renew enabled
-		"status":             StatusActive,                          // Only active certificates
-		"renewal_starts_at": bson.M{"$lte": time.Now()},           // Renewal window reached
+		"project":           project,                    // PROJECT ISOLATION
+		"auto_renew":        true,                       // Only auto-renew enabled
+		"status":            StatusActive,               // Only active certificates
+		"renewal_starts_at": bson.M{"$lte": time.Now()}, // Renewal window reached
 	}
 
 	cursor, err := collection.Find(ctx, filter)
@@ -637,7 +637,7 @@ func (m *CertificateManager) DeleteDNSCredential(ctx context.Context, credID pri
 	// Count certificates using this DNS credential
 	certCollection := m.db.Collection("acme_certificates")
 	filter := bson.M{
-		"project":                          project,
+		"project":                            project,
 		"dns_verification.dns_credential_id": credID,
 	}
 
@@ -799,7 +799,7 @@ func (m *CertificateManager) triggerSnapshotUpdate(
 	secretName string,
 	secretVersions []string,
 	project string,
-) error {
+) {
 	totalListeners := 0
 	allListeners := make([]string, 0)
 
@@ -870,8 +870,6 @@ func (m *CertificateManager) triggerSnapshotUpdate(
 			secretName,
 		)
 	}
-
-	return nil
 }
 
 // loadSecretResource loads a secret resource from the secrets collection

@@ -417,6 +417,6 @@ func (p *UnDeployResponser) removeIPFromGSLBRecord(ctx context.Context, serviceI
 		return fmt.Errorf("failed to remove IP from GSLB health collection: %w", err)
 	}
 
-	p.Logger.Infof("✅ Removed IP %s from GSLB health collection for client %s", downstreamAddress, clientID)
+	p.Logger.Infof("Removed IP %s from GSLB health collection for client %s", downstreamAddress, clientID)
 	return nil
 }

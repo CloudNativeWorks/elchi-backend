@@ -37,7 +37,7 @@ type ConditionalChoice struct {
 	Value       string           `json:"value"`                  // Choice value
 	Label       string           `json:"label"`                  // Choice label
 	SubFields   []AvailableField `json:"sub_fields"`             // Fields available when this choice is selected
-	ApiEndpoint string           `json:"api_endpoint,omitempty"` // API endpoint for this choice
+	APIEndpoint string           `json:"api_endpoint,omitempty"` // API endpoint for this choice
 }
 
 // NestedFieldConfig represents nested field configuration
@@ -59,14 +59,14 @@ type AvailableField struct {
 	UseComponentName     bool               `json:"use_component_name"`         // If true, field value syncs with component name automatically
 	Options              []FieldOption      `json:"options,omitempty"`          // For select type fields
 	Connected            *ConnectedField    `json:"connected,omitempty"`        // Connected to other scenario component
-	ApiEndpoint          string             `json:"api_endpoint,omitempty"`     // API endpoint to fetch system resources
+	APIEndpoint          string             `json:"api_endpoint,omitempty"`     // API endpoint to fetch system resources
 	ValidationRules      []string           `json:"validation_rules,omitempty"` // Validation rules
 	ArraySchema          *ArraySchema       `json:"array_schema,omitempty"`     // For array type fields
 	NestedConfig         *NestedFieldConfig `json:"nested_config,omitempty"`    // For conditional/nested_choice fields
 	HasMetadata          bool               `json:"has_metadata,omitempty"`     // If true, UI should preserve full object metadata from API
 	HasDiscovery         bool               `json:"has_discovery,omitempty"`    // If true, field contains K8s discovery cluster selection
 	UseInScenario        bool               `json:"use_in_scenario,omitempty"`  // If true, UI should allow selection from scenario resources
-	UseApi               bool               `json:"use_api,omitempty"`          // If true, UI should allow selection from API resources
+	UseAPI               bool               `json:"use_api,omitempty"`          // If true, UI should allow selection from API resources
 }
 
 // ArraySchema defines the structure of array items

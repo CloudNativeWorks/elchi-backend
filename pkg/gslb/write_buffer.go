@@ -58,12 +58,9 @@ type WriteBuffer struct {
 	flushDurationMu  sync.Mutex
 
 	// Control channels
-	stopCh chan struct{}
-	doneCh chan struct{}
-
-	// PERFORMANCE FIX: Batched immediate writes (non-blocking)
-	immediateQueue     chan HealthStateUpdate // Queue for immediate writes
-	immediateFlushDone chan struct{}          // Signals immediate flush goroutine stopped
+	stopCh   chan struct{}
+	doneCh   chan struct{}
+	stopOnce sync.Once // Prevents double-close panic on Stop()
 }
 
 // NewWriteBuffer creates a new write buffer instance with periodic flushing
@@ -84,17 +81,10 @@ func NewWriteBuffer(ctx context.Context, db *mongo.Database, logger *logger.Logg
 		ctx:           ctx, // Store parent context for shutdown propagation
 		stopCh:        make(chan struct{}),
 		doneCh:        make(chan struct{}),
-
-		// PERFORMANCE FIX: Batched immediate writes
-		immediateQueue:     make(chan HealthStateUpdate, 1000), // Buffered queue for immediate writes
-		immediateFlushDone: make(chan struct{}),
 	}
 
 	// Start periodic flush goroutine
 	go wb.periodicFlush()
-
-	// PERFORMANCE FIX: Start immediate write processor (batches immediate writes)
-	go wb.processImmediateWrites()
 
 	return wb
 }
@@ -298,7 +288,7 @@ func (wb *WriteBuffer) flushUpdates(updates []HealthStateUpdate) {
 	// After 3 failures, log error and drop updates
 	// This is acceptable to prevent blocking health checker
 	atomic.AddInt64(&wb.flushErrors, 1)
-	wb.logger.Errorf("❌ Failed to flush %d updates after 3 attempts: %v", len(updates), lastErr)
+	wb.logger.Errorf("Failed to flush %d updates after 3 attempts: %v", len(updates), lastErr)
 }
 
 // FlushImmediate queues an update for immediate (batched) write
@@ -306,24 +296,24 @@ func (wb *WriteBuffer) flushUpdates(updates []HealthStateUpdate) {
 // Updates are batched together in dedicated processor goroutine (50ms window)
 // This prevents blocking the result processor while maintaining fast writes
 func (wb *WriteBuffer) FlushImmediate(ctx context.Context, update HealthStateUpdate) error {
-	// ✅ CRITICAL FIX: Remove pending buffered writes for this IP BEFORE immediate write
-	// Problem: Batch buffer may contain old state (e.g., PASSING→WARNING)
+	// CRITICAL FIX: Remove pending buffered writes for this IP BEFORE immediate write
+	// Problem: Batch buffer may contain old state (e.g., PASSING->WARNING)
 	// Timeline:
-	//   1. PASSING→WARNING added to batch buffer (5s delay)
+	//   1. PASSING->WARNING added to batch buffer (5s delay)
 	//   2. WARNING monitoring executes immediate probes
-	//   3. WARNING→CRITICAL immediate write succeeds
-	//   4. 5s timer fires → old WARNING entry flushes → overrides CRITICAL!
+	//   3. WARNING->CRITICAL immediate write succeeds
+	//   4. 5s timer fires -> old WARNING entry flushes -> overrides CRITICAL!
 	// Solution: Clear pending entries for this IP before immediate write
 	wb.RemovePending(update.RecordID, update.IP)
 
-	// ✅ CRITICAL FIX: Always use synchronous write for FlushImmediate
+	// CRITICAL FIX: Always use synchronous write for FlushImmediate
 	// Problem: Queue-based approach has 0-50ms delay (ticker-based flush)
 	// This causes race conditions in WARNING monitoring:
 	//   1. CRITICAL state transition calls FlushImmediate()
 	//   2. Update goes to queue (not written yet)
-	//   3. monitorWarningState() checks DB → sees stale WARNING state
+	//   3. monitorWarningState() checks DB -> sees stale WARNING state
 	//   4. Loop continues (should have stopped)
-	//   5. 50ms later, update is flushed → history shows CRITICAL but state field shows WARNING
+	//   5. 50ms later, update is flushed -> history shows CRITICAL but state field shows WARNING
 	//
 	// Solution: Use synchronous write to ensure DB is updated BEFORE returning
 	// This ensures subsequent DB checks see the fresh CRITICAL state
@@ -352,7 +342,7 @@ func (wb *WriteBuffer) RemovePending(recordID primitive.ObjectID, ip string) int
 	wb.updates = newUpdates
 
 	if removed > 0 {
-		wb.logger.Debugf("🧹 Removed %d pending buffered updates for IP %s (record: %s) before immediate write",
+		wb.logger.Debugf("Removed %d pending buffered updates for IP %s (record: %s) before immediate write",
 			removed, ip, recordID.Hex()[:8])
 	}
 
@@ -374,7 +364,6 @@ func (wb *WriteBuffer) flushImmediateSync(ctx context.Context, update HealthStat
 	}
 
 	result, err := collection.UpdateOne(ctx, filter, finalUpdate)
-
 	if err != nil {
 		wb.logger.Errorf("Immediate flush failed for IP %s: %v", update.IP, err)
 		return err
@@ -382,65 +371,11 @@ func (wb *WriteBuffer) flushImmediateSync(ctx context.Context, update HealthStat
 
 	// Log if no document was matched (silent failure detection)
 	if result.MatchedCount == 0 {
-		wb.logger.Warnf("⚠️  ImmediateFlush: No document matched filter (record_id=%s, ip=%s)",
+		wb.logger.Warnf("ImmediateFlush: No document matched filter (record_id=%s, ip=%s)",
 			update.RecordID.Hex(), update.IP)
 	}
 
 	return nil
-}
-
-// processImmediateWrites processes queued immediate writes in batches
-// PERFORMANCE FIX: Batches immediate writes instead of writing one-by-one
-// Flushes when: (1) batch reaches 100 updates, OR (2) 50ms timeout
-// This reduces MongoDB write overhead while maintaining low latency
-func (wb *WriteBuffer) processImmediateWrites() {
-	defer close(wb.immediateFlushDone)
-
-	batch := make([]HealthStateUpdate, 0, 100)
-	ticker := time.NewTicker(50 * time.Millisecond) // 50ms max delay
-	defer ticker.Stop()
-
-	wb.logger.Infof("Immediate write processor started (batch size: 100, max delay: 50ms)")
-
-	for {
-		select {
-		case update, ok := <-wb.immediateQueue:
-			if !ok {
-				// Channel closed - flush remaining batch and exit
-				if len(batch) > 0 {
-					wb.logger.Infof("Flushing final immediate batch: %d updates", len(batch))
-					wb.flushUpdates(batch)
-				}
-				wb.logger.Infof("Immediate write processor stopped")
-				return
-			}
-
-			// Add to batch
-			batch = append(batch, update)
-
-			// Flush if batch is full
-			if len(batch) >= 100 {
-				wb.flushUpdates(batch)
-				batch = batch[:0] // Reset batch
-			}
-
-		case <-ticker.C:
-			// Periodic flush (50ms timeout)
-			if len(batch) > 0 {
-				wb.flushUpdates(batch)
-				batch = batch[:0] // Reset batch
-			}
-
-		case <-wb.stopCh:
-			// Shutdown requested - flush remaining batch and exit
-			if len(batch) > 0 {
-				wb.logger.Infof("Shutdown: Flushing immediate batch (%d updates)", len(batch))
-				wb.flushUpdates(batch)
-			}
-			wb.logger.Infof("Immediate write processor stopped (shutdown)")
-			return
-		}
-	}
 }
 
 // FlushSync synchronously flushes the current buffer
@@ -452,20 +387,23 @@ func (wb *WriteBuffer) FlushSync() {
 
 // Stop gracefully stops the write buffer
 // Stops periodic flush and performs final flush
+// Safe to call multiple times (uses sync.Once to prevent double-close panic)
 func (wb *WriteBuffer) Stop() {
-	wb.logger.Info("Stopping write buffer...")
+	wb.stopOnce.Do(func() {
+		wb.logger.Info("Stopping write buffer...")
 
-	// Signal shutdown to both processors
-	close(wb.stopCh)
+		// Signal shutdown to periodic flush goroutine
+		close(wb.stopCh)
 
-	// Close immediate queue to signal processor to stop
-	close(wb.immediateQueue)
+		// Wait for periodic flush to stop (it will do final flush)
+		<-wb.doneCh
+		wb.logger.Info("Periodic flush processor stopped")
 
-	// Wait for both processors to finish
-	<-wb.doneCh               // Wait for periodic flush to stop
-	<-wb.immediateFlushDone   // Wait for immediate processor to stop
+		// Final safety flush: ensure any remaining buffered updates are flushed
+		wb.flush()
 
-	wb.logger.Info("Write buffer stopped (both processors finished)")
+		wb.logger.Info("Write buffer stopped")
+	})
 }
 
 // Size returns the current number of buffered updates
@@ -475,7 +413,7 @@ func (wb *WriteBuffer) Size() int {
 	return len(wb.updates)
 }
 
-// Stats returns buffer statistics for monitoring
+// BufferStats holds buffer statistics for monitoring
 type BufferStats struct {
 	CurrentSize      int
 	MaxSize          int

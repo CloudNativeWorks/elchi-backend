@@ -1,10 +1,10 @@
 # Elchi Async Job System Documentation
 
-## 📋 Overview
+## Overview
 
 The Elchi Async Job System is a comprehensive, distributed background job processing system designed to handle massive snapshot updates efficiently. It replaces the synchronous snapshot update process with an asynchronous, MongoDB-centric approach that supports multi-pod Kubernetes deployments.
 
-## 🎯 Key Features
+## Key Features
 
 - **Always Async**: Even 1+ listener triggers background job creation
 - **Human-Friendly Task IDs**: EC-1, EC-2, EC-3... for easy tracking
@@ -14,7 +14,7 @@ The Elchi Async Job System is a comprehensive, distributed background job proces
 - **Manual Job Management**: Complete API for job control and retry operations
 - **Graceful Fallbacks**: Automatic fallback to synchronous processing on failures
 
-## 🏗️ System Architecture
+## System Architecture
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
@@ -50,7 +50,7 @@ The Elchi Async Job System is a comprehensive, distributed background job proces
                          └─────────────────┘
 ```
 
-## 📦 Package Structure
+## Package Structure
 
 ```
 pkg/async/
@@ -73,7 +73,7 @@ pkg/async/
     └── metrics.go              # Performance metrics & health monitoring
 ```
 
-## 🔧 Core Components
+## Core Components
 
 ### 1. AsyncJobSystem Interface
 
@@ -104,7 +104,7 @@ type AsyncJobSystem interface {
 ```
 PENDING → CLAIMED → RUNNING → COMPLETED
     ↓         ↓         ↓         ↑
-    → CANCELLED ←    FAILED ──→ RETRY
+    → CANCELED ←    FAILED ──→ RETRY
 ```
 
 - **PENDING**: Job created, waiting for worker
@@ -112,7 +112,7 @@ PENDING → CLAIMED → RUNNING → COMPLETED
 - **RUNNING**: Worker actively processing job
 - **COMPLETED**: Job finished successfully
 - **FAILED**: Job failed with error
-- **CANCELLED**: Job cancelled by user/system
+- **CANCELED**: Job canceled by user/system
 - **NO_WORK_NEEDED**: No listeners affected
 
 ### 3. Human-Friendly Job IDs
@@ -140,7 +140,7 @@ Worker {
 }
 ```
 
-## 🔄 Processing Flow
+## Processing Flow
 
 ### 1. Resource Update Flow
 
@@ -253,7 +253,7 @@ func (ds *DiscoveryService) triggerSnapshotUpdate(ctx context.Context, endpoint 
 - `GET /api/v3/jobs/stuck` - Admin: get stuck jobs
 - `GET /api/v3/jobs/workers` - Admin: worker status
 
-## 📊 MongoDB Schema
+## MongoDB Schema
 
 ### Jobs Collection (`background_jobs`)
 
@@ -343,7 +343,7 @@ func (ds *DiscoveryService) triggerSnapshotUpdate(ctx context.Context, endpoint 
 }
 ```
 
-## 🚀 Usage Examples
+## Usage Examples
 
 ### 1. Initialize Async System
 
@@ -448,7 +448,7 @@ healthStatus := monitor.GetHealthStatus()
 // Returns health checks for failure rate, queue size, worker utilization
 ```
 
-## ⚡ Performance Characteristics
+##Performance Characteristics
 
 ### Scalability
 - **Multi-pod support**: Each controller pod runs independent workers
@@ -466,7 +466,7 @@ healthStatus := monitor.GetHealthStatus()
 - **Retry mechanisms**: Manual and automatic retry support
 - **Graceful fallbacks**: Sync processing when async fails
 
-## 🔍 Monitoring & Observability
+## Monitoring & Observability
 
 ### Built-in Metrics
 - Job throughput and completion rates
@@ -558,13 +558,13 @@ POST /api/v3/jobs/EC-123/retry
 
 ---
 
-## 📝 Summary
+## Summary
 
 The Elchi Async Job System successfully transforms the synchronous snapshot update process into a scalable, distributed, and monitorable async system. It maintains compatibility with existing Envoy routing while providing immediate response times and comprehensive job management capabilities.
 
 **Key Benefits:**
-- ✅ **Immediate User Response**: Users get task ID instantly
-- ✅ **Scalable Architecture**: Multi-pod Kubernetes support
-- ✅ **Comprehensive Monitoring**: Built-in metrics and health checks
-- ✅ **Manual Control**: Complete job management API
-- ✅ **Reliability**: Graceful fallbacks and retry mechanisms
+- **Immediate User Response**: Users get task ID instantly
+- **Scalable Architecture**: Multi-pod Kubernetes support
+- **Comprehensive Monitoring**: Built-in metrics and health checks
+- **Manual Control**: Complete job management API
+- **Reliability**: Graceful fallbacks and retry mechanisms

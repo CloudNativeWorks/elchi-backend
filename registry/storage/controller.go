@@ -1,3 +1,5 @@
+// Package storage provides in-memory storage implementations for the registry service,
+// including controller and control-plane data management with thread-safe operations.
 package storage
 
 import (
@@ -25,7 +27,7 @@ func NewInMemoryStorage() *InMemoryStorage {
 	}
 }
 
-// Controller operations
+// RegisterController registers a controller in the storage
 func (s *InMemoryStorage) RegisterController(ctx context.Context, controller *models.ControllerInfo) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -113,7 +115,7 @@ func (s *InMemoryStorage) UpdateControllerLastSeen(ctx context.Context, controll
 	return nil
 }
 
-// Client mapping operations
+// SetClientMapping sets a client mapping in the storage
 func (s *InMemoryStorage) SetClientMapping(ctx context.Context, mapping *models.ClientMapping) error {
 	if ctx.Err() != nil {
 		return ctx.Err()

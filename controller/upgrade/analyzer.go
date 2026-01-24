@@ -1,3 +1,5 @@
+// Package upgrade provides Envoy version upgrade analysis and execution
+// including dependency checking and resource migration.
 package upgrade
 
 import (
@@ -47,7 +49,7 @@ func (a *UpgradeAnalyzer) AnalyzeDependencies(ctx context.Context, j *job.Job) (
 		return nil, fmt.Errorf("no listeners specified for upgrade")
 	}
 
-	a.logger.Infof("Starting dependency analysis for %d listeners: %s → %s",
+	a.logger.Infof("Starting dependency analysis for %d listeners: %s -> %s",
 		len(listenerNames), fromVersion, toVersion)
 
 	// Aggregate results from all listeners
@@ -81,10 +83,10 @@ func (a *UpgradeAnalyzer) AnalyzeDependencies(ctx context.Context, j *job.Job) (
 		existsInTarget := listenerCount > 0
 		if existsInTarget {
 			listenersAlreadyExist = append(listenersAlreadyExist, listenerName)
-			a.logger.Infof("⏭️  Listener %s already exists in version %s", listenerName, toVersion)
+			a.logger.Infof("Listener %s already exists in version %s", listenerName, toVersion)
 		} else {
 			listenersToUpgrade = append(listenersToUpgrade, listenerName)
-			a.logger.Infof("🔄 Listener %s needs to be upgraded to version %s", listenerName, toVersion)
+			a.logger.Infof("Listener %s needs to be upgraded to version %s", listenerName, toVersion)
 		}
 
 		// Build upstream dependency graph using existing dependency handler
@@ -126,7 +128,7 @@ func (a *UpgradeAnalyzer) AnalyzeDependencies(ctx context.Context, j *job.Job) (
 			// Create unique key for deduplication across all listeners
 			resourceKey := fmt.Sprintf("%s/%s/%s", nodeData.Category, nodeData.Label, nodeData.Gtype)
 
-			// ✅ CRITICAL: Check if exists in target version
+			// CRITICAL: Check if exists in target version
 			collection := a.dbContext.Client.Collection(nodeData.Category)
 			count, _ := collection.CountDocuments(ctx, bson.M{
 				"general.name":    nodeData.Label, // Label is the resource name
@@ -146,7 +148,7 @@ func (a *UpgradeAnalyzer) AnalyzeDependencies(ctx context.Context, j *job.Job) (
 				if _, exists := allSkippedResources[resourceKey]; !exists {
 					allSkippedResources[resourceKey] = existingRes
 					totalExistingInTarget++
-					a.logger.Infof("⏭️  Resource %s/%s already exists in version %s - will be skipped",
+					a.logger.Infof("Resource %s/%s already exists in version %s - will be skipped",
 						nodeData.Category, nodeData.Label, toVersion)
 				}
 
@@ -231,7 +233,7 @@ func (a *UpgradeAnalyzer) AnalyzeDependencies(ctx context.Context, j *job.Job) (
 		bootstrapNamesList = append(bootstrapNamesList, name)
 	}
 
-	a.logger.Infof("✅ Dependency analysis complete for %d listeners: %d total dependencies, %d missing, %d existing",
+	a.logger.Infof("Dependency analysis complete for %d listeners: %d total dependencies, %d missing, %d existing",
 		len(listenerNames), totalUpstreamDeps, len(missingResourcesList), totalExistingInTarget)
 
 	// Generate human-readable summary
@@ -338,7 +340,7 @@ func (a *UpgradeAnalyzer) checkBootstrapRequirement(ctx context.Context, listene
 		names[i] = b.General.Name
 	}
 
-	a.logger.Infof("📋 Bootstrap update required for %d bootstraps: %v", len(bootstraps), names)
+	a.logger.Infof("Bootstrap update required for %d bootstraps: %v", len(bootstraps), names)
 	return names, true
 }
 
@@ -403,10 +405,10 @@ func (a *UpgradeAnalyzer) validateClients(ctx context.Context, listenerName, pro
 	if connectedCount != totalClients && totalClients > 0 {
 		var errMsg string
 		if connectedCount == 0 {
-			errMsg = fmt.Sprintf("❌ CRITICAL: Listener '%s' has %d deployed client(s) but NONE are connected - cannot upgrade",
+			errMsg = fmt.Sprintf("CRITICAL: Listener '%s' has %d deployed client(s) but NONE are connected - cannot upgrade",
 				listenerName, totalClients)
 		} else {
-			errMsg = fmt.Sprintf("❌ CRITICAL: Listener '%s' has %d/%d clients connected - ALL clients must be connected for upgrade",
+			errMsg = fmt.Sprintf("CRITICAL: Listener '%s' has %d/%d clients connected - ALL clients must be connected for upgrade",
 				listenerName, connectedCount, totalClients)
 		}
 		a.logger.Errorf("%s", errMsg)
@@ -419,7 +421,7 @@ func (a *UpgradeAnalyzer) validateClients(ctx context.Context, listenerName, pro
 		}
 	}
 
-	a.logger.Infof("Client connectivity: %d/%d clients connected for listener '%s' ✅",
+	a.logger.Infof("Client connectivity: %d/%d clients connected for listener '%s'",
 		connectedCount, totalClients, listenerName)
 
 	// Step 3: Validate version availability
@@ -511,7 +513,7 @@ func (a *UpgradeAnalyzer) validateVersionAvailability(ctx context.Context, clien
 	validCount := 0
 
 	for _, client := range clients {
-		a.logger.Infof("🔍 Checking client %s (software v%s) - currently on Envoy %s, target: %s",
+		a.logger.Infof("Checking client %s (software v%s) - currently on Envoy %s, target: %s",
 			client.ClientID, client.Version, fromVersion, toVersion)
 
 		// Check if target version is available on this client
@@ -525,20 +527,20 @@ func (a *UpgradeAnalyzer) validateVersionAvailability(ctx context.Context, clien
 		}
 
 		if !versionAvailable {
-			a.logger.Warnf("❌ Client %s does not have target version %s available",
+			a.logger.Warnf("Client %s does not have target version %s available",
 				client.ClientID, toVersion)
 			incompatible = append(incompatible,
 				fmt.Sprintf("%s (%s) - target version %s not available",
 					client.Name, client.ClientID, toVersion))
 		} else {
-			a.logger.Infof("✅ Client %s has target version %s available",
+			a.logger.Infof("Client %s has target version %s available",
 				client.ClientID, toVersion)
 			validCount++
 		}
 	}
 
 	if len(incompatible) > 0 {
-		a.logger.Warnf("⚠️  %d client(s) do not have target version available", len(incompatible))
+		a.logger.Warnf("%d client(s) do not have target version available", len(incompatible))
 	}
 
 	a.logger.Infof("Client validation: %d compatible, %d incompatible out of %d connected",
@@ -674,7 +676,7 @@ func (a *UpgradeAnalyzer) parseVersionCheckResponse(response interface{}, target
 		}
 
 		// Fallback: check root level downloaded_versions (legacy format)
-		if downloadedVersions, ok := v["downloaded_versions"].([]interface{}); ok {
+		if downloadedVersions, ok := v["downloaded_versions"].([]any); ok {
 			for _, ver := range downloadedVersions {
 				if verStr, ok := ver.(string); ok && verStr == targetVersion {
 					return true

@@ -1,3 +1,5 @@
+// Package bridge provides gRPC service implementations for control-plane
+// including poke, snapshot, and resource bridge services.
 package bridge
 
 import (

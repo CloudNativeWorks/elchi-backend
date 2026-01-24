@@ -1,3 +1,5 @@
+// Package discovery provides Kubernetes endpoint discovery functionality
+// for automatic service endpoint synchronization.
 package discovery
 
 import (

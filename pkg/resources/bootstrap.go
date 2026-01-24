@@ -51,7 +51,6 @@ func GetAdminPortFromService(db *mongo.Database, op models.OperationClass, reque
 		context.TODO(),
 		bson.M{"name": op.GetCommandName(), "project": op.GetCommandProject(), "version": requestDetails.Version},
 	).Decode(&service)
-
 	if err != nil {
 		return 0, err
 	}

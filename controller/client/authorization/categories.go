@@ -16,8 +16,8 @@ const (
 
 // Envoy admin API readonly paths (only read data, no modifications)
 var envoyReadonlyPaths = []string{
-	"/clusters",  // View cluster information
-	"/envoy",     // View Envoy configuration
+	"/clusters", // View cluster information
+	"/envoy",    // View Envoy configuration
 }
 
 // Envoy admin API write paths (modify runtime state)

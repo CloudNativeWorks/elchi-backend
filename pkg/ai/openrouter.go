@@ -119,7 +119,7 @@ func (c *OpenRouterClient) GetCompletion(ctx context.Context, req OpenRouterRequ
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.BaseURL+"/chat/completions", bytes.NewBuffer(jsonData))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/chat/completions", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
@@ -137,7 +137,7 @@ func (c *OpenRouterClient) GetCompletion(ctx context.Context, req OpenRouterRequ
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		// Read the error response body for detailed debugging info
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		bodyString := string(bodyBytes)
@@ -189,7 +189,7 @@ func (c *OpenRouterClient) GetModels(ctx context.Context) ([]ModelInfo, error) {
 		return c.models, nil // Return cached models
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "GET", c.BaseURL+"/models", nil)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/models", nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
@@ -203,7 +203,7 @@ func (c *OpenRouterClient) GetModels(ctx context.Context) ([]ModelInfo, error) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("API error: status %d", resp.StatusCode)
 	}
 
@@ -231,4 +231,3 @@ func (c *OpenRouterClient) GetModels(ctx context.Context) ([]ModelInfo, error) {
 	c.models = models
 	return models, nil
 }
-

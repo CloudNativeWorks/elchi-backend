@@ -225,8 +225,8 @@ var VirtualHostDefinition = models.ComponentDefinition{
 		},
 	},
 	Rules: models.ComponentRule{
-		MinCount: 0,
-		MaxCount: 50,
+		MinCount:     0,
+		MaxCount:     50,
 		RequiredWith: []string{"route"}, // Virtual Host requires a Route component with VHDS configuration
 	},
 }

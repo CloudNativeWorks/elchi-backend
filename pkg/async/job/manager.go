@@ -1,3 +1,5 @@
+// Package job provides job management functionality for async operations
+// including job creation, status tracking, and execution coordination.
 package job
 
 import (
@@ -104,11 +106,12 @@ func (m *Manager) CreateJob(ctx context.Context, req *CreateJobRequest) (*Job, e
 
 	// Log with appropriate resource name based on job type
 	var resourceName string
-	if req.Metadata.SourceResource != nil {
+	switch {
+	case req.Metadata.SourceResource != nil:
 		resourceName = req.Metadata.SourceResource.Name
-	} else if req.Metadata.ACMEMetadata != nil {
+	case req.Metadata.ACMEMetadata != nil:
 		resourceName = req.Metadata.ACMEMetadata.CertificateName
-	} else {
+	default:
 		resourceName = "unknown"
 	}
 
@@ -172,11 +175,12 @@ func (m *Manager) CreateJobWithParent(ctx context.Context, req *CreateJobRequest
 
 	// Log with appropriate resource name based on job type
 	var resourceName string
-	if req.Metadata.SourceResource != nil {
+	switch {
+	case req.Metadata.SourceResource != nil:
 		resourceName = req.Metadata.SourceResource.Name
-	} else if req.Metadata.ACMEMetadata != nil {
+	case req.Metadata.ACMEMetadata != nil:
 		resourceName = req.Metadata.ACMEMetadata.CertificateName
-	} else {
+	default:
 		resourceName = "unknown"
 	}
 

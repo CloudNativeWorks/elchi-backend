@@ -1,3 +1,5 @@
+// Package acme provides ACME protocol client implementation for automated
+// certificate management including account handling, DNS challenges, and renewals.
 package acme
 
 import (

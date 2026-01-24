@@ -1,3 +1,5 @@
+// Package handlers provides HTTP request handlers for the controller REST API,
+// including XDS resources, clients, services, and administrative operations.
 package handlers
 
 import (
@@ -192,7 +194,7 @@ func (h *Handler) handleRequest(c *gin.Context, resFunc ResFunc) {
 	h.setResourceAuditContext(c, requestDetails)
 
 	// For PUT requests, capture changes BEFORE the database update
-	if c.Request.Method == "PUT" {
+	if c.Request.Method == http.MethodPut {
 		h.setAuditChanges(c)
 	}
 
@@ -200,7 +202,7 @@ func (h *Handler) handleRequest(c *gin.Context, resFunc ResFunc) {
 	h.setAuditResult(c, err)
 
 	// For POST requests, update audit context with response data (resource ID, etc.)
-	if c.Request.Method == "POST" && err == nil {
+	if c.Request.Method == http.MethodPost && err == nil {
 		h.updateAuditContextFromResponse(c, response)
 	}
 
@@ -611,7 +613,7 @@ func (h *Handler) GetSubnetAvailableIPs(c *gin.Context) {
 // ================== SETTINGS WRAPPERS ==================
 // Settings handlers wrapped with audit functionality
 
-// User Management
+// SetUpdateUserWithAudit handles user creation or update with audit logging.
 func (h *Handler) SetUpdateUserWithAudit(c *gin.Context) {
 	requestDetails, _ := h.getRequestDetails(c)
 	h.setResourceAuditContext(c, requestDetails)
@@ -638,7 +640,7 @@ func (h *Handler) DeleteUserWithAudit(c *gin.Context) {
 	}
 }
 
-// Group Management
+// SetUpdateGroupWithAudit handles group creation or update with audit logging.
 func (h *Handler) SetUpdateGroupWithAudit(c *gin.Context) {
 	requestDetails, _ := h.getRequestDetails(c)
 	h.setResourceAuditContext(c, requestDetails)
@@ -665,7 +667,7 @@ func (h *Handler) DeleteGroupWithAudit(c *gin.Context) {
 	}
 }
 
-// Project Management
+// SetUpdateProjectWithAudit handles project creation or update with audit logging.
 func (h *Handler) SetUpdateProjectWithAudit(c *gin.Context) {
 	requestDetails, _ := h.getRequestDetails(c)
 	h.setResourceAuditContext(c, requestDetails)
@@ -692,7 +694,7 @@ func (h *Handler) DeleteProjectWithAudit(c *gin.Context) {
 	}
 }
 
-// Token Management
+// SetTokenWithAudit handles token creation with audit logging.
 func (h *Handler) SetTokenWithAudit(c *gin.Context) {
 	// Set audit context manually since handleRequest expects ResourceClass operations
 	// Get proper request details
@@ -726,7 +728,7 @@ func (h *Handler) DeleteTokenWithAudit(c *gin.Context) {
 	}
 }
 
-// OpenRouter Token Management
+// SetOpenRouterTokenWithAudit handles OpenRouter token creation with audit logging.
 func (h *Handler) SetOpenRouterTokenWithAudit(c *gin.Context) {
 	requestDetails, _ := h.getRequestDetails(c)
 	h.setResourceAuditContext(c, requestDetails)
@@ -760,7 +762,7 @@ func (h *Handler) DeleteOpenRouterTokenWithAudit(c *gin.Context) {
 	}
 }
 
-// Discovery Token Management
+// GenerateDiscoveryTokenWithAudit handles discovery token generation with audit logging.
 func (h *Handler) GenerateDiscoveryTokenWithAudit(c *gin.Context) {
 	requestDetails, _ := h.getRequestDetails(c)
 	h.setResourceAuditContext(c, requestDetails)
@@ -783,7 +785,7 @@ func (h *Handler) DeleteDiscoveryTokenWithAudit(c *gin.Context) {
 	}
 }
 
-// Cloud Config Management
+// SetCloudWithAudit handles cloud configuration creation with audit logging.
 func (h *Handler) SetCloudWithAudit(c *gin.Context) {
 	requestDetails, _ := h.getRequestDetails(c)
 	h.setResourceAuditContext(c, requestDetails)

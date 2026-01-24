@@ -32,7 +32,7 @@ const (
 
 func (handler *AppHandler) ListGroups(c *gin.Context) {
 	ctx := c.Request.Context()
-	var groupCollection *mongo.Collection = handler.Context.Client.Collection("groups")
+	groupCollection := handler.Context.Client.Collection("groups")
 	filter := bson.M{"project": c.Query("project")}
 
 	if !handler.CheckUserProjectPermission(c) {
@@ -56,7 +56,7 @@ func (handler *AppHandler) ListGroups(c *gin.Context) {
 
 func (handler *AppHandler) GetGroup(c *gin.Context) {
 	ctx := c.Request.Context()
-	var userCollection *mongo.Collection = handler.Context.Client.Collection("groups")
+	userCollection := handler.Context.Client.Collection("groups")
 	groupID := c.Param("group_id")
 	objectID, err := primitive.ObjectIDFromHex(groupID)
 	if err != nil {
@@ -82,7 +82,7 @@ func (handler *AppHandler) GetGroup(c *gin.Context) {
 }
 
 func (handler *AppHandler) GetBaseGroup(ctx context.Context, userID string) *string {
-	var usersCollection *mongo.Collection = handler.Context.Client.Collection("users")
+	usersCollection := handler.Context.Client.Collection("users")
 	filters := bson.M{"user_id": userID}
 	opts := options.Find()
 	opts.SetProjection(bson.M{"base_group": 1})
@@ -110,7 +110,7 @@ func (handler *AppHandler) GetBaseGroup(ctx context.Context, userID string) *str
 }
 
 func (handler *AppHandler) GetUserGroups(ctx context.Context, userID string) (*[]string, *string, bool) {
-	var groupCollection *mongo.Collection = handler.Context.Client.Collection("groups")
+	groupCollection := handler.Context.Client.Collection("groups")
 	filters := bson.M{"members": userID}
 	adminGroup := false
 
@@ -151,7 +151,7 @@ func (handler *AppHandler) GetUserGroups(ctx context.Context, userID string) (*[
 
 func (handler *AppHandler) SetUpdateGroup(c *gin.Context) {
 	ctx := c.Request.Context()
-	var userCollection *mongo.Collection = handler.Context.Client.Collection("groups")
+	userCollection := handler.Context.Client.Collection("groups")
 	ctx, cancel := context.WithTimeout(ctx, 100*time.Second)
 	var status int
 	var msg, groupID string

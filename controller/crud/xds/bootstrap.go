@@ -339,7 +339,7 @@ func (xds *AppHandler) GetNonEdsClusters(ctx context.Context, clusterNames []str
 			for _, typed := range general.TypedConfig {
 				switch typed.Gtype {
 				case "envoy.extensions.upstreams.http.v3.HttpProtocolOptions":
-					protocolOptions, err := xds.GetHttpProtocolOptions(ctx, typed.Collection, typed.Name, requestDetails, version)
+					protocolOptions, err := xds.GetHTTPProtocolOptions(ctx, typed.Collection, typed.Name, requestDetails, version)
 					if err != nil {
 						return nil, err
 					}
@@ -406,7 +406,7 @@ func (xds *AppHandler) GetTransportSocket(ctx context.Context, collectionName, n
 	return transportSocket, nil
 }
 
-func (xds *AppHandler) GetHttpProtocolOptions(ctx context.Context, collectionName, name string, requestDetails models.RequestDetails, version string) (primitive.M, error) {
+func (xds *AppHandler) GetHTTPProtocolOptions(ctx context.Context, collectionName, name string, requestDetails models.RequestDetails, version string) (primitive.M, error) {
 	resource := &models.DBResource{}
 	collection := xds.Context.Client.Collection(collectionName)
 	filter := bson.M{"general.name": name, "general.project": requestDetails.Project, "general.version": version}

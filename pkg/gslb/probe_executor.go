@@ -20,6 +20,7 @@ type ProbeTask struct {
 	IPHealth  *models.GSLBIPHealth
 	Probe     *models.GSLBProbe
 	RecordIDs []primitive.ObjectID // Records using this IP+config (for fan-out)
+	Context   context.Context      // Optional context for manual state changes, re-probes, etc.
 }
 
 // ProbeResult represents the result of a health check probe
@@ -28,9 +29,9 @@ type ProbeResult struct {
 	Success      bool
 	ResponseCode int
 	ResponseTime float64
-	Error        error                 // Error if probe failed
-	Probe        *models.GSLBProbe     // Probe config used (for threshold lookups)
-	Context      context.Context       // Contains ProbeTask for fan-out to multiple records
+	Error        error             // Error if probe failed
+	Probe        *models.GSLBProbe // Probe config used (for threshold lookups)
+	Context      context.Context   // Contains ProbeTask for fan-out to multiple records
 }
 
 // ProbeExecutor interface for executing health check probes
@@ -141,7 +142,7 @@ func (pe *DefaultProbeExecutor) executeHTTPProbe(ctx context.Context, ipHealth *
 
 	// Create HTTP request with context (timeout managed by context)
 	// Reuse shared HTTP client instead of creating new one per probe
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		result.Success = false
 		result.Error = fmt.Errorf("failed to create request: %w", err)
@@ -165,8 +166,14 @@ func (pe *DefaultProbeExecutor) executeHTTPProbe(ctx context.Context, ipHealth *
 
 	// ALWAYS use custom client to get proper DialContext timeout (probe timeout + 100ms)
 	// This prevents TCP connections from hanging on unreachable IPs
-	// Build pool key for this client configuration (includes timeout for proper pooling)
-	poolKey := fmt.Sprintf("timeout_%dms", int(probeTimeout.Milliseconds()))
+	// Build pool key for this client configuration
+	// FIX: Round timeout to 500ms buckets to prevent unbounded client pool growth
+	// e.g., 1000ms, 1001ms, 1002ms all become "timeout_1000ms" bucket
+	timeoutBucket := (int(probeTimeout.Milliseconds()) / 500) * 500
+	if timeoutBucket == 0 {
+		timeoutBucket = 500 // Minimum 500ms bucket
+	}
+	poolKey := fmt.Sprintf("timeout_%dms", timeoutBucket)
 	if needsCustomTransport {
 		poolKey += "_ssl_skip"
 	}
@@ -278,7 +285,7 @@ func (pe *DefaultProbeExecutor) getOrCreateClient(poolKey string, skipSSLVerify,
 
 	transport := baseTransport.Clone()
 
-	// ✅ CRITICAL FIX: Configure DialContext with probe timeout + 100ms
+	// CRITICAL FIX: Configure DialContext with probe timeout + 100ms
 	// This prevents TCP connections from hanging on unreachable IPs
 	// User requirement: Use probe timeout + 100ms, not fixed timeout
 	dialTimeout := probeTimeout + (100 * time.Millisecond)
@@ -290,16 +297,16 @@ func (pe *DefaultProbeExecutor) getOrCreateClient(poolKey string, skipSSLVerify,
 		return dialer.DialContext(ctx, network, addr)
 	}
 
-	// ✅ Set TLS handshake timeout (same as dial timeout)
+	// Set TLS handshake timeout (same as dial timeout)
 	transport.TLSHandshakeTimeout = dialTimeout
 
-	// ✅ Set response header timeout (same as dial timeout)
+	// Set response header timeout (same as dial timeout)
 	transport.ResponseHeaderTimeout = dialTimeout
 
 	// Apply SSL skip if requested
 	if skipSSLVerify {
 		if transport.TLSClientConfig == nil {
-			transport.TLSClientConfig = &tls.Config{}
+			transport.TLSClientConfig = &tls.Config{} // #nosec G402 - Health check probes need flexible TLS for various backend servers
 		}
 		transport.TLSClientConfig.InsecureSkipVerify = true // #nosec G402 - User explicitly requested to skip SSL verification
 	}

@@ -103,7 +103,6 @@ var restCmd = &cobra.Command{
 			Module:     "root",
 		}); err != nil {
 			log.Fatalf("Fatal: Logger could not be initialized: %v\n", err)
-			os.Exit(1)
 		}
 
 		rootLogger := logger.NewLogger("controller")
@@ -129,7 +128,7 @@ var restCmd = &cobra.Command{
 				rootLogger.Errorf("Initial registry connection failed: %v", err)
 				// Don't return - the continuous reconnect loop will handle retries
 			} else {
-				rootLogger.Infof("✅ Successfully connected to registry and registered controller")
+				rootLogger.Infof("Successfully connected to registry and registered controller")
 			}
 		}()
 
@@ -265,7 +264,7 @@ var restCmd = &cobra.Command{
 		// Create GSLB DNS handler
 		dnsHandler := handlers.NewDNSHandler(appContext)
 
-		// Create GSLB CRUD handler (with gslbSystem for bucket reloads)
+		// Create GSLB CRUD handler (with gslbSystem for reloads)
 		gslbHandler := handlers.NewGSLBHandler(appContext, gslbSystem)
 
 		// Set dependency services for snapshot updates on certificate renewal

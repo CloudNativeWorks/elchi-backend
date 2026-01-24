@@ -34,7 +34,6 @@ func (handler *AppHandler) GetOTPConfig() gin.HandlerFunc {
 			Collection("settings").
 			FindOne(ctx, bson.M{"project": project}).
 			Decode(&settings)
-
 		if err != nil {
 			if errors.Is(err, mongo.ErrNoDocuments) {
 				// No settings yet, return default
@@ -100,7 +99,6 @@ func (handler *AppHandler) UpdateOTPConfig() gin.HandlerFunc {
 					Upsert: &[]bool{true}[0],
 				},
 			)
-
 		if err != nil {
 			handler.Logger.Errorf("Failed to update OTP config: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update OTP configuration"})
@@ -145,7 +143,6 @@ func (handler *AppHandler) ResetUserOTP() gin.HandlerFunc {
 					},
 				},
 			)
-
 		if err != nil {
 			handler.Logger.Errorf("Failed to reset user OTP: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reset user OTP"})

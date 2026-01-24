@@ -21,7 +21,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
-// HealthChecker manages GSLB health checking with bucket-based timer system
+// HealthChecker manages GSLB health checking with Time Wheel scheduler
 type HealthChecker struct {
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -34,9 +34,12 @@ type HealthChecker struct {
 	writeBuffer     *WriteBuffer
 	metricsPusher   *metrics.MetricsPusher
 
-	// Bucket-based timer system
-	bucketScheduler *BucketScheduler // Multi-bucket orchestrator
-	resultQueue     chan ProbeResult // Shared result queue for all buckets
+	// Time Wheel scheduler - per-IP scheduling with 1-second granularity
+	timeWheel     *TimeWheel         // Linux kernel-style time wheel
+	resultQueues  []chan ProbeResult // Per-processor result queues (sharded)
+	numProcessors int                // Number of result processors
+	workerPool    *WorkerPool        // Single shared worker pool
+	executor      ProbeExecutor      // Probe executor for immediate re-probes
 
 	// In-memory counters (NOT persisted to MongoDB)
 	counterManager *CounterManager
@@ -44,7 +47,7 @@ type HealthChecker struct {
 	// Metrics tracking (atomic counters for concurrent access)
 	probeSuccessCount int64    // Total successful probes
 	probeFailureCount int64    // Total failed probes
-	probeErrorCounts  sync.Map // Map[string]int64 - error type → count
+	probeErrorCounts  sync.Map // Map[string]int64 - error type -> count
 
 	// Latency tracking (for P50, P95, P99 calculation)
 	probeLatencySum   int64      // Sum of all probe latencies in microseconds (for average)
@@ -62,7 +65,7 @@ type HealthChecker struct {
 	running   bool
 }
 
-// NewHealthChecker creates a new health checker instance with bucket-based timer system
+// NewHealthChecker creates a new health checker instance with Time Wheel scheduler
 func NewHealthChecker(
 	appContext *db.AppContext,
 	shardManager *ShardManager,
@@ -73,26 +76,38 @@ func NewHealthChecker(
 ) *HealthChecker {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Create shared result queue for all buckets
-	resultQueue := make(chan ProbeResult, 20000)
-
 	// Create CPU-aware configuration
 	cpuConfig := NewCPUConfig()
 	logger.Infof("CPU-aware config: %d cores detected", cpuConfig.GetNumCPU())
 
-	// Create probe executor (shared across all bucket worker pools)
+	// Create probe executor
 	executor := NewDefaultProbeExecutor(logger)
 
-	// Create bucket scheduler with all timer buckets
-	bucketScheduler := NewBucketScheduler(
-		ipHealthManager,
-		shardManager,
-		cpuConfig,
-		resultQueue,
+	// CRITICAL FIX: Create per-processor result queues for IP-based sharding
+	// This prevents Go channel round-robin distribution from breaking sharding
+	numProcessors := 8
+	resultQueues := make([]chan ProbeResult, numProcessors)
+	for i := 0; i < numProcessors; i++ {
+		resultQueues[i] = make(chan ProbeResult, 10000) // 10k capacity per processor
+	}
+
+	// Create single shared worker pool for Time Wheel
+	// Workers will send results to the correct queue based on IP hash
+	// Use max workers based on CPU count
+	workerLimits := cpuConfig.GetWorkerLimits(10) // Use 10s as base interval
+	workerPool := NewWorkerPool(
+		1, // interval (not used in Time Wheel context)
+		workerLimits.MinWorkers,
+		workerLimits.MaxWorkers,
+		workerLimits.MinWorkers*10, // queue size
+		resultQueues,               // Pass all queues to worker pool
+		numProcessors,              // Number of result processors
 		executor,
-		metricsPusher,
 		logger,
 	)
+
+	// Create Time Wheel
+	timeWheel := NewTimeWheel(ctx, ipHealthManager, workerPool, logger)
 
 	return &HealthChecker{
 		ctx:             ctx,
@@ -103,14 +118,17 @@ func NewHealthChecker(
 		ipHealthManager: ipHealthManager,
 		writeBuffer:     writeBuffer,
 		metricsPusher:   metricsPusher,
-		bucketScheduler: bucketScheduler,
-		resultQueue:     resultQueue,
+		timeWheel:       timeWheel,
+		workerPool:      workerPool,
+		executor:        executor,
+		resultQueues:    resultQueues,
+		numProcessors:   numProcessors,
 		counterManager:  NewCounterManager(logger),
 		done:            make(chan struct{}),
 	}
 }
 
-// Start begins the health check loop with bucket-based timer system
+// Start begins the health check loop with Time Wheel scheduler
 // This method is idempotent - calling it multiple times has no effect if already running
 func (hc *HealthChecker) Start() error {
 	// Check if already running (idempotency)
@@ -123,38 +141,56 @@ func (hc *HealthChecker) Start() error {
 	hc.running = true
 	hc.runningMu.Unlock()
 
-	hc.logger.Infof("🚀 Starting GSLB Health Checker (bucket-based timer system)")
+	hc.logger.Infof("Starting GSLB Health Checker (Time Wheel scheduler)")
 
-	// Start bucket scheduler (all timer buckets)
-	if err := hc.bucketScheduler.Start(); err != nil {
-		// Mark as not running on failure
-		hc.runningMu.Lock()
-		hc.running = false
-		hc.runningMu.Unlock()
+	// Load records into Time Wheel
+	ctx, cancel := context.WithTimeout(hc.ctx, 30*time.Second)
+	shards := hc.shardManager.GetOwnedShards()
 
-		// This is expected when no GSLB records exist yet
-		hc.logger.Infof("⏸️  GSLB Health Checker in standby mode")
-		return fmt.Errorf("failed to start bucket scheduler: %w", err)
+	// Collect all records from all intervals
+	var allRecords []*models.GSLBRecord
+	intervals := []int{10, 20, 30, 60, 90, 120, 180, 300}
+	for _, interval := range intervals {
+		records, err := hc.ipHealthManager.GetRecordsByShards(ctx, shards, interval)
+		if err != nil {
+			cancel()
+			hc.logger.Errorf("Failed to load records for interval %ds: %v", interval, err)
+			return fmt.Errorf("failed to load records: %w", err)
+		}
+		for i := range records {
+			allRecords = append(allRecords, &records[i])
+		}
+	}
+	cancel()
+
+	if len(allRecords) == 0 {
+		hc.logger.Infof("No GSLB records found, Time Wheel in standby mode")
+	} else {
+		hc.logger.Infof("Loading %d records into Time Wheel...", len(allRecords))
+		if err := hc.timeWheel.LoadRecords(hc.ctx, allRecords); err != nil {
+			return fmt.Errorf("failed to load records into Time Wheel: %w", err)
+		}
 	}
 
-	// Start multiple result processor goroutines (sharded by IP hash)
-	// PERFORMANCE FIX: 8 processors instead of 1 → 8x throughput
-	// Each processor handles a shard of IPs to avoid race conditions
-	numProcessors := 8
-	for i := 0; i < numProcessors; i++ {
+	// Start Time Wheel
+	hc.timeWheel.Start()
+
+	// Start multiple result processor goroutines (one per queue)
+	// Each processor reads from its dedicated queue (pre-sharded by worker pool)
+	for i := 0; i < hc.numProcessors; i++ {
 		processorID := i
 		hc.wg.Add(1)
 		go func() {
 			defer hc.wg.Done()
-			hc.processResultsSharded(processorID, numProcessors)
+			hc.processResults(processorID)
 		}()
 	}
-	hc.logger.Infof("✅ Started %d result processors (sharded by IP hash)", numProcessors)
+	hc.logger.Infof("Started %d result processors (pre-sharded queues)", hc.numProcessors)
 
 	// Start periodic metrics pusher (system-level metrics every 30s)
 	hc.startMetricsPusher()
 
-	hc.logger.Infof("✅ GSLB Health Checker started successfully")
+	hc.logger.Infof("GSLB Health Checker started successfully")
 	return nil
 }
 
@@ -170,19 +206,32 @@ func (hc *HealthChecker) Stop() {
 	// Cancel context (signals processResults to drain and exit)
 	hc.cancel()
 
-	// Stop bucket scheduler (stops all timer buckets and worker pools)
-	hc.bucketScheduler.Stop()
+	// Stop Time Wheel
+	hc.timeWheel.Stop()
 
-	// Close result queue (signals processResults channel is done)
-	close(hc.resultQueue)
+	// Stop worker pool
+	hc.workerPool.Stop()
 
-	// Wait for processResults() goroutine to finish draining
+	// Close all result queues (signals processResults goroutines to exit)
+	for i := 0; i < hc.numProcessors; i++ {
+		close(hc.resultQueues[i])
+	}
+
+	// Wait for all processResults() goroutines to finish draining
 	hc.wg.Wait()
 
 	// Flush write buffer
 	hc.writeBuffer.FlushSync()
 
-	hc.logger.Infof("✅ Health checker stopped")
+	// Stop counter manager cleanup goroutine (prevents memory leak)
+	hc.counterManager.Stop()
+
+	// Close probe executor (releases HTTP client pool connections)
+	if hc.executor != nil {
+		hc.executor.Close()
+	}
+
+	hc.logger.Infof("Health checker stopped")
 }
 
 // IsRunning returns true if the health checker is currently running
@@ -193,43 +242,58 @@ func (hc *HealthChecker) IsRunning() bool {
 	return hc.running
 }
 
-// ReloadAllRecords forces immediate reload of all bucket records from database
-// This should be called after GSLB record create/update/delete operations
-// to ensure changes are immediately visible without waiting for periodic reload
+// ReloadAllRecords forces immediate reload of all records from database into Time Wheel
+// This should be called after GSLB record create/update/delete operations or shard rebalancing
+// CRITICAL: Clears Time Wheel completely before reload to prevent memory leaks from lost shards
 func (hc *HealthChecker) ReloadAllRecords() error {
-	if hc.bucketScheduler == nil {
-		return fmt.Errorf("bucket scheduler not initialized")
+	if hc.timeWheel == nil {
+		return fmt.Errorf("time wheel not initialized")
 	}
-	return hc.bucketScheduler.ReloadAllBuckets()
+
+	// CRITICAL: Clear all existing tasks first to prevent memory leaks
+	// When shards are lost (rebalancing), old IPs from lost shards would stay in memory
+	hc.timeWheel.ClearAll()
+
+	// Fetch all GSLB records from all intervals
+	ctx, cancel := context.WithTimeout(hc.ctx, 30*time.Second)
+	defer cancel()
+
+	shards := hc.shardManager.GetOwnedShards()
+	var allRecords []*models.GSLBRecord
+	intervals := []int{10, 20, 30, 60, 90, 120, 180, 300}
+
+	for _, interval := range intervals {
+		records, err := hc.ipHealthManager.GetRecordsByShards(ctx, shards, interval)
+		if err != nil {
+			return fmt.Errorf("failed to load records for interval %ds: %w", interval, err)
+		}
+		for i := range records {
+			allRecords = append(allRecords, &records[i])
+		}
+	}
+
+	// Reload into Time Wheel
+	return hc.timeWheel.LoadRecords(ctx, allRecords)
 }
 
-// processResultsSharded processes probe results with IP-based sharding
-// PERFORMANCE FIX: Multiple processors (8) instead of single processor
-// Each processor handles a shard of IPs based on hash(IP) % numProcessors
-// This avoids race conditions (same IP always processed by same goroutine)
-func (hc *HealthChecker) processResultsSharded(processorID, numProcessors int) {
-	hc.logger.Infof("Result processor #%d started (shard: %d/%d)", processorID, processorID, numProcessors)
+// processResults processes probe results from a dedicated queue
+// CRITICAL FIX: No sharding check needed - workers already routed to correct queue
+// Each processor reads from its own pre-sharded queue
+func (hc *HealthChecker) processResults(processorID int) {
+	hc.logger.Infof("Result processor #%d started (dedicated queue)", processorID)
 
 	processed := 0
-	skipped := 0
 
-	for result := range hc.resultQueue {
+	// Read from this processor's dedicated queue
+	for result := range hc.resultQueues[processorID] {
 		// Check if shutdown is requested
 		select {
 		case <-hc.ctx.Done():
 			// Shutdown requested - log stats and exit
-			hc.logger.Infof("Result processor #%d stopping (processed: %d, skipped: %d)", processorID, processed, skipped)
+			hc.logger.Infof("Result processor #%d stopping (processed: %d)", processorID, processed)
 			return
 		default:
 			// Continue normal processing
-		}
-
-		// Shard by IP hash to avoid race conditions on same IP
-		// Use simple hash: sum of IP bytes modulo numProcessors
-		ipHash := hashIP(result.IP)
-		if ipHash%numProcessors != processorID {
-			skipped++
-			continue // Not this processor's shard
 		}
 
 		// Extract task from context (contains RecordIDs for fan-out)
@@ -246,13 +310,18 @@ func (hc *HealthChecker) processResultsSharded(processorID, numProcessors int) {
 
 		// Fan out result to ALL records using this IP+config
 		for _, recordID := range task.RecordIDs {
-			hc.evaluateStatusChangeForRecord(result, recordID, task.Probe)
+			newState, consecutiveFailures, isWarningMonitor := hc.evaluateStatusChangeForRecord(result, recordID, task.Probe)
+
+			// Reschedule task in Time Wheel based on new state
+			if err := hc.timeWheel.HandleProbeResult(recordID, result.IP, newState, result.Success, consecutiveFailures, task.Probe, isWarningMonitor); err != nil {
+				hc.logger.Warnf("Failed to reschedule %s (record: %s): %v", result.IP, recordID.Hex()[:8], err)
+			}
 		}
 
 		processed++
 	}
 
-	hc.logger.Infof("Result processor #%d stopped (processed: %d, skipped: %d)", processorID, processed, skipped)
+	hc.logger.Infof("Result processor #%d stopped (processed: %d)", processorID, processed)
 }
 
 // hashIP returns a consistent hash for an IP address
@@ -268,40 +337,30 @@ func hashIP(ip string) int {
 // evaluateStatusChangeForRecord evaluates probe result for a specific record and updates health state
 // Per-record evaluation: same IP can have different health states across different records
 // Implements tri-state health model with circuit breaker
-// evaluateStatusChangeForRecord orchestrates health state evaluation for a single probe result
-// This is the main entry point that coordinates the evaluation workflow
-func (hc *HealthChecker) evaluateStatusChangeForRecord(result ProbeResult, recordID primitive.ObjectID, probe *models.GSLBProbe) {
+// Returns: (newState, consecutiveFailures, isWarningMonitor)
+func (hc *HealthChecker) evaluateStatusChangeForRecord(result ProbeResult, recordID primitive.ObjectID, probe *models.GSLBProbe) (models.HealthState, int, bool) {
 	// Step 1: Get current IP health from database
 	ipHealth, err := hc.getIPHealthFromDB(recordID, result.IP)
 	if err != nil {
 		hc.logger.Errorf("Failed to get IP health for %s: %v", result.IP, err)
-		return
+		return models.HealthStateCritical, 0, false
 	}
 
 	// Step 2: Validate probe configuration (prevents crashes from invalid config)
 	if !hc.validateProbeConfig(probe, result.IP, ipHealth.RecordID) {
-		return
+		return ipHealth.HealthState, 0, false
 	}
 
 	// Step 2.5: Track probe metrics (success/failure, error types, latency)
 	hc.trackProbeMetrics(result)
 
-	// Step 3: Update counters and evaluate new health state
-	// ✅ FIX: Use in-memory counter state instead of DB state for re-probes
-	// Re-probes happen in ~100ms intervals, faster than write buffer flush (1s)
-	// Using DB state causes infinite loop because it reads stale "passing" state
-	//
-	// ✅ MANUAL RESET FIX: Check if this is a manual re-probe (has manual_health_state in context)
-	// CRITICAL: Only use manual state for the SPECIFIC record that was manually changed
-	// Other records sharing the same IP should use their own counter state
 	var oldState models.HealthState
 	manualRecordID, hasManualRecord := result.Context.Value(manualRecordIDKey).(primitive.ObjectID)
 	manualState, hasManualState := result.Context.Value(manualHealthStateKey).(models.HealthState)
 
 	if hasManualState && hasManualRecord && manualRecordID == recordID {
-		// This is THE record that was manually changed - use the state admin set via API
 		oldState = manualState
-		hc.logger.Debugf("⚡ Using manual health state for comparison: %s (record: %s)",
+		hc.logger.Debugf("Using manual health state for comparison: %s (record: %s)",
 			manualState.String(), recordID.Hex())
 	} else {
 		// Normal probe OR different record sharing same IP - use counter state
@@ -317,7 +376,7 @@ func (hc *HealthChecker) evaluateStatusChangeForRecord(result ProbeResult, recor
 
 	// Debug log for manual reset scenario
 	if wasManualReset {
-		hc.logger.Debugf("⚡ Manual reset processing: RecordID=%s, IP=%s, oldState=%s, newState=%s, stateChanged=%v, failures=%d, successes=%d",
+		hc.logger.Debugf("Manual reset processing: RecordID=%s, IP=%s, oldState=%s, newState=%s, stateChanged=%v, failures=%d, successes=%d",
 			recordID.Hex(), result.IP, oldState, newState, stateChanged, consecutiveFailures, consecutiveSuccesses)
 	}
 
@@ -349,14 +408,17 @@ func (hc *HealthChecker) evaluateStatusChangeForRecord(result ProbeResult, recor
 
 		// Continue processing regardless of state change
 		// This ensures probe results update the state naturally after manual reset
-		hc.logger.Debugf("⚡ Manual reset: Cleared reset flag and backoff, continuing with probe result processing (oldState=%s, newState=%s, changed=%v)",
+		hc.logger.Debugf("Manual reset: Cleared reset flag and backoff, continuing with probe result processing (oldState=%s, newState=%s, changed=%v)",
 			oldState, newState, stateChanged)
 	}
+
+	// Determine if this is a WARNING monitor (continuous re-probe)
+	isWarningMonitor := newState == models.HealthStateWarning && !result.Success
 
 	if newState == models.HealthStateCritical && !result.Success {
 		// Critical state: Handle backoff logic (may update even if state unchanged)
 		hc.handleCriticalStateBackoff(ipHealth, result, oldState, newState, stateChanged, consecutiveFailures, probe)
-		return
+		return newState, consecutiveFailures, false
 	}
 
 	// Step 5: Handle non-critical state transitions
@@ -365,12 +427,14 @@ func (hc *HealthChecker) evaluateStatusChangeForRecord(result ProbeResult, recor
 	if stateChanged {
 		hc.handleNonCriticalStateTransition(ipHealth, result, oldState, newState, consecutiveFailures, consecutiveSuccesses)
 	} else if (newState == models.HealthStateWarning && !result.Success) || wasManualReset {
-		// ⚡ CRITICAL FIX: Even if state didn't change, we need to update in these cases:
+		//CRITICAL FIX: Even if state didn't change, we need to update in these cases:
 		// 1. WARNING state with probe failure - triggers continuous re-probe
 		// 2. Manual reset - probe result must be recorded even if state unchanged
 		// 3. PASSING state with probe failure after manual reset - counter incremented
 		hc.handleNonCriticalStateTransition(ipHealth, result, oldState, newState, consecutiveFailures, consecutiveSuccesses)
 	}
+
+	return newState, consecutiveFailures, isWarningMonitor
 }
 
 // getIPHealthFromDB retrieves IP health record from MongoDB
@@ -392,7 +456,7 @@ func (hc *HealthChecker) getIPHealthFromDB(recordID primitive.ObjectID, ip strin
 // validateProbeConfig ensures probe configuration is valid before evaluation
 func (hc *HealthChecker) validateProbeConfig(probe *models.GSLBProbe, ip string, recordID primitive.ObjectID) bool {
 	if probe == nil || probe.WarningThreshold <= 0 || probe.CriticalThreshold <= 0 {
-		hc.logger.Errorf("❌ IP %s has no valid probe configuration (record_id: %s) - skipping evaluation",
+		hc.logger.Errorf("IP %s has no valid probe configuration (record_id: %s) - skipping evaluation",
 			ip, recordID.Hex())
 		return false
 	}
@@ -407,14 +471,38 @@ func (hc *HealthChecker) evaluateHealthState(
 	recordID primitive.ObjectID,
 	probe *models.GSLBProbe,
 ) (newState models.HealthState, consecutiveFailures, consecutiveSuccesses int, wasManualReset bool) {
-	// ✅ FAN-OUT FIX: Check if THIS SPECIFIC RECORD was manually reset
+	// Check if THIS SPECIFIC RECORD was manually reset
 	// When same IP is used in multiple records, only reset counter for the record admin changed
 	// Other records sharing this IP should keep their existing counter state
 	var manualResetAt time.Time
+	var backoffInfo BackoffInfo
+
 	manualRecordID, hasManualRecord := result.Context.Value(manualRecordIDKey).(primitive.ObjectID)
 	if hasManualRecord && manualRecordID == recordID {
 		// This is THE record that admin manually changed - use its manual_reset_at
 		manualResetAt = ipHealth.ManualResetAt
+
+		// If manual reset exists, also clear backoff info
+		// This prevents using stale 80s backoff from previous CRITICAL state
+		// Manual PASS should start fresh: no backoff, no failures
+		if !manualResetAt.IsZero() {
+			backoffInfo = BackoffInfo{
+				CurrentBackoff: 0,
+				BackoffUntil:   time.Time{}, // Zero time = no backoff
+			}
+		} else {
+			// No manual reset - use current backoff
+			backoffInfo = BackoffInfo{
+				CurrentBackoff: ipHealth.CurrentBackoff,
+				BackoffUntil:   ipHealth.BackoffUntil,
+			}
+		}
+	} else {
+		// Different record sharing same IP - use current backoff
+		backoffInfo = BackoffInfo{
+			CurrentBackoff: ipHealth.CurrentBackoff,
+			BackoffUntil:   ipHealth.BackoffUntil,
+		}
 	}
 	// else: Different record sharing same IP - don't trigger manual reset logic
 
@@ -424,10 +512,7 @@ func (hc *HealthChecker) evaluateHealthState(
 		result.IP,
 		ipHealth.HealthState,
 		probe,
-		BackoffInfo{
-			CurrentBackoff: ipHealth.CurrentBackoff,
-			BackoffUntil:   ipHealth.BackoffUntil,
-		},
+		backoffInfo,   // Use cleared backoff for manual reset, current backoff otherwise
 		manualResetAt, // Only pass manual_reset_at for the specific record admin changed
 	)
 
@@ -438,16 +523,16 @@ func (hc *HealthChecker) evaluateHealthState(
 	// 3. We skip database write to prevent overwriting admin's manual state
 	//
 	// This ensures:
-	// - First probe after reset: Counter goes 0 → 1 (if failed)
-	// - State transition happens on second failure (WARNING → CRITICAL with threshold=2)
+	// - First probe after reset: Counter goes 0 -> 1 (if failed)
+	// - State transition happens on second failure (WARNING -> CRITICAL with threshold=2)
 	// - Admin's manual state persists until natural state transition occurs
 
 	// Normal flow: Update counter based on probe result
 	consecutiveFailures, consecutiveSuccesses = hc.counterManager.Update(recordID, result.IP, result.Success)
 
-	// Determine new health state with ONE-WAY PROGRESSION rule
-	// Pass current state to prevent backwards transitions (CRITICAL→WARNING, WARNING→PASSING while failing)
-	newState = models.DetermineHealthState(consecutiveFailures, probe, ipHealth.HealthState)
+	// Determine new health state with RECOVERY support
+	// Uses passing_threshold for anti-flapping (requires multiple successes to become PASSING)
+	newState = models.DetermineHealthStateWithRecovery(consecutiveFailures, consecutiveSuccesses, probe, ipHealth.HealthState)
 
 	return newState, consecutiveFailures, consecutiveSuccesses, wasManualReset
 }
@@ -473,7 +558,7 @@ func (hc *HealthChecker) handleCriticalStateBackoff(
 
 	// Log backoff changes on state transitions
 	if stateChanged && oldBackoff != ipHealth.CurrentBackoff {
-		hc.logger.Debugf("🔧 Backoff updated for %s: %ds → %ds (failures: %d, interval: %ds, state: %s→%s)",
+		hc.logger.Debugf("Backoff updated for %s: %ds -> %ds (failures: %d, interval: %ds, state: %s->%s)",
 			result.IP, oldBackoff, ipHealth.CurrentBackoff, consecutiveFailures, probe.Interval, oldState, newState)
 	}
 
@@ -484,7 +569,7 @@ func (hc *HealthChecker) handleCriticalStateBackoff(
 
 	// Log state transition
 	if stateChanged {
-		hc.logger.Infof("🔄 State transition: %s %s → %s (failures: %d) - Circuit breaker activated: backoff %ds until %v",
+		hc.logger.Infof("State transition: %s %s -> %s (failures: %d) - Circuit breaker activated: backoff %ds until %v",
 			result.IP, oldState, newState, consecutiveFailures, ipHealth.CurrentBackoff, ipHealth.BackoffUntil.Format("15:04:05"))
 		hc.pushStateTransitionMetric(oldState, newState)
 	}
@@ -503,92 +588,23 @@ func (hc *HealthChecker) handleNonCriticalStateTransition(
 	consecutiveFailures, consecutiveSuccesses int,
 ) {
 	// Log state transition
-	hc.logger.Infof("🔄 State transition: %s %s → %s (failures: %d, successes: %d)",
+	hc.logger.Infof("State transition: %s %s -> %s (failures: %d, successes: %d)",
 		result.IP, oldState, newState, consecutiveFailures, consecutiveSuccesses)
 	hc.pushStateTransitionMetric(oldState, newState)
 
-	// ⚡ IMMEDIATE RE-PROBE: Check BEFORE database write logic
-	// Trigger immediate re-probe in two scenarios:
-	// 1. PASSING → WARNING transition (initial degradation detected)
-	// 2. WARNING state with probe failure (continue monitoring until CRITICAL or recovery)
+	// NOTE: All automatic WARNING state scheduling is now handled by Time Wheel with interval/2
+	// No immediate re-probe needed for automatic PASSING -> WARNING transition
+	// Time Wheel reschedules WARNING IPs at half interval (e.g., 5s for 10s interval)
+	// This gives endpoints time to recover instead of aggressive 100ms probing
 	//
-	// CRITICAL: This check must happen BEFORE shouldWrite check, because WARNING → WARNING
-	// returns shouldWrite=false, which would cause early return and skip re-probe!
-	//
-	// This ensures fast failover regardless of threshold configuration:
-	// - warning_threshold=1, critical_threshold=2: 1 re-probe → CRITICAL
-	// - warning_threshold=1, critical_threshold=8: 7 re-probes → CRITICAL
-	// Result: WARNING state duration = ~100ms × (critical_threshold - warning_threshold)
-	shouldReProbe := false
-	var reProbeReason string
+	// IMPORTANT: Manual PASSING changes still trigger immediate re-probe via
+	// TriggerImmediateReProbeForManualChange() which is called from API handler
 
-	// ✅ CRITICAL FIX: Check is_reprobe flag BEFORE all re-probe triggers
-	// This prevents infinite re-probe loops across ALL state transitions
-	isReProbe := false
-	if result.Context != nil {
-		if val, ok := result.Context.Value(isReprobeKey).(bool); ok {
-			isReProbe = val
-		}
-	}
-
-	if oldState == models.HealthStatePassing && newState == models.HealthStateWarning {
-		// ✅ FIXED: Check flag to prevent re-probe loops on PASSING→WARNING
-		if isReProbe {
-			hc.logger.Debugf("⚡ Skipping re-probe for %s: PASSING→WARNING from re-probe", result.IP)
-		} else {
-			shouldReProbe = true
-			reProbeReason = "PASSING → WARNING transition"
-		}
-	} else if newState == models.HealthStateWarning && !result.Success {
-		// ✅ CRITICAL FIX: Check if this is from WARNING monitoring loop
-		// WARNING monitoring loop probes should NOT trigger additional re-probes
-		isWarningMonitor := false
-		if result.Context != nil {
-			if val, ok := result.Context.Value(isWarningMonitorKey).(bool); ok {
-				isWarningMonitor = val
-			}
-		}
-
-		// ✅ CRITICAL FIX: WARNING state needs continuous monitoring to detect CRITICAL
-		// Only skip re-probe if BOTH: is_reprobe=true AND this is FIRST transition to WARNING
-		// Allow re-probes if already in WARNING state (ongoing monitoring for CRITICAL detection)
-		switch {
-		case isReProbe && oldState == models.HealthStatePassing:
-			// First re-probe after PASSING→WARNING, don't trigger another immediately
-			hc.logger.Debugf("⚡ Skipping re-probe for %s: PASSING→WARNING from re-probe", result.IP)
-		case isWarningMonitor:
-			// This probe is from WARNING monitoring loop - don't trigger another re-probe
-			hc.logger.Debugf("⚡ Skipping re-probe for %s: probe from WARNING monitoring loop", result.IP)
-		default:
-			// Either: not a re-probe, OR already was in WARNING (continue monitoring)
-			shouldReProbe = true
-			reProbeReason = "WARNING state failure (monitoring until CRITICAL or recovery)"
-		}
-	}
-
-	if shouldReProbe {
-		hc.logger.Infof("⚡ Triggering immediate re-probe for %s (%s)", result.IP, reProbeReason)
-
-		// Validate probe config exists
-		if result.Probe == nil {
-			hc.logger.Warnf("Cannot re-probe %s: missing probe config in result", result.IP)
-			return
-		}
-
-		// Schedule immediate re-probe (async to avoid blocking result processor)
-		// Track goroutine with WaitGroup for graceful shutdown
-		hc.wg.Add(1)
-		go func() {
-			defer hc.wg.Done()
-			hc.executeImmediateReProbe(ipHealth, result)
-		}()
-	}
-
-	// Check if database write is needed (after re-probe check!)
+	// Check if database write is needed
 	shouldWrite, isImmediate := models.ShouldWriteToDatabase(oldState, newState)
 
-	// ✅ CRITICAL FIX: WARNING monitoring probes MUST write to DB for race condition prevention
-	// Problem: WARNING→WARNING transitions return shouldWrite=false from ShouldWriteToDatabase()
+	// WARNING monitoring probes MUST write to DB for race condition prevention
+	// Problem: WARNING->WARNING transitions return shouldWrite=false from ShouldWriteToDatabase()
 	// This causes monitorWarningState() DB check to read stale state even after CRITICAL transition
 	// Solution: Force write for WARNING monitoring probes to ensure DB is updated before next check
 	isWarningMonitorProbe := false
@@ -601,23 +617,12 @@ func (hc *HealthChecker) handleNonCriticalStateTransition(
 	if isWarningMonitorProbe {
 		shouldWrite = true
 		isImmediate = true // MUST be immediate for monitorWarningState() DB check to see fresh state
-		hc.logger.Debugf("⚡ Forcing immediate write for WARNING monitoring probe: %s (state: %s)",
+		hc.logger.Debugf("Forcing immediate write for WARNING monitoring probe: %s (state: %s)",
 			result.IP, newState)
 	}
 
 	if !shouldWrite {
 		return
-	}
-
-	// ✅ CRITICAL FIX: Force immediate write if re-probe is scheduled
-	// Reason: Immediate re-probe will write next state in ~100ms, we must ensure this state
-	// is persisted BEFORE that to avoid write order race condition
-	// Without this, buffered write (5s delay) may arrive AFTER re-probe's immediate write,
-	// causing DB state to revert (e.g., CRITICAL → WARNING override)
-	if shouldReProbe && !isImmediate {
-		isImmediate = true
-		hc.logger.Debugf("⚡ Forcing immediate write for %s %s → %s (re-probe scheduled)",
-			result.IP, oldState, newState)
 	}
 
 	// Update health state
@@ -645,89 +650,9 @@ func (hc *HealthChecker) handleNonCriticalStateTransition(
 	}
 }
 
-// executeImmediateReProbe executes an immediate re-probe for WARNING IPs
-// This replaces the periodic FastFail bucket approach with event-driven probing
-//
-// MONITORING STRATEGY (after manual health state change):
-// 1. Manual PASSING → Immediate probe → SUCCESS: Stay PASSING, done
-// 2. Manual PASSING → Immediate probe → FAIL: WARNING → Continue monitoring
-// 3. WARNING monitoring: Probe every 200ms until SUCCESS (PASSING) or 3 failures (CRITICAL)
-//
-// PERFORMANCE NOTE: Re-probe is processed DIRECTLY (bypasses result queue) for:
-// ✅ Zero latency - No queue waiting, immediate failover detection
-// ✅ Guaranteed execution - Result never lost in queue contention
-// ✅ Minimal overhead - No goroutine spawn, no channel operations
-// ✅ Same code path - Uses existing evaluateStatusChangeForRecord()
-func (hc *HealthChecker) executeImmediateReProbe(ipHealth *models.GSLBIPHealth, result ProbeResult) {
-	// Small delay to ensure write buffer has chance to flush
-	// This prevents probe from seeing stale counter values
-	time.Sleep(100 * time.Millisecond)
-
-	// CRITICAL: Check for nil context before accessing
-	if result.Context == nil {
-		hc.logger.Errorf("⚡ Cannot re-probe %s: result context is nil", result.IP)
-		return
-	}
-
-	// Extract original task from result context to get RecordIDs
-	originalTask, ok := result.Context.Value(taskContextKey).(ProbeTask)
-	if !ok {
-		hc.logger.Errorf("⚡ Cannot re-probe %s: missing task in original result context", result.IP)
-		return
-	}
-
-	// Execute probe with timeout from probe config
-	// Use hc.ctx as parent for proper cancellation on shutdown
-	probeCtx, cancel := context.WithTimeout(hc.ctx,
-		time.Duration(result.Probe.Timeout*float64(time.Second)))
-	defer cancel()
-
-	// Create probe task with RecordIDs from original task (CRITICAL for fan-out)
-	task := ProbeTask{
-		IPHealth:  ipHealth,
-		Probe:     result.Probe,
-		RecordIDs: originalTask.RecordIDs, // ✅ FIXED: Copy RecordIDs for fan-out
-	}
-
-	// Execute the re-probe using the same executor as normal buckets
-	reProbeResult := hc.bucketScheduler.executor.ExecuteProbe(probeCtx, task.IPHealth, task.Probe)
-
-	// Error handling: Log probe failures for diagnostics
-	if !reProbeResult.Success && reProbeResult.Error != nil {
-		hc.logger.Warnf("⚡ Re-probe failed for %s: %v (response_code: %d, response_time: %.3fs)",
-			result.IP, reProbeResult.Error, reProbeResult.ResponseCode, reProbeResult.ResponseTime)
-	}
-
-	// ✅ CRITICAL: Attach CLEAN task context to re-probe result (NO manual_health_state!)
-	// Immediate re-probe should NOT inherit manual state from original probe
-	// This ensures state transitions are evaluated correctly based on actual probe results
-	// Use hc.ctx for proper shutdown propagation
-	reProbeResult.Context = context.WithValue(hc.ctx, taskContextKey, task)
-	// ✅ CRITICAL FIX: Mark this as a re-probe to prevent infinite re-probe loops
-	reProbeResult.Context = context.WithValue(reProbeResult.Context, isReprobeKey, true)
-
-	// ✅ PERFORMANCE FIX: Process re-probe result DIRECTLY instead of queue
-	// This eliminates queue latency and guarantees immediate failover detection
-	// Fan out result to ALL records using this IP+config
-	processedRecords := 0
-	for _, recordID := range task.RecordIDs {
-		// Process result directly using same evaluation logic
-		// evaluateStatusChangeForRecord is safe to call even if probe failed
-		hc.evaluateStatusChangeForRecord(reProbeResult, recordID, task.Probe)
-		processedRecords++
-	}
-
-	// Log completion with detailed status
-	if reProbeResult.Success {
-		hc.logger.Debugf("⚡ Re-probe completed for %s (success, %d records processed)", result.IP, processedRecords)
-	} else {
-		hc.logger.Infof("⚡ Re-probe completed for %s (failed, %d records updated to reflect failure)", result.IP, processedRecords)
-	}
-}
-
 // TriggerImmediateReProbeForManualChange triggers an immediate re-probe for a manually changed IP
 // This is called from the API handler after a manual state change to verify actual health status
-// Prevents manually-changed IPs from staying in incorrect state until next bucket cycle
+// Prevents manually-changed IPs from staying in incorrect state until next scheduled probe
 //
 // Parameters:
 //   - manualHealthState: The health state that was manually set via API (NOT read from MongoDB)
@@ -742,7 +667,7 @@ func (hc *HealthChecker) TriggerImmediateReProbeForManualChange(ctx context.Cont
 
 	// Verify probe is enabled
 	if record.Probe == nil || !record.Probe.IsEnabled() {
-		hc.logger.Debugf("⚡ Skipping manual re-probe for %s: probe disabled", ip)
+		hc.logger.Debugf("Skipping manual re-probe for %s: probe disabled", ip)
 		return nil
 	}
 
@@ -756,7 +681,7 @@ func (hc *HealthChecker) TriggerImmediateReProbeForManualChange(ctx context.Cont
 		HealthState: manualHealthState, // Use the state from API parameter, NOT MongoDB
 	}
 
-	// ✅ ISOLATION FIX: Manual re-probe should ONLY affect the specific record admin changed
+	// Manual re-probe should ONLY affect the specific record admin changed
 	// Do NOT fan-out to other records sharing this IP - they should maintain their own state
 	// Each record is independent and follows its own probe schedule
 
@@ -765,15 +690,15 @@ func (hc *HealthChecker) TriggerImmediateReProbeForManualChange(ctx context.Cont
 		time.Duration(record.Probe.Timeout*float64(time.Second)))
 	defer cancel()
 
-	// Execute the probe using the same executor as normal buckets
-	result := hc.bucketScheduler.executor.ExecuteProbe(probeCtx, &ipHealth, record.Probe)
+	// Execute the probe using the same executor as Time Wheel probes
+	result := hc.executor.ExecuteProbe(probeCtx, &ipHealth, record.Probe)
 
 	// Log probe execution
 	if !result.Success && result.Error != nil {
-		hc.logger.Infof("⚡ Manual re-probe executed for %s (record: %s): FAILED (response_code: %d, response_time: %.3fs, error: %v)",
+		hc.logger.Infof("Manual re-probe executed for %s (record: %s): FAILED (response_code: %d, response_time: %.3fs, error: %v)",
 			ip, recordID.Hex()[:8], result.ResponseCode, result.ResponseTime, result.Error)
 	} else {
-		hc.logger.Infof("⚡ Manual re-probe executed for %s (record: %s): SUCCESS (response_code: %d, response_time: %.3fs)",
+		hc.logger.Infof("Manual re-probe executed for %s (record: %s): SUCCESS (response_code: %d, response_time: %.3fs)",
 			ip, recordID.Hex()[:8], result.ResponseCode, result.ResponseTime)
 	}
 
@@ -781,159 +706,32 @@ func (hc *HealthChecker) TriggerImmediateReProbeForManualChange(ctx context.Cont
 	task := ProbeTask{
 		IPHealth:  &ipHealth,
 		Probe:     record.Probe,
-		RecordIDs: []primitive.ObjectID{recordID}, // ✅ ONLY this record
+		RecordIDs: []primitive.ObjectID{recordID}, // ONLY this record
 	}
 
-	// CRITICAL: Add manual health state to context for the specific record that was manually changed
+	// Add manual health state to context for the specific record that was manually changed
 	resultCtx := context.WithValue(hc.ctx, taskContextKey, task)
 	resultCtx = context.WithValue(resultCtx, manualRecordIDKey, recordID) // Track which record was manually changed
 	resultCtx = context.WithValue(resultCtx, manualHealthStateKey, manualHealthState)
-	// ✅ CRITICAL FIX: Mark this as a re-probe to prevent infinite re-probe loops
 	resultCtx = context.WithValue(resultCtx, isReprobeKey, true)
 	result.Context = resultCtx
 
-	// ✅ ISOLATION: Process result ONLY for the manually changed record
-	hc.evaluateStatusChangeForRecord(result, recordID, record.Probe)
+	// ISOLATION: Process result ONLY for the manually changed record
+	newState, consecutiveFailures, isWarningMonitor := hc.evaluateStatusChangeForRecord(result, recordID, record.Probe)
 
-	// ✅ NEW: WARNING state monitoring loop
-	// CRITICAL: Only start monitoring if manual state was PASSING or WARNING
-	// Do NOT monitor if manual state was already CRITICAL (admin explicitly set it as unhealthy)
-	if !result.Success && manualHealthState != models.HealthStateCritical {
-		// Manual PASSING/WARNING + probe FAIL → Start monitoring
-		// Will continue until SUCCESS (PASSING) or CRITICAL threshold reached
-		hc.logger.Debugf("⚡ Starting WARNING monitoring for %s (record: %s, manual state: %s, probe failed)",
-			ip, recordID.Hex()[:8], manualHealthState)
-		// ✅ ISOLATION: Pass only this record ID for monitoring
-		hc.monitorWarningState(ctx, recordID, ip, record.Probe, []primitive.ObjectID{recordID})
-	} else if !result.Success && manualHealthState == models.HealthStateCritical {
-		// Manual CRITICAL + probe FAIL → Already CRITICAL, no monitoring needed
-		// Admin explicitly marked this as unhealthy, respect that decision
-		hc.logger.Infof("⚡ Skipping WARNING monitoring for %s (record: %s, manual state: CRITICAL, already unhealthy)",
-			ip, recordID.Hex()[:8])
+	// CRITICAL: Reschedule in Time Wheel after manual re-probe
+	// This ensures the IP continues normal probing cycle
+	if err := hc.timeWheel.HandleProbeResult(recordID, result.IP, newState, result.Success, consecutiveFailures, record.Probe, isWarningMonitor); err != nil {
+		hc.logger.Warnf("Failed to reschedule %s in Time Wheel after manual re-probe: %v", result.IP, err)
 	}
 
-	hc.logger.Infof("⚡ Manual re-probe completed for %s (record: %s)", ip, recordID.Hex()[:8])
+	// NOTE: WARNING state monitoring is now handled by Time Wheel with interval/2 scheduling
+	// HandleProbeResult above already scheduled the next probe at interval/2 for WARNING state
+	// No need for aggressive 200ms monitoring loop - Time Wheel provides proper pacing
+
+	hc.logger.Infof("Manual re-probe completed for %s (record: %s)", ip, recordID.Hex()[:8])
 
 	return nil
-}
-
-// monitorWarningState continuously monitors WARNING state IPs until they become PASSING or CRITICAL
-// Called after manual health state change when initial probe fails
-//
-// MONITORING STRATEGY:
-// - Probe every 200ms (non-aggressive interval)
-// - Continue until: SUCCESS (→ PASSING) OR critical_threshold reached (→ CRITICAL)
-// - Maximum probes: critical_threshold (e.g., 3 for typical config)
-// - Each probe updates all records sharing this IP+config (fan-out)
-func (hc *HealthChecker) monitorWarningState(ctx context.Context, recordID primitive.ObjectID, ip string, probe *models.GSLBProbe, allRecords []primitive.ObjectID) {
-	// Validate probe configuration
-	if probe == nil || probe.CriticalThreshold <= 1 {
-		hc.logger.Warnf("⚡ Cannot monitor WARNING state for %s: invalid probe config", ip)
-		return
-	}
-
-	hc.logger.Infof("⚡ Starting WARNING state monitoring for %s (will probe every 200ms until PASSING or CRITICAL)", ip)
-
-	// Maximum attempts = critical_threshold (e.g., 3)
-	// We already did 1 probe, so do (critical_threshold - 1) more
-	maxAttempts := probe.CriticalThreshold - 1
-	if maxAttempts <= 0 {
-		return // Already at or past critical threshold
-	}
-
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		// Wait 200ms between probes (non-aggressive)
-		select {
-		case <-time.After(200 * time.Millisecond):
-			// Continue
-		case <-ctx.Done():
-			hc.logger.Warnf("⚡ WARNING monitoring cancelled for %s: context done", ip)
-			return
-		case <-hc.ctx.Done():
-			hc.logger.Warnf("⚡ WARNING monitoring cancelled for %s: health checker stopping", ip)
-			return
-		}
-
-		// Execute probe with timeout
-		probeCtx, cancel := context.WithTimeout(hc.ctx,
-			time.Duration(probe.Timeout*float64(time.Second)))
-
-		// Build minimal IPHealth for probe
-		ipHealth := models.GSLBIPHealth{
-			RecordID: recordID,
-			IP:       ip,
-		}
-
-		// Execute probe
-		result := hc.bucketScheduler.executor.ExecuteProbe(probeCtx, &ipHealth, probe)
-		cancel()
-
-		// Log probe result
-		if result.Success {
-			hc.logger.Infof("⚡ WARNING monitoring probe #%d for %s: SUCCESS (recovered to PASSING)", attempt, ip)
-		} else {
-			hc.logger.Infof("⚡ WARNING monitoring probe #%d for %s: FAILED (consecutive failures: %d/%d)",
-				attempt, ip, attempt+1, probe.CriticalThreshold)
-		}
-
-		// Create task context for result processing
-		task := ProbeTask{
-			IPHealth:  &ipHealth,
-			Probe:     probe,
-			RecordIDs: allRecords,
-		}
-
-		resultCtx := context.WithValue(hc.ctx, taskContextKey, task)
-		// Mark as re-probe to prevent infinite loops
-		resultCtx = context.WithValue(resultCtx, isReprobeKey, true)
-		// ✅ CRITICAL FIX: Mark as WARNING monitoring probe to prevent additional re-probe triggers
-		resultCtx = context.WithValue(resultCtx, isWarningMonitorKey, true)
-		result.Context = resultCtx
-
-		// Process result for all records FIRST (may transition to CRITICAL)
-		for _, rid := range allRecords {
-			hc.evaluateStatusChangeForRecord(result, rid, probe)
-		}
-
-		// ✅ RACE CONDITION FIX: Check persisted state AFTER processing
-		// If ANY record for this IP transitioned to CRITICAL during processing, stop monitoring
-		// This must be AFTER evaluateStatusChangeForRecord() to avoid stale reads
-		// CRITICAL: Use fresh DB read to detect state written by evaluateStatusChangeForRecord()
-		shouldStopMonitoring := false
-		for _, rid := range allRecords {
-			currentIPHealth, err := hc.getIPHealthFromDB(rid, ip)
-			if err != nil {
-				hc.logger.Debugf("⚡ WARNING monitoring: Could not get IP health for record %s: %v", rid.Hex(), err)
-				continue
-			}
-
-			// If ANY record shows CRITICAL, stop monitoring (one-way progression rule)
-			if currentIPHealth.HealthState == models.HealthStateCritical {
-				hc.logger.Infof("⚡ WARNING monitoring stopped for %s: IP transitioned to CRITICAL (record: %s)", ip, rid.Hex()[:8])
-				shouldStopMonitoring = true
-				break
-			}
-		}
-
-		if shouldStopMonitoring {
-			return
-		}
-
-		// Check if we should stop monitoring
-		if result.Success {
-			hc.logger.Infof("⚡ WARNING monitoring completed for %s: Recovered to PASSING after %d probes", ip, attempt)
-			return
-		}
-
-		// Check if we reached CRITICAL threshold
-		// attempt+1 because we count the initial probe
-		if attempt+1 >= probe.CriticalThreshold {
-			hc.logger.Infof("⚡ WARNING monitoring completed for %s: Reached CRITICAL threshold after %d total probes", ip, attempt+1)
-			return
-		}
-	}
-
-	hc.logger.Infof("⚡ WARNING monitoring completed for %s after %d probes (max attempts reached)", ip, maxAttempts)
 }
 
 // buildHealthStateUpdate creates a HealthStateUpdate from current state
@@ -958,11 +756,11 @@ func (hc *HealthChecker) buildHealthStateUpdate(
 		ResponseTime:   result.ResponseTime,
 		Timestamp:      time.Now(),
 		ProbeType:      result.Probe.Type,
-		ErrorMessage:   errorMessage, // ✅ RE-ENABLED
+		ErrorMessage:   errorMessage,
 	}
 }
 
-// GetStats returns health checker statistics for monitoring
+// HealthCheckerStats holds health checker statistics for monitoring
 type HealthCheckerStats struct {
 	OwnedShards      int
 	TotalIPs         int
@@ -970,7 +768,8 @@ type HealthCheckerStats struct {
 	WarningIPs       int
 	CriticalIPs      int
 	BackoffActiveIPs int
-	BucketStats      *BucketSchedulerStats // Bucket scheduler stats
+	TimeWheelStats   TimeWheelStats  // Time Wheel scheduler stats
+	WorkerPoolStats  WorkerPoolStats // Worker pool stats
 	WriteBufferStats BufferStats
 	ResultQueueDepth int // Shared result queue depth
 	ResultQueueCap   int // Shared result queue capacity
@@ -982,12 +781,21 @@ func (hc *HealthChecker) GetStats() (*HealthCheckerStats, error) {
 	ctx, cancel := context.WithTimeout(hc.ctx, 5*time.Second)
 	defer cancel()
 
+	// Calculate total queue depth and capacity across all processor queues
+	totalQueueDepth := 0
+	totalQueueCap := 0
+	for i := 0; i < hc.numProcessors; i++ {
+		totalQueueDepth += len(hc.resultQueues[i])
+		totalQueueCap += cap(hc.resultQueues[i])
+	}
+
 	stats := &HealthCheckerStats{
 		OwnedShards:      len(hc.shardManager.GetOwnedShards()),
-		BucketStats:      hc.bucketScheduler.GetStats(),
+		TimeWheelStats:   hc.timeWheel.Stats(),
+		WorkerPoolStats:  hc.workerPool.GetStats(),
 		WriteBufferStats: hc.writeBuffer.GetStats(),
-		ResultQueueDepth: len(hc.resultQueue),
-		ResultQueueCap:   cap(hc.resultQueue),
+		ResultQueueDepth: totalQueueDepth,
+		ResultQueueCap:   totalQueueCap,
 	}
 
 	// Count IPs by health state
@@ -1045,7 +853,7 @@ func (hc *HealthChecker) getCurrentStateFromCounter(
 	probe *models.GSLBProbe,
 ) models.HealthState {
 	// Get counter (don't initialize, we're just reading)
-	key := fmt.Sprintf("%s:%s", recordID.Hex(), ip)
+	key := MakeIPKey(recordID, ip)
 	hc.counterManager.mu.RLock()
 	counter, exists := hc.counterManager.counters[key]
 	hc.counterManager.mu.RUnlock()
@@ -1055,22 +863,19 @@ func (hc *HealthChecker) getCurrentStateFromCounter(
 		return ipHealth.HealthState
 	}
 
-	// Compute state from counter using threshold logic
-	// Same logic as evaluateAndUpdateState but without side effects
-	failures := counter.ConsecutiveFailures
-
 	if probe == nil {
 		return ipHealth.HealthState // Fallback to DB
 	}
 
-	// Apply tri-state threshold logic
-	if failures >= probe.CriticalThreshold {
-		return models.HealthStateCritical
-	}
-	if failures >= probe.WarningThreshold {
-		return models.HealthStateWarning
-	}
-	return models.HealthStatePassing
+	// Use DetermineHealthStateWithRecovery for consistent state calculation
+	// This ensures RECOVERY state is properly tracked when passing_threshold > 1
+	// Without this, we'd always return PASSING when failures=0, missing RECOVERY state
+	return models.DetermineHealthStateWithRecovery(
+		counter.ConsecutiveFailures,
+		counter.ConsecutiveSuccesses,
+		probe,
+		ipHealth.HealthState, // Current DB state for context (needed for RECOVERY logic)
+	)
 }
 
 // trackProbeMetrics tracks probe success/failure and error types for metrics
@@ -1107,14 +912,14 @@ func (hc *HealthChecker) trackProbeMetrics(result ProbeResult) {
 	const maxLatencyMicros = 1_000_000_000 // 1,000 seconds in microseconds
 	if latencyMicros > maxLatencyMicros {
 		latencyMicros = maxLatencyMicros
-		hc.logger.Warnf("⚠️  Probe latency overflow detected for %s: capped at %ds", result.IP, maxLatencyMicros/1_000_000)
+		hc.logger.Warnf("Probe latency overflow detected for %s: capped at %ds", result.IP, maxLatencyMicros/1_000_000)
 	}
 
 	// Atomic add with overflow protection (sum + latency check)
 	currentSum := atomic.LoadInt64(&hc.probeLatencySum)
 	if currentSum > 0 && latencyMicros > (1<<63-1)-currentSum {
 		// Would overflow - reset counters to prevent corruption
-		hc.logger.Warnf("⚠️  Latency sum overflow detected, resetting counters")
+		hc.logger.Warnf("Latency sum overflow detected, resetting counters")
 		atomic.StoreInt64(&hc.probeLatencySum, latencyMicros)
 		atomic.StoreInt64(&hc.probeLatencyCount, 1)
 	} else {

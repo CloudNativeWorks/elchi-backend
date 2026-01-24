@@ -14,7 +14,6 @@ import (
 )
 
 func CreateDefaultScenarios(ctx context.Context, db *AppContext) error {
-
 	collection := db.Client.Collection("scenarios")
 
 	// Define default dynamic scenarios with selected fields

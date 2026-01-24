@@ -92,7 +92,6 @@ func (xds *AppHandler) populateEndpointFromDiscovery(ctx context.Context, resour
 			"cluster_name": discoveryConfig.ClusterName,
 			"project":      general.Project,
 		}).Decode(&clusterData)
-
 		if err != nil {
 			if errors.Is(err, mongo.ErrNoDocuments) {
 				// No cluster found, return error to prevent creating endpoint with invalid cluster
@@ -375,7 +374,7 @@ func (xds *AppHandler) SetResource(ctx context.Context, resource models.Resource
 }
 
 func (xds *AppHandler) createService(ctx context.Context, serviceName string, project string, version string, adminPort uint32, requestDetails models.RequestDetails) (string, error) {
-	xds.Logger.Debugf("🛠️ createService called - serviceName: %s, project: %s, version: %s, adminPort: %d", serviceName, project, version, adminPort)
+	xds.Logger.Debugf("createService called - serviceName: %s, project: %s, version: %s, adminPort: %d", serviceName, project, version, adminPort)
 
 	var service models.Service
 	collection := xds.Context.Client.Collection("services")
@@ -385,43 +384,44 @@ func (xds *AppHandler) createService(ctx context.Context, serviceName string, pr
 	service.AdminPort = adminPort
 	service.Clients = []models.ServiceClients{}
 
-	xds.Logger.Debugf("📄 Service document prepared: %+v", service)
+	xds.Logger.Debugf("Service document prepared: %+v", service)
 
 	// P0-3 FIX: Set service permissions from user's base_group or user_id
-	// If user has base_group → add to permissions.groups[]
-	// If no base_group → add user_id to permissions.users[]
-	if requestDetails.User.BaseGroup != "" {
+	// If user has base_group -> add to permissions.groups[]
+	// If no base_group -> add user_id to permissions.users[]
+	switch {
+	case requestDetails.User.BaseGroup != "":
 		service.Permissions = models.Permissions{
 			Groups: []string{requestDetails.User.BaseGroup},
 			Users:  []string{},
 		}
-		xds.Logger.Debugf("🔐 Service permissions set from base_group: %s", requestDetails.User.BaseGroup)
-	} else if requestDetails.User.UserID != "" {
+		xds.Logger.Debugf("Service permissions set from base_group: %s", requestDetails.User.BaseGroup)
+	case requestDetails.User.UserID != "":
 		service.Permissions = models.Permissions{
 			Groups: []string{},
 			Users:  []string{requestDetails.User.UserID},
 		}
-		xds.Logger.Debugf("🔐 Service permissions set from user_id: %s", requestDetails.User.UserID)
-	} else {
+		xds.Logger.Debugf("Service permissions set from user_id: %s", requestDetails.User.UserID)
+	default:
 		service.Permissions = models.Permissions{Groups: []string{}, Users: []string{}}
-		xds.Logger.Debugf("⚠️ Service permissions empty - no base_group or user_id")
+		xds.Logger.Debugf("Service permissions empty - no base_group or user_id")
 	}
 
-	xds.Logger.Debugf("💾 attempting to insert service into MongoDB...")
+	xds.Logger.Debugf("attempting to insert service into MongoDB...")
 	inserResult, err := collection.InsertOne(ctx, service)
 	if err != nil {
-		xds.Logger.Debugf("❌ Service MongoDB insert failed: %v", err)
+		xds.Logger.Debugf("Service MongoDB insert failed: %v", err)
 		if er := new(mongo.WriteException); errors.As(err, &er) && er.WriteErrors[0].Code == 11000 {
-			xds.Logger.Debugf("⚠️ Service duplicate key error detected for: %s", serviceName)
+			xds.Logger.Debugf("Service duplicate key error detected for: %s", serviceName)
 			return "", parseDuplicateKeyError(err, serviceName)
 		}
 		return "", err
 	}
-	xds.Logger.Debugf("✅ Service MongoDB insert successful, ID: %v", inserResult.InsertedID)
+	xds.Logger.Debugf("Service MongoDB insert successful, ID: %v", inserResult.InsertedID)
 
 	if oid, ok := inserResult.InsertedID.(primitive.ObjectID); ok {
 		hexID := oid.Hex()
-		xds.Logger.Debugf("🎯 Service created successfully with hex ID: %s", hexID)
+		xds.Logger.Debugf("Service created successfully with hex ID: %s", hexID)
 
 		// NEW: Create GSLB record if enabled
 		if err := xds.createGSLBRecord(ctx, serviceName, hexID, service.Project, service.Version, requestDetails); err != nil {
@@ -432,7 +432,7 @@ func (xds *AppHandler) createService(ctx context.Context, serviceName string, pr
 		return hexID, nil
 	}
 
-	xds.Logger.Debugf("❌ Service insert ID type assertion failed: %T", inserResult.InsertedID)
+	xds.Logger.Debugf("Service insert ID type assertion failed: %T", inserResult.InsertedID)
 	return "", errors.New("inserted ID is not a valid ObjectID")
 }
 
@@ -553,7 +553,7 @@ func (xds *AppHandler) createGSLBRecord(ctx context.Context, serviceName, servic
 		return err
 	}
 
-	xds.Logger.Infof("✅ GSLB record created: %s (shard: %d)", fqdn, shardID)
+	xds.Logger.Infof("GSLB record created: %s (shard: %d)", fqdn, shardID)
 	return nil
 }
 
@@ -604,7 +604,7 @@ func (xds *AppHandler) deleteGSLBRecordWithCleanup(ctx context.Context, serviceI
 		xds.Logger.Errorf("Failed to delete IP health records for GSLB record %s: %v", gslbRecord.ID.Hex(), err)
 		// Continue with GSLB record deletion even if IP cleanup fails
 	} else {
-		xds.Logger.Infof("✅ Deleted %d IP health records for GSLB record %s", deleteResult.DeletedCount, gslbRecord.ID.Hex())
+		xds.Logger.Infof("Deleted %d IP health records for GSLB record %s", deleteResult.DeletedCount, gslbRecord.ID.Hex())
 	}
 
 	// Delete GSLB record itself
@@ -613,6 +613,6 @@ func (xds *AppHandler) deleteGSLBRecordWithCleanup(ctx context.Context, serviceI
 		return fmt.Errorf("failed to delete GSLB record: %w", err)
 	}
 
-	xds.Logger.Infof("✅ Successfully deleted GSLB record %s and associated IP health records", gslbRecord.ID.Hex())
+	xds.Logger.Infof("Successfully deleted GSLB record %s and associated IP health records", gslbRecord.ID.Hex())
 	return nil
 }

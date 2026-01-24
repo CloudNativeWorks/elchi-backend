@@ -1,3 +1,5 @@
+// Package catalog provides component definitions for the scenario system,
+// defining available Envoy resource types and their configurable fields.
 package catalog
 
 import (
@@ -10,8 +12,8 @@ import (
 var ComponentCatalog = []models.ComponentDefinition{
 	ClusterDefinition,
 	ListenerDefinition,
-	HttpConnectionManagerDefinition,
-	TcpProxyDefinition,
+	HTTPConnectionManagerDefinition,
+	TCPProxyDefinition,
 	RouteDefinition,
 	VirtualHostDefinition,
 	EndpointDefinition,

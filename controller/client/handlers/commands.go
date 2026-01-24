@@ -204,7 +204,6 @@ func (h *Client) processClientsInParallel(ctx context.Context, clients []models.
 
 			// Process single client with timeout protection
 			response, err := h.sendCommandWithLocationCheck(clientCtx, requestDetails, client, op, processor)
-
 			if err != nil {
 				h.logger.Debugf("Client %s processing failed: %v", client.ClientID, err)
 			}
@@ -226,12 +225,12 @@ func (h *Client) processClientsInParallel(ctx context.Context, clients []models.
 		select {
 		case result := <-resultChan:
 			// Debug log for all received results
-			h.logger.Debugf("📥 Received result from channel: ClientID='%s', Index=%d, HasError=%v",
+			h.logger.Debugf("Received result from channel: ClientID='%s', Index=%d, HasError=%v",
 				result.ClientID, result.Index, result.Error != nil)
 
 			// Check for duplicate response from same client
 			if collectedClientIDs[result.ClientID] {
-				h.logger.Warnf("🔍 DUPLICATE RESPONSE detected from client %s (index %d) - ignoring and incrementing counter to prevent timeout",
+				h.logger.Warnf("DUPLICATE RESPONSE detected from client %s (index %d) - ignoring and incrementing counter to prevent timeout",
 					result.ClientID, result.Index)
 				// CRITICAL FIX: Increment collectedResults even for duplicates to prevent timeout
 				// Otherwise the loop waits forever for len(clients) results
@@ -243,7 +242,7 @@ func (h *Client) processClientsInParallel(ctx context.Context, clients []models.
 			collectedClientIDs[result.ClientID] = true
 			results[result.Index] = result // Store by index to maintain order
 			collectedResults++
-			h.logger.Debugf("✅ Collected result %d/%d from client %s at index %d",
+			h.logger.Debugf("Collected result %d/%d from client %s at index %d",
 				collectedResults, len(clients), result.ClientID, result.Index)
 		case <-time.After(60 * time.Second):
 			h.logger.Errorf("Timeout waiting for results: collected %d/%d results", collectedResults, len(clients))
@@ -262,7 +261,7 @@ func (h *Client) processClientsInParallel(ctx context.Context, clients []models.
 			// Exit the main loop after timeout
 			collectedResults = len(clients)
 		case <-ctx.Done():
-			h.logger.Errorf("Context cancelled while waiting for results: collected %d/%d results", collectedResults, len(clients))
+			h.logger.Errorf("Context canceled while waiting for results: collected %d/%d results", collectedResults, len(clients))
 			return nil, ctx.Err()
 		}
 	}
@@ -433,7 +432,7 @@ func (h *Client) buildTargetURL(targetControllerID string, requestDetails models
 
 // prepareForwardRequest creates and configures HTTP request for forwarding
 func (h *Client) prepareForwardRequest(ctx context.Context, targetURL string, requestBody []byte, requestDetails models.RequestDetails, clientID string) (*http.Request, error) {
-	req, err := http.NewRequestWithContext(ctx, "POST", targetURL, bytes.NewBuffer(requestBody))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewBuffer(requestBody))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
 	}
@@ -614,7 +613,6 @@ func (h *Client) HandleSendCommand(ctx context.Context, op models.OperationClass
 
 // executeDirectCommand executes command directly without routing (for forwarded requests)
 func (h *Client) executeDirectCommand(_ context.Context, op models.OperationClass, requestDetails models.RequestDetails) (any, error) {
-
 	clients := op.GetClients()
 	result := []any{}
 	processor, exists := h.cmdFactory.GetProcessor(op.GetType())
@@ -657,7 +655,6 @@ func (h *Client) executeDirectCommand(_ context.Context, op models.OperationClas
 
 		processedResponse := responser.ValidateAndTransform(op, response)
 		result = append(result, processedResponse)
-
 	}
 
 	return result, nil
@@ -761,7 +758,12 @@ func (e *ForwardedResponse) Error() string {
 	return fmt.Sprintf("forwarded response for client %s (%d bytes)", e.ClientID, len(e.RawJSON))
 }
 
-// forwardCommandViaHTTP forwards command to another controller via HTTP with authentication
+// forwardCommandViaHTTP forwards command to another controller via HTTP with authentication.
+// Note: This function always returns nil for *pb.CommandResponse because the raw HTTP response
+// is returned via ForwardedResponse error type to preserve the original JSON without protobuf conversion.
+// The caller should check for ForwardedResponse using errors.As() to handle the forwarded response.
+//
+//nolint:unparam // response is intentionally nil; raw JSON is returned via ForwardedResponse error
 func (h *Client) forwardCommandViaHTTP(ctx context.Context, requestDetails models.RequestDetails, targetControllerID, clientID string, _ pb.CommandType, _ pb.SubCommandType, _ any, clientInfo *models.ServiceClients) (*pb.CommandResponse, error) {
 	// Build target URL
 	targetURL := h.buildTargetURL(targetControllerID, requestDetails)
@@ -899,10 +901,10 @@ func (h *Client) filterRequestBodyForClient(originalBody []byte, targetClientID 
 
 		if clientMap["client_id"] == targetClientID {
 			filteredClients = append(filteredClients, clientMap)
-			h.logger.Debugf("✓ Including client %s in filtered request", clientMap["client_id"])
+			h.logger.Debugf("Including client %s in filtered request", clientMap["client_id"])
 			break // Found target client, no need to continue
 		} else {
-			h.logger.Debugf("✗ Excluding client %s from filtered request", clientMap["client_id"])
+			h.logger.Debugf("Excluding client %s from filtered request", clientMap["client_id"])
 		}
 	}
 
@@ -936,8 +938,8 @@ func (h *Client) tryDirectSend(clientID string, cmdType pb.CommandType, subType 
 	return nil, fmt.Errorf("client not connected to this controller")
 }
 
-func (s *Client) FetchClients(op models.OperationClass, version string) ([]models.ServiceClients, error) {
-	collection := s.Context.Client.Collection("services")
+func (h *Client) FetchClients(op models.OperationClass, version string) ([]models.ServiceClients, error) {
+	collection := h.Context.Client.Collection("services")
 	filter := bson.M{
 		"name":    op.GetCommandName(),
 		"project": op.GetCommandProject(),

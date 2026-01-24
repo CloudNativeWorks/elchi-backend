@@ -105,14 +105,14 @@ func (h *ACMEHandler) CreateACMEAccount(c *gin.Context) {
 
 	// Create account
 	account := &acme.ACMEAccount{
-		Project:      project,
-		Name:         req.Name,
-		Description:  req.Description,
-		Email:        req.Email,
-		CAProvider:   req.CAProvider,
-		Environment:  req.Environment,
-		Permissions:  req.Permissions,
-		CreatedBy:    userDetails.UserID,
+		Project:     project,
+		Name:        req.Name,
+		Description: req.Description,
+		Email:       req.Email,
+		CAProvider:  req.CAProvider,
+		Environment: req.Environment,
+		Permissions: req.Permissions,
+		CreatedBy:   userDetails.UserID,
 	}
 
 	// Encrypt and add EAB credentials if provided

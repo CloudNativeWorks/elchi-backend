@@ -16,8 +16,15 @@ const (
 
 	// HealthStateCritical indicates 3+ consecutive failures (unhealthy)
 	// DNS behavior: EXCLUDED from A records
-	// Circuit breaker: Graduated backoff (1m → 5m CAP) based on consecutive failures
+	// Circuit breaker: Graduated backoff (1m -> 5m CAP) based on consecutive failures
 	HealthStateCritical HealthState = "critical"
+
+	// HealthStateRecovery indicates IP is recovering (has consecutive successes but not yet PASSING)
+	// DNS behavior: EXCLUDED from A records (treated like CRITICAL until fully recovered)
+	// Scheduling: Uses interval/2 for faster recovery verification
+	// This prevents flapping by requiring multiple consecutive successes before PASSING
+	// Only used when passing_threshold > 1
+	HealthStateRecovery HealthState = "recovery"
 )
 
 // String returns the string representation of HealthState
@@ -26,15 +33,15 @@ func (hs HealthState) String() string {
 }
 
 // IsHealthy returns true if the state should be included in DNS responses
-// Only Critical state is excluded from DNS
+// Critical and Recovery states are excluded from DNS
 func (hs HealthState) IsHealthy() bool {
-	return hs != HealthStateCritical
+	return hs != HealthStateCritical && hs != HealthStateRecovery
 }
 
 // IsValid checks if the HealthState is one of the valid values
 func (hs HealthState) IsValid() bool {
 	switch hs {
-	case HealthStatePassing, HealthStateWarning, HealthStateCritical:
+	case HealthStatePassing, HealthStateWarning, HealthStateCritical, HealthStateRecovery:
 		return true
 	default:
 		return false
@@ -50,81 +57,108 @@ func (hs HealthState) Validate() error {
 }
 
 // DetermineHealthState calculates the appropriate health state based on consecutive failures
-// GSLB V2.0: Configurable thresholds from probe configuration (REQUIRED)
-//
-// Parameters:
-//   - consecutiveFailures: Number of consecutive probe failures
-//   - probe: MUST be provided with WarningThreshold and CriticalThreshold set
-//   - currentState: Current health state (used to prevent backwards state transitions)
-//
-// State Transition Rules (ONE-WAY PROGRESSION):
-//   - Forward only: PASSING → WARNING → CRITICAL ✅
-//   - Reset to start: Any state → PASSING (on probe success) ✅
-//   - NO backwards: CRITICAL → WARNING ❌ or WARNING → PASSING (while failing) ❌
-//
-// Logic:
-//   - 0 failures → Always PASSING (reset to healthy)
-//   - < WarningThreshold → Stay in current state if already WARNING/CRITICAL (no backwards)
-//   - >= WarningThreshold AND < CriticalThreshold → WARNING (if PASSING) or stay in CRITICAL
-//   - >= CriticalThreshold → CRITICAL
-//
-// Example with WarningThreshold=1, CriticalThreshold=3:
-//   PASSING + 0 failures → PASSING ✅
-//   PASSING + 1 failure → WARNING ✅
-//   WARNING + 1 failure → WARNING ✅ (stay, don't go back to PASSING)
-//   WARNING + 3 failures → CRITICAL ✅
-//   CRITICAL + 1 failure → CRITICAL ✅ (stay, don't go back to WARNING)
-//   CRITICAL + 0 failures → PASSING ✅ (probe success resets)
+// NOTE: Legacy version without RECOVERY support. Use DetermineHealthStateWithRecovery for full support.
 func DetermineHealthState(consecutiveFailures int, probe *GSLBProbe, currentState HealthState) HealthState {
-	// Probe success → always reset to PASSING
+	return DetermineHealthStateWithRecovery(consecutiveFailures, 0, probe, currentState)
+}
+
+// DetermineHealthStateWithRecovery calculates health state with RECOVERY support
+// GSLB: Adds passing_threshold for anti-flapping protection
+//
+// State Transition Rules:
+//   - Forward only: PASSING -> WARNING -> CRITICAL
+//   - Recovery path: CRITICAL/WARNING -> RECOVERY -> PASSING (when passing_threshold > 1)
+//   - Direct recovery: CRITICAL/WARNING -> PASSING (when passing_threshold = 1)
+//   - RECOVERY + failure -> CRITICAL (reset recovery progress)
+//
+// Example with WarningThreshold=1, CriticalThreshold=3, PassingThreshold=2:
+//
+//	CRITICAL + success -> RECOVERY (1/2)
+//	RECOVERY + success -> PASSING (2/2)
+//	RECOVERY + failure -> CRITICAL (reset)
+func DetermineHealthStateWithRecovery(consecutiveFailures, consecutiveSuccesses int, probe *GSLBProbe, currentState HealthState) HealthState {
+	// Validate probe config
+	if probe == nil || probe.WarningThreshold <= 0 || probe.CriticalThreshold <= 0 {
+		return HealthStateCritical // Fail-safe
+	}
+
+	// Handle probe success (consecutiveFailures == 0)
 	if consecutiveFailures == 0 {
+		return determineRecoveryState(consecutiveSuccesses, probe, currentState)
+	}
+
+	// Handle probe failure
+	return determineFailureState(consecutiveFailures, probe, currentState)
+}
+
+// determineRecoveryState handles state transitions when probe succeeds
+func determineRecoveryState(consecutiveSuccesses int, probe *GSLBProbe, currentState HealthState) HealthState {
+	passingThreshold := probe.GetPassingThreshold()
+
+	// Fast path: single success = PASSING (default behavior)
+	if passingThreshold <= 1 {
 		return HealthStatePassing
 	}
 
-	// GSLB V2.0: Thresholds are REQUIRED - probe must be provided
-	if probe == nil || probe.WarningThreshold <= 0 || probe.CriticalThreshold <= 0 {
-		// CRITICAL: This should never happen in V2.0
-		// Log error and use emergency fallback to prevent system failure
-		return HealthStateCritical // Fail-safe: mark as critical if config is invalid
+	// Already healthy - stay PASSING
+	if currentState == HealthStatePassing {
+		return HealthStatePassing
 	}
 
-	// Determine threshold-based state (what state WOULD be based on failures alone)
-	var thresholdState HealthState
+	// Check if enough successes to fully recover
+	if consecutiveSuccesses >= passingThreshold {
+		return HealthStatePassing
+	}
+
+	// Not enough successes yet - enter/stay in RECOVERY
+	return HealthStateRecovery
+}
+
+// determineFailureState handles state transitions when probe fails
+func determineFailureState(consecutiveFailures int, probe *GSLBProbe, currentState HealthState) HealthState {
+	// RECOVERY + failure -> CRITICAL (reset recovery progress)
+	if currentState == HealthStateRecovery {
+		return HealthStateCritical
+	}
+
+	// Calculate threshold-based state
+	thresholdState := calculateThresholdState(consecutiveFailures, probe)
+
+	// Apply one-way progression rule
+	return applyProgressionRule(currentState, thresholdState)
+}
+
+// calculateThresholdState determines state based on failure count alone
+func calculateThresholdState(consecutiveFailures int, probe *GSLBProbe) HealthState {
 	switch {
 	case consecutiveFailures < probe.WarningThreshold:
-		thresholdState = HealthStatePassing
+		return HealthStatePassing
 	case consecutiveFailures < probe.CriticalThreshold:
-		thresholdState = HealthStateWarning
+		return HealthStateWarning
 	default:
-		thresholdState = HealthStateCritical
+		return HealthStateCritical
 	}
+}
 
-	// ✅ ONE-WAY PROGRESSION RULE: Only allow forward state transitions
-	// Never go backwards: CRITICAL → WARNING or WARNING → PASSING (while failing)
-	// This prevents manual CRITICAL from being downgraded to WARNING on first probe failure
+// applyProgressionRule enforces one-way state progression (no backwards movement while failing)
+func applyProgressionRule(currentState, thresholdState HealthState) HealthState {
 	switch currentState {
 	case HealthStateCritical:
-		// From CRITICAL: Can only stay CRITICAL or reset to PASSING (already handled above)
-		// If threshold says WARNING, stay CRITICAL (no backwards movement)
-		if thresholdState == HealthStateWarning || thresholdState == HealthStatePassing {
-			return HealthStateCritical // Stay critical, don't go backwards
-		}
+		// CRITICAL can only stay CRITICAL (recovery handled separately)
 		return HealthStateCritical
 
 	case HealthStateWarning:
-		// From WARNING: Can only go to CRITICAL or reset to PASSING (already handled above)
-		// If threshold says PASSING, stay WARNING (no backwards movement while failing)
-		if thresholdState == HealthStatePassing {
-			return HealthStateWarning // Stay warning, don't go back to passing while failing
+		// WARNING can progress to CRITICAL, but not back to PASSING
+		if thresholdState == HealthStateCritical {
+			return HealthStateCritical
 		}
-		return thresholdState // Can progress to CRITICAL
+		return HealthStateWarning
 
 	case HealthStatePassing:
-		// From PASSING: Can progress normally to WARNING or CRITICAL
+		// PASSING can progress normally
 		return thresholdState
 
 	default:
-		// Unknown state, use threshold-based state
 		return thresholdState
 	}
 }
@@ -133,34 +167,38 @@ func DetermineHealthState(consecutiveFailures int, probe *GSLBProbe, currentStat
 // This reduces write flapping by only writing on meaningful transitions
 //
 // Write triggers:
-//   - passing → warning: YES WRITE (buffered) - Track state, DNS still sees as healthy
-//   - warning → warning: NO WRITE (still in grace)
-//   - warning → critical: YES WRITE (immediate) - became unhealthy
-//   - critical → warning: YES WRITE (immediate) - recovering
-//   - warning → passing: YES WRITE (buffered) - fully recovered
-//   - critical → passing: YES WRITE (immediate) - fully recovered
+//   - passing -> warning: YES WRITE (buffered)
+//   - warning -> critical: YES WRITE (immediate) - DNS exclusion
+//   - critical -> recovery: YES WRITE (immediate) - state tracking
+//   - recovery -> recovery: NO WRITE (still recovering)
+//   - recovery -> passing: YES WRITE (immediate) - DNS inclusion
+//   - recovery -> critical: YES WRITE (immediate) - recovery failed
+//   - critical -> passing: YES WRITE (immediate) - DNS inclusion
 //
 // Returns: (shouldWrite bool, isImmediate bool)
-//   - shouldWrite: true if transition should be persisted
-//   - isImmediate: true if write should bypass WriteBuffer for DNS consistency
-//
-// IMPORTANT: WARNING state is written to DB for state tracking consistency
-// DNS filtering happens separately - WARNING IPs are still included in DNS responses
-func ShouldWriteToDatabase(oldState, newState HealthState) (shouldWrite bool, isImmediate bool) {
+func ShouldWriteToDatabase(oldState, newState HealthState) (bool, bool) {
 	// No state change
 	if oldState == newState {
 		return false, false
 	}
 
-	// Transitions TO or FROM Critical state require immediate writes for DNS consistency
-	isCriticalTransition := (oldState == HealthStateCritical) || (newState == HealthStateCritical)
+	// Determine if this is a DNS-affecting transition (needs immediate write)
+	isDNSTransition := isDNSAffectingTransition(oldState, newState)
 
-	// passing → warning: Write to DB (buffered) to track state, DNS filtering happens separately
-	// This prevents state/counter mismatch issues after manual resets
+	// passing -> warning: Buffered write (DNS not affected yet)
 	if oldState == HealthStatePassing && newState == HealthStateWarning {
-		return true, false // shouldWrite=true, but not immediate (buffered)
+		return true, false
 	}
 
-	// All other transitions require write
-	return true, isCriticalTransition
+	return true, isDNSTransition
+}
+
+// isDNSAffectingTransition returns true if the transition affects DNS responses
+// These transitions require immediate writes for DNS consistency
+func isDNSAffectingTransition(oldState, newState HealthState) bool {
+	oldHealthy := oldState.IsHealthy()
+	newHealthy := newState.IsHealthy()
+
+	// Transition between healthy and unhealthy states affects DNS
+	return oldHealthy != newHealthy
 }

@@ -202,11 +202,12 @@ func GetNextAdminPort(ctx context.Context, db *mongo.Database, bootstrapName, pr
 	}
 
 	var nextPort int
-	if maxPort < adminPortStart {
+	switch {
+	case maxPort < adminPortStart:
 		nextPort = adminPortStart
-	} else if maxPort < adminPortEnd {
+	case maxPort < adminPortEnd:
 		nextPort = maxPort + 1
-	} else {
+	default:
 		return 0, errors.New("no available admin port")
 	}
 

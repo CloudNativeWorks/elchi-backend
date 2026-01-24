@@ -2,7 +2,6 @@ package gslb
 
 import (
 	"context"
-	"fmt"
 	"sync/atomic"
 	"time"
 
@@ -11,7 +10,7 @@ import (
 )
 
 // startMetricsPusher starts periodic system-level metrics reporting (every 30s)
-// Runs in background, reports aggregated stats across all buckets
+// Runs in background, reports aggregated stats across Time Wheel
 func (hc *HealthChecker) startMetricsPusher() {
 	if hc.metricsPusher == nil {
 		hc.logger.Debug("Metrics pusher not configured, skipping periodic metrics")
@@ -21,7 +20,7 @@ func (hc *HealthChecker) startMetricsPusher() {
 	ticker := time.NewTicker(30 * time.Second)
 	go func() {
 		defer ticker.Stop()
-		hc.logger.Info("📊 System metrics pusher started (30s interval)")
+		hc.logger.Info("System metrics pusher started (30s interval)")
 
 		for {
 			select {
@@ -96,24 +95,46 @@ func (hc *HealthChecker) pushSystemMetrics() {
 				"controller": hc.shardManager.controllerID,
 			},
 		},
-		// Aggregated bucket metrics
+		// Time Wheel metrics
 		{
-			Name:  "elchi_gslb_total_buckets",
-			Value: float64(stats.BucketStats.TotalBuckets),
+			Name:  "elchi_gslb_timewheel_current_slot",
+			Value: float64(stats.TimeWheelStats.CurrentSlot),
 			Labels: map[string]string{
 				"controller": hc.shardManager.controllerID,
 			},
 		},
 		{
-			Name:  "elchi_gslb_total_records",
-			Value: float64(stats.BucketStats.TotalRecords),
+			Name:  "elchi_gslb_timewheel_scheduled_total",
+			Value: float64(stats.TimeWheelStats.Scheduled),
 			Labels: map[string]string{
 				"controller": hc.shardManager.controllerID,
 			},
 		},
 		{
-			Name:  "elchi_gslb_total_workers",
-			Value: float64(stats.BucketStats.TotalWorkers),
+			Name:  "elchi_gslb_timewheel_executed_total",
+			Value: float64(stats.TimeWheelStats.Executed),
+			Labels: map[string]string{
+				"controller": hc.shardManager.controllerID,
+			},
+		},
+		{
+			Name:  "elchi_gslb_timewheel_current_load",
+			Value: float64(stats.TimeWheelStats.CurrentLoad),
+			Labels: map[string]string{
+				"controller": hc.shardManager.controllerID,
+			},
+		},
+		// Worker Pool metrics
+		{
+			Name:  "elchi_gslb_workers_current",
+			Value: float64(stats.WorkerPoolStats.CurrentWorkers),
+			Labels: map[string]string{
+				"controller": hc.shardManager.controllerID,
+			},
+		},
+		{
+			Name:  "elchi_gslb_workers_queue_depth",
+			Value: float64(stats.WorkerPoolStats.QueueDepth),
 			Labels: map[string]string{
 				"controller": hc.shardManager.controllerID,
 			},
@@ -301,115 +322,6 @@ func (hc *HealthChecker) getMaxProbeLatency() float64 {
 	return float64(maxMicros) / 1_000_000.0
 }
 
-// pushBucketCycleMetrics pushes per-bucket cycle metrics to Registry (fire-and-forget)
-// Called at the end of each bucket cycle - high frequency, per-bucket granularity
-func (tb *TimerBucket) pushBucketCycleMetrics(
-	recordCount int,
-	totalIPs int,
-	probedIPs int,
-	skippedIPs int,
-	cycleLatency time.Duration,
-	completionPercent float64,
-) {
-	// Skip if no metrics pusher or controller ID available
-	if tb.metricsPusher == nil || tb.controllerID == "" {
-		return
-	}
-
-	workerStats := tb.workerPool.GetStats()
-
-	metricsToSend := []*bridge.Metric{
-		// Bucket cycle metrics
-		{
-			Name:  "elchi_gslb_bucket_cycle_latency_seconds",
-			Value: cycleLatency.Seconds(),
-			Labels: map[string]string{
-				"controller":  tb.controllerID,
-				"interval":    formatInterval(tb.interval),
-				"bucket_type": string(tb.bucketType),
-			},
-		},
-		{
-			Name:  "elchi_gslb_bucket_completion_percent",
-			Value: completionPercent,
-			Labels: map[string]string{
-				"controller": tb.controllerID,
-				"interval":   formatInterval(tb.interval),
-			},
-		},
-		// Bucket record/IP metrics
-		{
-			Name:  "elchi_gslb_bucket_records",
-			Value: float64(recordCount),
-			Labels: map[string]string{
-				"controller": tb.controllerID,
-				"interval":   formatInterval(tb.interval),
-			},
-		},
-		{
-			Name:  "elchi_gslb_bucket_total_ips",
-			Value: float64(totalIPs),
-			Labels: map[string]string{
-				"controller": tb.controllerID,
-				"interval":   formatInterval(tb.interval),
-			},
-		},
-		{
-			Name:  "elchi_gslb_bucket_probed_ips",
-			Value: float64(probedIPs),
-			Labels: map[string]string{
-				"controller": tb.controllerID,
-				"interval":   formatInterval(tb.interval),
-			},
-		},
-		{
-			Name:  "elchi_gslb_bucket_skipped_ips",
-			Value: float64(skippedIPs),
-			Labels: map[string]string{
-				"controller": tb.controllerID,
-				"interval":   formatInterval(tb.interval),
-			},
-		},
-		// Worker pool metrics
-		{
-			Name:  "elchi_gslb_bucket_workers_active",
-			Value: float64(workerStats.CurrentWorkers),
-			Labels: map[string]string{
-				"controller": tb.controllerID,
-				"interval":   formatInterval(tb.interval),
-			},
-		},
-		{
-			Name:  "elchi_gslb_bucket_queue_depth",
-			Value: float64(workerStats.QueueDepth),
-			Labels: map[string]string{
-				"controller": tb.controllerID,
-				"interval":   formatInterval(tb.interval),
-			},
-		},
-		{
-			Name: "elchi_gslb_bucket_queue_capacity_pct",
-			Value: func() float64 {
-				if workerStats.QueueCapacity > 0 {
-					return float64(workerStats.QueueDepth) / float64(workerStats.QueueCapacity) * 100
-				}
-				return 0.0
-			}(),
-			Labels: map[string]string{
-				"controller": tb.controllerID,
-				"interval":   formatInterval(tb.interval),
-			},
-		},
-	}
-
-	// Fire-and-forget push
-	go func() {
-		pushCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-		defer cancel()
-		_ = tb.metricsPusher.Push(pushCtx, metricsToSend)
-	}()
-}
-
 // pushStateTransitionMetric pushes a state transition event to Registry (fire-and-forget)
 // Called on every state change - captures transition events for alerting
 func (hc *HealthChecker) pushStateTransitionMetric(oldState, newState models.HealthState) {
@@ -433,12 +345,4 @@ func (hc *HealthChecker) pushStateTransitionMetric(oldState, newState models.Hea
 		defer cancel()
 		_ = hc.metricsPusher.Push(pushCtx, []*bridge.Metric{metric})
 	}()
-}
-
-// formatInterval converts interval (seconds) to readable string for labels
-// CRITICAL FIX (Bug #7): Always use seconds to prevent label collision
-// Problem: 90/60 = 1 (integer division) caused 90s and 60s to share "1m" label
-// Solution: Always use "%ds" format for all intervals
-func formatInterval(interval int) string {
-	return fmt.Sprintf("%ds", interval)
 }

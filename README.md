@@ -24,7 +24,7 @@ Complete xDS control-plane (ADS, CDS, EDS, LDS, RDS, VHDS) with snapshot caching
 - 128 shards × 8 sub-shards = 1,024 logical partitions
 - Supports HTTP/HTTPS/TCP probes
 
-### 🔐 **Security & Compliance**
+### **Security & Compliance**
 - **Authentication**: JWT with refresh tokens, OTP/2FA support
 - **Authorization**: RBAC (Owner/Admin/Editor/Viewer)
 - **WAF Protection**: Coraza WAF with OWASP CRS v4.x
@@ -44,7 +44,7 @@ Complete xDS control-plane (ADS, CDS, EDS, LDS, RDS, VHDS) with snapshot caching
 - **Enhanced Error Tracking**: Pattern recognition with auto-resolve
 - **Global Search**: Cross-resource search and dependency graph
 
-### 📊 **Observability & Monitoring**
+### **Observability & Monitoring**
 - Real-time health check metrics (300k+ endpoints)
 - DNS query statistics (<10ms response time)
 - Enhanced error categorization (21+ types)
@@ -53,7 +53,7 @@ Complete xDS control-plane (ADS, CDS, EDS, LDS, RDS, VHDS) with snapshot caching
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 ┌─────────────┐      ┌──────────────┐      ┌───────────────┐
@@ -77,7 +77,7 @@ Complete xDS control-plane (ADS, CDS, EDS, LDS, RDS, VHDS) with snapshot caching
 
 ---
 
-## 📦 Project Structure
+## Project Structure
 
 ```
 elchi-backend/

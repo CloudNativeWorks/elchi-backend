@@ -2,8 +2,8 @@ package catalog
 
 import "github.com/CloudNativeWorks/elchi-backend/pkg/models"
 
-// TcpProxyDefinition defines the TCP proxy component
-var TcpProxyDefinition = models.ComponentDefinition{
+// TCPProxyDefinition defines the TCP proxy component
+var TCPProxyDefinition = models.ComponentDefinition{
 	Name:          "tcp_proxy",
 	Label:         "TCP Proxy Filter",
 	Description:   "TCP proxy network filter for forwarding TCP connections",
@@ -33,9 +33,9 @@ var TcpProxyDefinition = models.ComponentDefinition{
 				ComponentTypes: []string{"cluster"},
 				FieldName:      "name",
 			},
-			ApiEndpoint:     "/api/v3/custom/resource_list_search?collection=clusters&type=clusters",
+			APIEndpoint:     "/api/v3/custom/resource_list_search?collection=clusters&type=clusters",
 			UseInScenario:   true,
-			UseApi:          true,
+			UseAPI:          true,
 			ValidationRules: []string{"required", "cluster_exists"},
 		},
 		{
@@ -79,7 +79,7 @@ var TcpProxyDefinition = models.ComponentDefinition{
 			},
 			HasMetadata:   true,
 			UseInScenario: true,  // Only from scenario components
-			UseApi:        false, // Not from API
+			UseAPI:        false, // Not from API
 		},
 	},
 	Rules: models.ComponentRule{

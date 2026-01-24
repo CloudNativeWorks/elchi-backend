@@ -32,39 +32,40 @@ func getDownstreams(existing bson.M) []bson.M {
 
 func determineStatus(downstreams []bson.M, logger *logger.Logger) string {
 	if len(downstreams) == 0 {
-		logger.Debug("🔍 DEBUG: determineStatus - no downstreams → Offline\n")
+		logger.Debug("DEBUG: determineStatus - no downstreams -> Offline\n")
 		return "Offline"
 	}
 
 	connectedCount := 0
 	totalCount := len(downstreams)
 
-	logger.Debugf("🔍 DEBUG: determineStatus - analyzing %d downstreams\n", totalCount)
+	logger.Debugf("DEBUG: determineStatus - analyzing %d downstreams\n", totalCount)
 
 	for i, d := range downstreams {
 		if connected, ok := d["connected"].(bool); ok && connected {
 			connectedCount++
-			logger.Debugf("🔍 DEBUG: downstream[%d]: connected=true\n", i)
+			logger.Debugf("DEBUG: downstream[%d]: connected=true\n", i)
 		} else {
-			logger.Debugf("🔍 DEBUG: downstream[%d]: connected=false or invalid (ok=%t, connected=%v)\n", i, ok, connected)
+			logger.Debugf("DEBUG: downstream[%d]: connected=false or invalid (ok=%t, connected=%v)\n", i, ok, connected)
 		}
 	}
 
 	var status string
-	if connectedCount == totalCount {
+	switch {
+	case connectedCount == totalCount:
 		status = "Live"
-	} else if connectedCount > 0 {
+	case connectedCount > 0:
 		status = "Partial"
-	} else {
+	default:
 		status = "Offline"
 	}
 
-	logger.Debugf("🔍 DEBUG: determineStatus - %d/%d connected → status=%s\n", connectedCount, totalCount, status)
+	logger.Debugf("DEBUG: determineStatus - %d/%d connected -> status=%s\n", connectedCount, totalCount, status)
 
 	return status
 }
 
-func (e *EnvoyConnTracker) AddOrUpdateEnvoy(ctx context.Context, dbClient *mongo.Database, source_address, nodeID, version, downstreamAddress, clientName, clientID string, connCount int, logger *logger.Logger) {
+func (e *EnvoyConnTracker) AddOrUpdateEnvoy(ctx context.Context, dbClient *mongo.Database, sourceAddress, nodeID, version, downstreamAddress, clientName, clientID string, connCount int, logger *logger.Logger) {
 	if downstreamAddress == "" {
 		return
 	}
@@ -81,7 +82,7 @@ func (e *EnvoyConnTracker) AddOrUpdateEnvoy(ctx context.Context, dbClient *mongo
 
 	updateFields := bson.M{}
 	downstreams := getDownstreams(existing)
-	downstreams = e.updateDownstreamsWithCount(downstreams, downstreamAddress, nodeID, version, clientName, clientID, source_address, connCount, false, logger)
+	downstreams = e.updateDownstreamsWithCount(downstreams, downstreamAddress, nodeID, version, clientName, clientID, sourceAddress, connCount, false, logger)
 	updateFields["envoys"] = downstreams
 	updateFields["status"] = determineStatus(downstreams, logger)
 
@@ -93,21 +94,21 @@ func (e *EnvoyConnTracker) AddOrUpdateEnvoy(ctx context.Context, dbClient *mongo
 	}
 }
 
-func (e *EnvoyConnTracker) updateDownstreamsWithCount(downstreams []bson.M, downstreamAddress, nodeID, version, clientName, clientID, source_address string, connCount int, isUndeploy bool, logger *logger.Logger) []bson.M {
+func (e *EnvoyConnTracker) updateDownstreamsWithCount(downstreams []bson.M, downstreamAddress, nodeID, version, clientName, clientID, sourceAddress string, connCount int, isUndeploy bool, logger *logger.Logger) []bson.M {
 	connected := connCount > 0
 
-	logger.Printf("🔍 DEBUG: updateDownstreamsWithCount - nodeID=%s, downstreamAddress=%s, connCount=%d, isUndeploy=%t, connected=%t\n",
+	logger.Printf("DEBUG: updateDownstreamsWithCount - nodeID=%s, downstreamAddress=%s, connCount=%d, isUndeploy=%t, connected=%t\n",
 		nodeID, downstreamAddress, connCount, isUndeploy, connected)
-	logger.Printf("🔍 DEBUG: updateDownstreamsWithCount - input downstreams count: %d\n", len(downstreams))
+	logger.Printf("DEBUG: updateDownstreamsWithCount - input downstreams count: %d\n", len(downstreams))
 
 	// NodeID is mandatory - if missing, abort operation
 	if nodeID == "" {
-		logger.Errorf("🔍 ERROR: nodeID is empty, cannot update downstreams")
+		logger.Errorf("ERROR: nodeID is empty, cannot update downstreams")
 		return downstreams
 	}
 
 	if isUndeploy {
-		logger.Printf("🔍 DEBUG: UNDEPLOY MODE - removing entry for nodeID: %s, downstream: %s\n", nodeID, downstreamAddress)
+		logger.Printf("DEBUG: UNDEPLOY MODE - removing entry for nodeID: %s, downstream: %s\n", nodeID, downstreamAddress)
 		filteredDownstreams := []bson.M{}
 		removedCount := 0
 		for _, m := range downstreams {
@@ -119,32 +120,30 @@ func (e *EnvoyConnTracker) updateDownstreamsWithCount(downstreams []bson.M, down
 			if cn, ok := m["client_name"].(string); ok {
 				existingClientName = cn
 			}
-			
+
 			// Match logic same as normal mode
 			var shouldRemove bool
-			if clientName != "" && existingClientName != "" {
+			switch {
+			case clientName != "" && existingClientName != "":
 				// Both have client_name: match by nodeID + client_name
 				shouldRemove = (existingNodeID == nodeID && existingClientName == clientName)
-			} else if clientName == "" && existingClientName == "" {
-				// Neither has client_name: match by nodeID only
-				shouldRemove = (existingNodeID == nodeID)
-			} else {
-				// One has client_name, other doesn't: match by nodeID only
+			default:
+				// Either neither has client_name, or one has and other doesn't: match by nodeID only
 				shouldRemove = (existingNodeID == nodeID)
 			}
-			
+
 			if !shouldRemove {
 				filteredDownstreams = append(filteredDownstreams, m)
 			} else {
 				removedCount++
-				logger.Printf("🔍 DEBUG: UNDEPLOY - removing entry: nodeID=%s, client_name=%s, entry=%+v\n", existingNodeID, existingClientName, m)
+				logger.Printf("DEBUG: UNDEPLOY - removing entry: nodeID=%s, client_name=%s, entry=%+v\n", existingNodeID, existingClientName, m)
 			}
 		}
-		logger.Printf("🔍 DEBUG: UNDEPLOY - removed %d entries, result count: %d → %d\n", removedCount, len(downstreams), len(filteredDownstreams))
+		logger.Printf("DEBUG: UNDEPLOY - removed %d entries, result count: %d -> %d\n", removedCount, len(downstreams), len(filteredDownstreams))
 		return filteredDownstreams
 	}
 
-	logger.Printf("🔍 DEBUG: NORMAL MODE - updating connected status\n")
+	logger.Printf("DEBUG: NORMAL MODE - updating connected status\n")
 	found := false
 	for _, m := range downstreams {
 		// Extract existing fields for matching
@@ -156,22 +155,20 @@ func (e *EnvoyConnTracker) updateDownstreamsWithCount(downstreams []bson.M, down
 		if cn, ok := m["client_name"].(string); ok {
 			existingClientName = cn
 		}
-		
+
 		// Match logic based on client_name presence
 		var isMatch bool
-		if clientName != "" && existingClientName != "" {
+		switch {
+		case clientName != "" && existingClientName != "":
 			// Both have client_name: match by nodeID + client_name (for multiple envoys on same IP)
 			isMatch = (existingNodeID == nodeID && existingClientName == clientName)
-		} else if clientName == "" && existingClientName == "" {
-			// Neither has client_name: match by nodeID only (non-managed listeners)
-			isMatch = (existingNodeID == nodeID)
-		} else {
-			// One has client_name, other doesn't: match by nodeID only
+		default:
+			// Either neither has client_name, or one has and other doesn't: match by nodeID only
 			isMatch = (existingNodeID == nodeID)
 		}
-		
+
 		if isMatch {
-			logger.Printf("🔍 DEBUG: NORMAL - found entry (nodeID=%s, client_name=%s), updating connected to %t\n", existingNodeID, existingClientName, connected)
+			logger.Printf("DEBUG: NORMAL - found entry (nodeID=%s, client_name=%s), updating connected to %t\n", existingNodeID, existingClientName, connected)
 			m["connected"] = connected
 			m["connections"] = connCount
 			m["lastSync"] = time.Now().Unix()
@@ -179,8 +176,8 @@ func (e *EnvoyConnTracker) updateDownstreamsWithCount(downstreams []bson.M, down
 			if existingNodeID == "" {
 				m["nodeid"] = nodeID
 			}
-			if source_address != "" {
-				m["source_address"] = source_address
+			if sourceAddress != "" {
+				m["source_address"] = sourceAddress
 			}
 			if version != "" {
 				m["version"] = version
@@ -197,7 +194,7 @@ func (e *EnvoyConnTracker) updateDownstreamsWithCount(downstreams []bson.M, down
 	}
 
 	if !found && !isUndeploy {
-		logger.Printf("🔍 DEBUG: NORMAL - creating new entry for downstream: %s\n", downstreamAddress)
+		logger.Printf("DEBUG: NORMAL - creating new entry for downstream: %s\n", downstreamAddress)
 		entry := bson.M{
 			"connected":   connected,
 			"nodeid":      nodeID,
@@ -209,8 +206,8 @@ func (e *EnvoyConnTracker) updateDownstreamsWithCount(downstreams []bson.M, down
 			entry["downstream_address"] = downstreamAddress
 		}
 
-		if source_address != "" {
-			entry["source_address"] = source_address
+		if sourceAddress != "" {
+			entry["source_address"] = sourceAddress
 		}
 
 		if version != "" {
@@ -228,18 +225,18 @@ func (e *EnvoyConnTracker) updateDownstreamsWithCount(downstreams []bson.M, down
 		downstreams = append(downstreams, entry)
 	}
 
-	logger.Printf("🔍 DEBUG: updateDownstreamsWithCount - final result count: %d\n", len(downstreams))
+	logger.Printf("DEBUG: updateDownstreamsWithCount - final result count: %d\n", len(downstreams))
 	return downstreams
 }
 
 func (e *EnvoyConnTracker) DisconnectNodeIDWithCount(ctx context.Context, dbClient *mongo.Database, nodeID string, connCount int, isUndeploy bool, logger *logger.Logger) {
 	name, project, downstreamAddress := GetNodeIDParts(nodeID)
 
-	logger.Debugf("🔍 DEBUG: DisconnectNodeIDWithCount - nodeID=%s, name=%s, project=%s, downstreamAddress='%s', isUndeploy=%t\n",
+	logger.Debugf("DEBUG: DisconnectNodeIDWithCount - nodeID=%s, name=%s, project=%s, downstreamAddress='%s', isUndeploy=%t\n",
 		nodeID, name, project, downstreamAddress, isUndeploy)
 
 	if name == "" || project == "" {
-		logger.Debugf("🔍 DEBUG: DisconnectNodeIDWithCount - invalid nodeID format, skipping\n")
+		logger.Debugf("DEBUG: DisconnectNodeIDWithCount - invalid nodeID format, skipping\n")
 		logger.Errorf("Invalid nodeID format: %s", nodeID)
 		return
 	}
@@ -251,7 +248,7 @@ func (e *EnvoyConnTracker) DisconnectNodeIDWithCount(ctx context.Context, dbClie
 	var existing bson.M
 	err := collection.FindOne(ctx, filter).Decode(&existing)
 	if err != nil {
-		logger.Debugf("🔍 DEBUG: DisconnectNodeIDWithCount - error reading envoys: %v\n", err)
+		logger.Debugf("DEBUG: DisconnectNodeIDWithCount - error reading envoys: %v\n", err)
 		logger.Errorf("Error reading envoys stream: %v", err)
 		return
 	}
@@ -265,10 +262,10 @@ func (e *EnvoyConnTracker) DisconnectNodeIDWithCount(ctx context.Context, dbClie
 	update := bson.M{"$set": updateFields}
 	_, err = collection.UpdateOne(ctx, filter, update)
 	if err != nil {
-		logger.Debugf("🔍 DEBUG: DisconnectNodeIDWithCount - error updating: %v\n", err)
+		logger.Debugf("DEBUG: DisconnectNodeIDWithCount - error updating: %v\n", err)
 		logger.Errorf("Error removing node ID: %v", err)
 	} else {
-		logger.Debugf("🔍 DEBUG: DisconnectNodeIDWithCount - successfully updated MongoDB\n")
+		logger.Debugf("DEBUG: DisconnectNodeIDWithCount - successfully updated MongoDB\n")
 	}
 }
 

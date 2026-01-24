@@ -170,7 +170,7 @@ func (vhg *VirtualHostGenerator) Generate(instance models.ComponentInstance) (an
 
 	// Debug log for virtual host generation
 	if finalDocJSON, err := json.MarshalIndent(finalDoc, "", "  "); err == nil {
-		fmt.Printf("🎯 VirtualHost Generator - Final JSON:\\n%s\\n", string(finalDocJSON))
+		fmt.Printf("VirtualHost Generator - Final JSON:\\n%s\\n", string(finalDocJSON))
 	}
 
 	return finalDoc, nil

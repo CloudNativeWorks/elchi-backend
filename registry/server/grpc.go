@@ -1,3 +1,5 @@
+// Package server provides gRPC and HTTP server implementations for the registry service
+// handling controller and control-plane registration and routing.
 package server
 
 import (
@@ -5,9 +7,8 @@ import (
 	"fmt"
 	"net"
 	"strings"
-	"time"
-
 	"sync"
+	"time"
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/bridge"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/config"
@@ -440,7 +441,7 @@ func (p *ExternalProcessorServer) getHeaderFromMap(headers *core.HeaderMap, key 
 		return ""
 	}
 
-	// Envoy ext_proc'da header'lar raw_value field'ında geliyor
+	// In Envoy ext_proc, headers come in raw_value field
 	for _, header := range headers.Headers {
 		if header != nil && strings.EqualFold(header.Key, key) {
 			return string(header.RawValue)

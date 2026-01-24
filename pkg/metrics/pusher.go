@@ -1,3 +1,5 @@
+// Package metrics provides metrics collection and pushing functionality
+// for monitoring system performance via gRPC.
 package metrics
 
 import (

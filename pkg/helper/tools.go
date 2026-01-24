@@ -1,6 +1,7 @@
 package helper
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/json"
@@ -14,8 +15,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
-
-	"context"
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
@@ -58,7 +57,7 @@ func Contains(s []string, str string) bool {
 	return false
 }
 
-// This is unused just for development debugging
+// PrettyPrint outputs formatted JSON for development debugging (unused in production).
 func PrettyPrint(data any) {
 	if data == nil {
 		return
@@ -337,10 +336,7 @@ func ToK8sServiceName(controllerID string, namespace string) string {
 // SafeCloseCursor safely closes a MongoDB cursor
 func SafeCloseCursor(ctx context.Context, cursor *mongo.Cursor) {
 	if cursor != nil {
-		if err := cursor.Close(ctx); err != nil {
-			// Log error but don't panic - cursor close errors are not critical
-			// This prevents the nil pointer dereference panic we saw
-		}
+		_ = cursor.Close(ctx) // Ignore error - cursor close errors are not critical
 	}
 }
 
@@ -382,8 +378,8 @@ func NormalizeFQDN(fqdn string) string {
 }
 
 // NormalizeFQDNWithZone adds zone to FQDN if not already present
-// Example: "myservice" + "atest.elchi" → "myservice.atest.elchi."
-// Example: "dedeff" + "atest.elchi" → "dedeff.atest.elchi."
+// Example: "myservice" + "atest.elchi" -> "myservice.atest.elchi."
+// Example: "dedeff" + "atest.elchi" -> "dedeff.atest.elchi."
 func NormalizeFQDNWithZone(fqdn, zone string) string {
 	normalized := strings.ToLower(strings.TrimSpace(fqdn))
 	normalizedZone := strings.ToLower(strings.TrimSpace(zone))

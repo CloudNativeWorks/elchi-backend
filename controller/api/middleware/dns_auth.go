@@ -15,7 +15,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
-// DNSAuthMiddleware validates DNS secret from X-Elchi-DNS-Secret header
+// DNSAuthMiddleware validates DNS secret from X-Elchi-Secret header
 // Uses zone parameter from query string for zone-based authentication
 func DNSAuthMiddleware(appContext *db.AppContext) gin.HandlerFunc {
 	log := logger.NewLogger("middleware/dns-auth")
@@ -32,10 +32,10 @@ func DNSAuthMiddleware(appContext *db.AppContext) gin.HandlerFunc {
 		}
 
 		// Get DNS secret from header
-		secret := c.GetHeader("X-Elchi-DNS-Secret")
+		secret := c.GetHeader("X-Elchi-Secret")
 		if secret == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{
-				"error": "missing X-Elchi-DNS-Secret header",
+				"error": "missing X-Elchi-Secret header",
 			})
 			c.Abort()
 			return

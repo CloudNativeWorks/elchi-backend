@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -17,9 +16,7 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/registry/storage"
 )
 
-var (
-	registryPort uint
-)
+var registryPort uint
 
 // registryCmd represents the command for starting the registry service.
 // It initializes the registry server, sets up the necessary services, and starts listening for incoming gRPC requests.
@@ -42,7 +39,6 @@ var registryCmd = &cobra.Command{
 			Module:     "registry",
 		}); err != nil {
 			log.Fatalf("Fatal: Logger could not be initialized: %v", err)
-			os.Exit(1)
 		}
 
 		registryPort = appConfig.RegistryPort

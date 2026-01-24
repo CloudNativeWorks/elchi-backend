@@ -31,7 +31,7 @@ func (handler *AppHandler) ListProjects(c *gin.Context) {
 	if !ok {
 		userID = ""
 	}
-	var projectCollection *mongo.Collection = handler.Context.Client.Collection("projects")
+	projectCollection := handler.Context.Client.Collection("projects")
 	projects, _ := handler.GetUserProject(ctx, userID)
 
 	var projectIDs []primitive.ObjectID
@@ -69,7 +69,7 @@ func (handler *AppHandler) ListProjects(c *gin.Context) {
 
 func (handler *AppHandler) GetProject(c *gin.Context) {
 	ctx := c.Request.Context()
-	var userCollection *mongo.Collection = handler.Context.Client.Collection("projects")
+	userCollection := handler.Context.Client.Collection("projects")
 	var record bson.M
 
 	projectID := c.Param("project_id")
@@ -90,7 +90,7 @@ func (handler *AppHandler) GetProject(c *gin.Context) {
 }
 
 func (handler *AppHandler) GetBaseProjectAndRole(ctx context.Context, userID string) (*string, bool) {
-	var usersCollection *mongo.Collection = handler.Context.Client.Collection("users")
+	usersCollection := handler.Context.Client.Collection("users")
 	filters := bson.M{"user_id": userID}
 	opts := options.Find()
 	opts.SetProjection(bson.M{"base_project": 1, "username": 1, "role": 1})
@@ -172,7 +172,7 @@ func (handler *AppHandler) GetUserProject(ctx context.Context, userID string) (*
 
 func (handler *AppHandler) SetUpdateProject(c *gin.Context) {
 	ctx := c.Request.Context()
-	var userCollection *mongo.Collection = handler.Context.Client.Collection("projects")
+	userCollection := handler.Context.Client.Collection("projects")
 	ctx, cancel := context.WithTimeout(ctx, 100*time.Second)
 	var status int
 	var msg, projectID string
@@ -278,7 +278,7 @@ func (handler *AppHandler) CreateProject(ctx context.Context, projectCollection 
 	handler.Logger.Debugf("Creating default resources for project %s, versions: %v", projectID.Hex(), handler.Context.Config.ElchiVersions)
 	for _, vers := range handler.Context.Config.ElchiVersions {
 		handler.Logger.Debugf("Creating default HttpProtocolOptions for project %s, version %s", projectID.Hex(), vers)
-		if err := db.CreateDefaultHttpProtocolOptions(ctx, handler.Context, projectID.Hex(), vers, groupID); err != nil {
+		if err := db.CreateDefaultHTTPProtocolOptions(ctx, handler.Context, projectID.Hex(), vers, groupID); err != nil {
 			handler.Logger.Debugf("Default hpo not created for project %s version %s: %s", projectID.Hex(), vers, err)
 			return http.StatusBadRequest, fmt.Sprintf("Failed to create default HttpProtocolOptions: %v", err), "0"
 		}

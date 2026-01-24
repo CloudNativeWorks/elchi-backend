@@ -291,7 +291,7 @@ func (p *DeployResponser) addIPToGSLBRecord(ctx context.Context, serviceID, proj
 		return fmt.Errorf("failed to add IP to GSLB health collection: %w", err)
 	}
 
-	p.Logger.Infof("✅ Added IP %s to GSLB health collection for client %s (shard: %d/%d)",
+	p.Logger.Infof("Added IP %s to GSLB health collection for client %s (shard: %d/%d)",
 		downstreamAddress, clientID, gslbRecord.ShardID, subShardID)
 	return nil
 }

@@ -3,6 +3,7 @@ package middleware
 import (
 	"bytes"
 	"io"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 )
@@ -12,7 +13,7 @@ import (
 func BodyCaptureMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Only capture body for POST/PUT methods
-		if c.Request.Method == "POST" || c.Request.Method == "PUT" {
+		if c.Request.Method == http.MethodPost || c.Request.Method == http.MethodPut {
 			// Read body
 			bodyBytes, err := io.ReadAll(c.Request.Body)
 			if err != nil {

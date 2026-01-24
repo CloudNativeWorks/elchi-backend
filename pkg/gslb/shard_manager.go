@@ -57,13 +57,13 @@ func NewShardManager(appContext *db.AppContext, controllerID string) *ShardManag
 		targetShardCount: 0,
 		done:             make(chan struct{}),
 		ready:            make(chan struct{}),
-		shardAcquired:    make(chan int, 10), // Buffered channel for shard acquisition events
+		shardAcquired:    make(chan int, 100), // Buffered channel for shard acquisition events (increased from 10 to 100)
 	}
 }
 
 // Start begins the shard management loop
 func (sm *ShardManager) Start() {
-	sm.logger.Infof("🚀 Starting GSLB Shard Manager (Two-Tier) for controller: %s", sm.controllerID)
+	sm.logger.Infof("Starting GSLB Shard Manager (Two-Tier) for controller: %s", sm.controllerID)
 
 	// Initial shard acquisition
 	if err := sm.acquireShards(); err != nil {
@@ -209,16 +209,16 @@ func (sm *ShardManager) acquireShards() error {
 	ownedCount := len(acquiredShards)
 	sm.mu.Unlock()
 
-	sm.logger.Infof("✅ Initial acquisition complete: %d logical shards across %d top-level shards (modified: %d)",
+	sm.logger.Infof("Initial acquisition complete: %d logical shards across %d top-level shards (modified: %d)",
 		len(acquiredShards), len(shardIDs), modifiedCount)
 
 	// Emit shard acquisition event (notify health checker to start if shards > 0)
 	if ownedCount > 0 {
 		select {
 		case sm.shardAcquired <- ownedCount:
-			sm.logger.Debugf("🔔 Shard acquisition event emitted: %d shards", ownedCount)
+			sm.logger.Debugf("Shard acquisition event emitted: %d shards", ownedCount)
 		default:
-			sm.logger.Warn("⚠️  Shard acquisition event channel full, skipping notification")
+			sm.logger.Warn("Shard acquisition event channel full, skipping notification")
 		}
 	}
 
@@ -252,7 +252,7 @@ func (sm *ShardManager) renewLeases() error {
 
 // rebalanceScaleDown releases excess shards when scaling down
 func (sm *ShardManager) rebalanceScaleDown(ctx context.Context, count int) error {
-	sm.logger.Infof("🔄 Rebalancing: Releasing %d logical shards (current: %d, target: %d)",
+	sm.logger.Infof("Rebalancing: Releasing %d logical shards (current: %d, target: %d)",
 		count, count+sm.targetShardCount, sm.targetShardCount)
 
 	sm.mu.Lock()
@@ -279,7 +279,7 @@ func (sm *ShardManager) rebalanceScaleDown(ctx context.Context, count int) error
 		return err
 	}
 
-	sm.logger.Debugf("✅ Released %d logical shards across %d top-level shards", len(releasedShards), len(shardIDs))
+	sm.logger.Debugf("Released %d logical shards across %d top-level shards", len(releasedShards), len(shardIDs))
 
 	// Renew leases for remaining shards
 	return sm.renewOwnedShardLeases(ctx)
@@ -287,7 +287,7 @@ func (sm *ShardManager) rebalanceScaleDown(ctx context.Context, count int) error
 
 // rebalanceScaleUp acquires additional shards when scaling up
 func (sm *ShardManager) rebalanceScaleUp(ctx context.Context, needed int) error {
-	sm.logger.Infof("🔄 Rebalancing: Acquiring %d more logical shards (current: %d, target: %d)",
+	sm.logger.Infof("Rebalancing: Acquiring %d more logical shards (current: %d, target: %d)",
 		needed, len(sm.ownedShards), sm.targetShardCount)
 
 	// Find available shards via repository
@@ -364,14 +364,14 @@ func (sm *ShardManager) rebalanceScaleUp(ctx context.Context, needed int) error 
 	sm.mu.Unlock()
 
 	if len(newShards) > 0 {
-		sm.logger.Infof("✅ Acquired %d logical shards (total owned: %d)", len(newShards), totalOwned)
+		sm.logger.Infof("Acquired %d logical shards (total owned: %d)", len(newShards), totalOwned)
 
 		// Emit shard acquisition event
 		select {
 		case sm.shardAcquired <- totalOwned:
-			sm.logger.Debugf("🔔 Shard acquisition event emitted after rebalance")
+			sm.logger.Debugf("Shard acquisition event emitted after rebalance")
 		default:
-			sm.logger.Warn("⚠️  Shard acquisition event channel full")
+			sm.logger.Warn("Shard acquisition event channel full")
 		}
 	} else {
 		sm.logger.Debugf("No shards acquired (all owned by other controllers)")
@@ -504,7 +504,7 @@ func (sm *ShardManager) calculateTargetShards(ctx context.Context) error {
 	sm.targetShardCount = (totalLogicalShards + controllerCount - 1) / controllerCount
 
 	// DISABLED: Too verbose - runs every 30s
-	// sm.logger.Debugf("📊 Target calculation: %d controllers active, target %d logical shards/controller (total: %d)",
+	// sm.logger.Debugf("Target calculation: %d controllers active, target %d logical shards/controller (total: %d)",
 	// 	controllerCount, sm.targetShardCount, totalLogicalShards)
 	return nil
 }
@@ -544,7 +544,7 @@ func InitializeShards(ctx context.Context, db *mongo.Database, logger *logger.Lo
 		return fmt.Errorf("failed to initialize shards via BulkWrite: %w", err)
 	}
 
-	logger.Infof("✅ Initialized %d GSLB shards via BulkWrite (1,024 logical shards with 8 sub-shards each)", models.GSLBNumShards)
+	logger.Infof("Initialized %d GSLB shards via BulkWrite (1,024 logical shards with 8 sub-shards each)", models.GSLBNumShards)
 	return nil
 }
 

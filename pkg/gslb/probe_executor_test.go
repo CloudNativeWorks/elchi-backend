@@ -113,10 +113,10 @@ func TestExecuteHTTPProbe_Success(t *testing.T) {
 		IP:       "127.0.0.1",
 	}
 	probe := &models.GSLBProbe{
-		Type:        "http",
-		Port:        mustParseInt(port),
-		Path:        "/health",
-		Timeout:     5.0,
+		Type:                "http",
+		Port:                mustParseInt(port),
+		Path:                "/health",
+		Timeout:             5.0,
 		ExpectedStatusCodes: []string{"200"}, // Only accept 200
 	}
 
@@ -151,10 +151,10 @@ func TestExecuteHTTPProbe_UnexpectedStatusCode(t *testing.T) {
 		IP:       "127.0.0.1",
 	}
 	probe := &models.GSLBProbe{
-		Type:        "http",
-		Port:        mustParseInt(port),
-		Path:        "/",
-		Timeout:     5.0,
+		Type:                "http",
+		Port:                mustParseInt(port),
+		Path:                "/",
+		Timeout:             5.0,
 		ExpectedStatusCodes: []string{"200"}, // Expect 200
 	}
 
@@ -188,12 +188,12 @@ func TestExecuteHTTPProbe_WithHostHeader(t *testing.T) {
 		IP:       "127.0.0.1",
 	}
 	probe := &models.GSLBProbe{
-		Type:        "http",
-		Port:        mustParseInt(port),
-		Path:        "/",
-		Timeout:     5.0,
+		Type:                "http",
+		Port:                mustParseInt(port),
+		Path:                "/",
+		Timeout:             5.0,
 		ExpectedStatusCodes: []string{"200"},
-		HostHeader:  "example.com", // Custom Host header
+		HostHeader:          "example.com", // Custom Host header
 	}
 
 	result := executor.ExecuteProbe(ctx, ipHealth, probe)
@@ -227,10 +227,10 @@ func TestExecuteHTTPProbe_ContextCancellation(t *testing.T) {
 		IP:       "127.0.0.1",
 	}
 	probe := &models.GSLBProbe{
-		Type:        "http",
-		Port:        mustParseInt(port),
-		Path:        "/",
-		Timeout:     5.0,
+		Type:                "http",
+		Port:                mustParseInt(port),
+		Path:                "/",
+		Timeout:             5.0,
 		ExpectedStatusCodes: []string{"200"},
 	}
 
@@ -357,10 +357,10 @@ func TestExecuteHTTPProbe_DefaultPath(t *testing.T) {
 		IP:       "127.0.0.1",
 	}
 	probe := &models.GSLBProbe{
-		Type:        "http",
-		Port:        mustParseInt(port),
-		Path:        "", // Empty path - should default to "/"
-		Timeout:     5.0,
+		Type:                "http",
+		Port:                mustParseInt(port),
+		Path:                "", // Empty path - should default to "/"
+		Timeout:             5.0,
 		ExpectedStatusCodes: []string{"200"},
 	}
 

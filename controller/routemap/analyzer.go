@@ -1,3 +1,5 @@
+// Package routemap provides route analysis and visualization capabilities for Envoy configurations,
+// including HTTP connection manager, virtual host, and route analysis.
 package routemap
 
 import (

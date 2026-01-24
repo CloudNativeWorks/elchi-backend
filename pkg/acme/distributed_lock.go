@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
@@ -43,6 +44,7 @@ type DistributedScheduler struct {
 	stopCh      chan struct{}
 	isLeader    bool
 	heartbeatCh chan struct{}
+	stopOnce    sync.Once // Ensures Stop() is only executed once
 }
 
 // NewDistributedScheduler creates a new distributed scheduler with MongoDB locking
@@ -88,22 +90,26 @@ func (d *DistributedScheduler) Start(ctx context.Context) error {
 
 // Stop gracefully stops the distributed scheduler
 func (d *DistributedScheduler) Stop() error {
-	d.logger.Infof("Stopping distributed scheduler (instance: %s)", d.instanceID)
-	close(d.stopCh)
+	var stopErr error
 
-	// Release lock if we're the leader
-	if d.isLeader {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = d.releaseLock(ctx)
-	}
+	d.stopOnce.Do(func() {
+		d.logger.Infof("Stopping distributed scheduler (instance: %s)", d.instanceID)
+		close(d.stopCh)
 
-	// Stop the underlying scheduler if it's running
-	if d.isLeader {
-		return d.scheduler.Stop()
-	}
+		// Release lock if we're the leader
+		if d.isLeader {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = d.releaseLock(ctx)
+		}
 
-	return nil
+		// Stop the underlying scheduler if it's running
+		if d.isLeader {
+			stopErr = d.scheduler.Stop()
+		}
+	})
+
+	return stopErr
 }
 
 // leadershipLoop continuously tries to acquire or maintain leadership
@@ -114,7 +120,7 @@ func (d *DistributedScheduler) leadershipLoop(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			d.logger.Info("Leadership loop context cancelled")
+			d.logger.Info("Leadership loop context canceled")
 			return
 
 		case <-d.stopCh:
@@ -277,7 +283,7 @@ func (d *DistributedScheduler) releaseLock(ctx context.Context) error {
 
 // becomeLeader is called when this instance becomes the leader
 func (d *DistributedScheduler) becomeLeader(ctx context.Context) {
-	d.logger.Infof("🎖️  Became leader (instance: %s) - starting renewal scheduler", d.instanceID)
+	d.logger.Infof("Became leader (instance: %s) - starting renewal scheduler", d.instanceID)
 	d.isLeader = true
 
 	// Start the underlying renewal scheduler
@@ -297,7 +303,7 @@ func (d *DistributedScheduler) loseLeadership() {
 		return
 	}
 
-	d.logger.Warnf("⚠️  Lost leadership (instance: %s) - stopping renewal scheduler", d.instanceID)
+	d.logger.Warnf("Lost leadership (instance: %s) - stopping renewal scheduler", d.instanceID)
 	d.isLeader = false
 
 	// Stop the underlying renewal scheduler

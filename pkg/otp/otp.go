@@ -1,3 +1,5 @@
+// Package otp provides one-time password functionality for two-factor
+// authentication using TOTP (Time-based One-Time Password).
 package otp
 
 import (
@@ -73,10 +75,10 @@ func GenerateQRCode(key *otp.Key) (string, error) {
 
 // GenerateBackupCodes generates n backup codes (random alphanumeric strings)
 // Returns both plaintext codes (for display) and hashed codes (for storage)
-func GenerateBackupCodes(count int) (plainCodes []string, hashedCodes []string, err error) {
+func GenerateBackupCodes(count int) ([]string, []string, error) {
 	const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	plainCodes = make([]string, count)
-	hashedCodes = make([]string, count)
+	plainCodes := make([]string, count)
+	hashedCodes := make([]string, count)
 
 	for i := 0; i < count; i++ {
 		// Generate random code

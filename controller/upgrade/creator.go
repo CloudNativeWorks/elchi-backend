@@ -30,8 +30,8 @@ func NewResourceCreator(dbContext *db.AppContext) *ResourceCreator {
 
 // CreateMissingDependencies creates all missing dependencies in topological order
 func (c *ResourceCreator) CreateMissingDependencies(ctx context.Context, j *job.Job,
-	progressCallback func(int, int)) ([]job.ResourceRef, error) {
-
+	progressCallback func(int, int),
+) ([]job.ResourceRef, error) {
 	missingResources := j.Metadata.UpgradeConfig.Analysis.MissingResources
 	sorted := TopologicalSort(missingResources)
 
@@ -47,7 +47,7 @@ func (c *ResourceCreator) CreateMissingDependencies(ctx context.Context, j *job.
 	c.logger.Infof("Creating %d missing dependencies in topological order", len(sorted))
 
 	for i, missing := range sorted {
-		// ✅ Double-check existence (race condition protection)
+		// Double-check existence (race condition protection)
 		collection := c.dbContext.Client.Collection(missing.Collection)
 		count, _ := collection.CountDocuments(ctx, bson.M{
 			"general.name":    missing.Name,
@@ -56,7 +56,7 @@ func (c *ResourceCreator) CreateMissingDependencies(ctx context.Context, j *job.
 		})
 
 		if count > 0 {
-			c.logger.Infof("⏭️  SKIPPED: %s/%s already exists in version %s",
+			c.logger.Infof("SKIPPED: %s/%s already exists in version %s",
 				missing.Collection, missing.Name, toVersion)
 
 			// Still add to refs for tracking, but mark as skipped
@@ -92,7 +92,6 @@ func (c *ResourceCreator) CreateMissingDependencies(ctx context.Context, j *job.
 			"general.project": project,
 			"general.version": fromVersion,
 		}).Decode(&sourceResource)
-
 		if err != nil {
 			return createdRefs, fmt.Errorf("source not found: %s/%s: %w", missing.Collection, missing.Name, err)
 		}
@@ -113,7 +112,7 @@ func (c *ResourceCreator) CreateMissingDependencies(ctx context.Context, j *job.
 			Skipped:    false,
 		})
 
-		c.logger.Infof("✅ Created %s/%s in version %s", missing.Collection, missing.Name, toVersion)
+		c.logger.Infof("Created %s/%s in version %s", missing.Collection, missing.Name, toVersion)
 
 		if progressCallback != nil {
 			progressCallback(i+1, len(sorted))
@@ -131,8 +130,8 @@ func (c *ResourceCreator) cloneForUpgrade(source models.DBResource, toVersion st
 	target.ID = primitive.NewObjectID()
 
 	// 2. Update versions
-	target.General.Version = toVersion // ✅ Envoy version (v1.34.2 → v1.36.2)
-	target.Resource.Version = "1"      // ✅ RESET incremental counter to 1
+	target.General.Version = toVersion // Envoy version (v1.34.2 -> v1.36.2)
+	target.Resource.Version = "1"      // RESET incremental counter to 1
 
 	// 3. Update timestamps
 	now := primitive.NewDateTimeFromTime(time.Now())
@@ -142,13 +141,13 @@ func (c *ResourceCreator) cloneForUpgrade(source models.DBResource, toVersion st
 	// 4. Clear metadata that shouldn't be copied
 	target.General.Metadata = make(map[string]interface{})
 
-	// 5. ✅ NO TypedConfig modification needed
+	// 5. NO TypedConfig modification needed
 	// - Base64 encoded values in resource.resource have NO version field
 	// - They only store: name, gtype, collection, parent_name
 	// - Envoy runtime fetches resources based on listener version
 	// - Dependency analyzer handles referenced resources separately
 
-	c.logger.Debugf("Cloned resource %s/%s: %s → %s (resource.version reset to 1)",
+	c.logger.Debugf("Cloned resource %s/%s: %s -> %s (resource.version reset to 1)",
 		source.General.Collection, source.General.Name, source.General.Version, toVersion)
 
 	return target
@@ -170,7 +169,6 @@ func (c *ResourceCreator) CreateListenerInTargetVersion(ctx context.Context, j *
 		"general.name":    listenerName,
 		"general.project": project,
 	}).Decode(&existingListener)
-
 	if err != nil {
 		return job.ResourceRef{}, fmt.Errorf("listener not found: %w", err)
 	}
@@ -198,7 +196,7 @@ func (c *ResourceCreator) CreateListenerInTargetVersion(ctx context.Context, j *
 
 	update := bson.M{
 		"$set": bson.M{
-			"general.version":    toVersion,          // Update to target version
+			"general.version":    toVersion, // Update to target version
 			"general.updated_at": now,
 			"resource.version":   newResourceVersion, // Increment existing version as string
 		},
@@ -213,7 +211,7 @@ func (c *ResourceCreator) CreateListenerInTargetVersion(ctx context.Context, j *
 		return job.ResourceRef{}, fmt.Errorf("listener %s not found for update", listenerName)
 	}
 
-	c.logger.Infof("✅ Upgraded listener %s to version %s", listenerName, toVersion)
+	c.logger.Infof("Upgraded listener %s to version %s", listenerName, toVersion)
 
 	return job.ResourceRef{
 		Collection: "listeners",

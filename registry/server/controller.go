@@ -48,7 +48,7 @@ func (s *ControllerGRPCServer) RegisterController(ctx context.Context, req *brid
 	controllerInfo := &models.ControllerInfo{
 		ID:          req.ControllerId,
 		Version:     req.Version,
-		HttpAddress: fmt.Sprintf("%s:8099", serviceName),
+		HTTPAddress: fmt.Sprintf("%s:8099", serviceName),
 		LastSeen:    time.Now(),
 	}
 
@@ -223,7 +223,7 @@ func (s *ControllerGRPCServer) ListControllers(ctx context.Context, req *bridge.
 		protoControllers = append(protoControllers, &bridge.ControllerInfo{
 			ControllerId: ctrl.ID,
 			Version:      ctrl.Version,
-			HttpAddress:  ctrl.HttpAddress,
+			HttpAddress:  ctrl.HTTPAddress,
 			LastSeen:     timestamppb.New(ctrl.LastSeen),
 		})
 	}
@@ -279,7 +279,7 @@ func (s *ControllerGRPCServer) GetAllRegistryData(ctx context.Context, req *brid
 		protoControllers = append(protoControllers, &bridge.ControllerInfo{
 			ControllerId: ctrl.ID,
 			Version:      ctrl.Version,
-			HttpAddress:  ctrl.HttpAddress,
+			HttpAddress:  ctrl.HTTPAddress,
 			LastSeen:     timestamppb.New(ctrl.LastSeen),
 		})
 	}

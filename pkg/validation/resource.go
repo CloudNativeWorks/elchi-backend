@@ -1,3 +1,5 @@
+// Package validation provides validation utilities for Envoy resources
+// including certificate validation and resource format checks.
 package validation
 
 import (
@@ -9,11 +11,9 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 )
 
-var (
-	// ValidResourceNameRegex allows letters, numbers, underscore, hyphen only
-	// No spaces, no special characters except _ and -
-	ValidResourceNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
-)
+// ValidResourceNameRegex allows letters, numbers, underscore, hyphen only
+// No spaces, no special characters except _ and -
+var ValidResourceNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 // ResourceNameError represents a resource name validation error
 type ResourceNameError struct {
@@ -172,5 +172,5 @@ func (r *GTypeValidatorRegistry) ValidateByGType(resource models.ResourceClass, 
 	return nil, nil
 }
 
-// Global registry instance
+// GlobalValidatorRegistry is the global registry instance for GType validators.
 var GlobalValidatorRegistry = NewGTypeValidatorRegistry()

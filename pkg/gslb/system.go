@@ -1,3 +1,5 @@
+// Package gslb provides Global Server Load Balancing functionality including
+// health checking, IP management, sharding, and distributed coordination.
 package gslb
 
 import (
@@ -101,7 +103,7 @@ func (s *System) Start() error {
 		return fmt.Errorf("GSLB system already started")
 	}
 
-	s.logger.Infof("🚀 Starting GSLB System for controller: %s", s.controllerID)
+	s.logger.Infof("Starting GSLB System for controller: %s", s.controllerID)
 
 	// Start shard manager (acquires shards and starts lease renewal)
 	go s.shardManager.Start()
@@ -117,14 +119,14 @@ func (s *System) Start() error {
 	ownedShards := s.shardManager.GetOwnedShards()
 	s.logger.Infof("Shard manager ready with %d logical shards", len(ownedShards))
 
-	// Start health checker if we have shards (starts bucket scheduler and all timer buckets)
+	// Start health checker if we have shards (starts Time Wheel scheduler)
 	// If initial acquisition returned 0 shards, health checker will wait in standby mode
 	if len(ownedShards) > 0 {
 		if err := s.healthChecker.Start(); err != nil {
 			return fmt.Errorf("failed to start health checker: %w", err)
 		}
 	} else {
-		s.logger.Infof("⏸️  Health checker in standby mode (no shards owned yet, waiting for rebalancing)")
+		s.logger.Infof("Health checker in standby mode (no shards owned yet, waiting for rebalancing)")
 	}
 
 	// Start background goroutine to listen for shard acquisition events
@@ -132,7 +134,7 @@ func (s *System) Start() error {
 	go s.listenForShardAcquisition()
 
 	s.started = true
-	s.logger.Infof("✅ GSLB System started successfully")
+	s.logger.Infof("GSLB System started successfully")
 
 	return nil
 }
@@ -142,27 +144,34 @@ func (s *System) Start() error {
 // This is the PERMANENT solution for multi-controller environments where initial acquisition
 // may return 0 shards (all owned by other controllers), but rebalancing acquires them later
 func (s *System) listenForShardAcquisition() {
-	s.logger.Infof("🎧 Listening for shard acquisition events...")
+	s.logger.Infof("Listening for shard acquisition events...")
 
 	// Get shard acquisition event channel from ShardManager
 	shardAcquiredChan := s.shardManager.GetShardAcquisitionChannel()
 
 	for shardCount := range shardAcquiredChan {
-		s.logger.Infof("🔔 Shard acquisition event received: %d shards owned", shardCount)
+		s.logger.Infof("Shard acquisition event received: %d shards owned", shardCount)
 
 		// Check if health checker is already running
 		if s.healthChecker.IsRunning() {
-			s.logger.Debugf("Health checker already running, no restart needed")
+			// Health checker already running - reload records to pick up new shard IPs
+			s.logger.Infof("Health checker running, reloading records for new shards...")
+			if err := s.healthChecker.ReloadAllRecords(); err != nil {
+				s.logger.Errorf("Failed to reload records after shard acquisition: %v", err)
+				// Don't panic - will retry on next acquisition event
+			} else {
+				s.logger.Infof("Successfully reloaded records for %d shards", shardCount)
+			}
 			continue
 		}
 
 		// Health checker not running - start it now that we have shards
-		s.logger.Infof("🚀 Starting health checker (triggered by shard acquisition)")
+		s.logger.Infof("Starting health checker (triggered by shard acquisition)")
 		if err := s.healthChecker.Start(); err != nil {
 			s.logger.Errorf("Failed to start health checker after shard acquisition: %v", err)
 			// Don't panic - will retry on next acquisition event
 		} else {
-			s.logger.Infof("✅ Health checker started successfully after acquiring %d shards", shardCount)
+			s.logger.Infof("Health checker started successfully after acquiring %d shards", shardCount)
 		}
 	}
 
@@ -204,9 +213,9 @@ func (s *System) Stop() error {
 	// Wait for graceful shutdown or timeout
 	select {
 	case <-done:
-		s.logger.Infof("✅ GSLB System stopped successfully")
+		s.logger.Infof("GSLB System stopped successfully")
 	case <-shutdownCtx.Done():
-		s.logger.Errorf("❌ GSLB System shutdown timed out after 30 seconds")
+		s.logger.Errorf("GSLB System shutdown timed out after 30 seconds")
 		return fmt.Errorf("shutdown timeout exceeded")
 	}
 
@@ -229,7 +238,7 @@ func (s *System) GetShardManager() *ShardManager {
 	return s.shardManager
 }
 
-// ReloadAllRecords forces immediate reload of all bucket records from database
+// ReloadAllRecords forces immediate reload of all Time Wheel records from database
 // Call this after GSLB record create/update/delete operations
 func (s *System) ReloadAllRecords() error {
 	if !s.started {
@@ -238,13 +247,13 @@ func (s *System) ReloadAllRecords() error {
 	return s.healthChecker.ReloadAllRecords()
 }
 
-// GetStats returns comprehensive system statistics
+// SystemStats holds comprehensive system statistics
 type SystemStats struct {
-	ControllerID     string
-	Started          bool
-	OwnedShards      []ShardOwnership
+	ControllerID       string
+	Started            bool
+	OwnedShards        []ShardOwnership
 	HealthCheckerStats *HealthCheckerStats
-	WriteBufferStats BufferStats
+	WriteBufferStats   BufferStats
 }
 
 // GetStats returns current GSLB system statistics
@@ -261,4 +270,13 @@ func (s *System) GetStats() (*SystemStats, error) {
 		HealthCheckerStats: healthStats,
 		WriteBufferStats:   s.writeBuffer.GetStats(),
 	}, nil
+}
+
+// GetTimeWheel returns the Time Wheel scheduler for manual operations
+// Returns nil if health checker is not initialized
+func (s *System) GetTimeWheel() *TimeWheel {
+	if s.healthChecker == nil {
+		return nil
+	}
+	return s.healthChecker.timeWheel
 }

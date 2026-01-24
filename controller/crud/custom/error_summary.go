@@ -1,4 +1,3 @@
-
 package custom
 
 import (
@@ -197,7 +196,7 @@ func (custom *AppHandler) GetErrorSummary(ctx context.Context, _ models.Resource
 		})
 	}
 
-	custom.Logger.Debugf("🔍 ERROR-SUMMARY: Found %d services with %d total active errors in project '%s'",
+	custom.Logger.Debugf("ERROR-SUMMARY: Found %d services with %d total active errors in project '%s'",
 		len(services), totalErrors, requestDetails.Project)
 
 	return ErrorSummaryResponse{

@@ -1,3 +1,5 @@
+// Package openstack provides OpenStack cloud integration for endpoint discovery
+// and load balancer management.
 package openstack
 
 import (
@@ -213,7 +215,7 @@ func (c *OpenStackClient) authenticate(ctx context.Context) error {
 		c.Logger.Debugf("OpenStack Auth - Parsed URL - Host: %s, Scheme: %s, Path: %s", parsedURL.Host, parsedURL.Scheme, parsedURL.Path)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", authURL, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, authURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		c.Logger.Errorf("OpenStack Auth - Failed to create auth request: %v", err)
 		return fmt.Errorf("failed to create auth request: %w", err)
@@ -349,7 +351,7 @@ func (c *OpenStackClient) ListServerPorts(ctx context.Context, serverID string) 
 	reqURL := fmt.Sprintf("%s/v2.0/ports?device_id=%s", endpoint, url.QueryEscape(serverID))
 	c.Logger.Debugf("OpenStack Ports - Making request to: %s", reqURL)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
 		c.Logger.Errorf("OpenStack Ports - Failed to create request: %v", err)
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -493,7 +495,7 @@ func (c *OpenStackClient) getPort(ctx context.Context, endpoint, portID string) 
 	c.Logger.Debugf("OpenStack Port Get - Request URL: %s", reqURL)
 	c.Logger.Debugf("OpenStack Port Get - Port ID: %s", portID)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
 		c.Logger.Errorf("OpenStack Port Get - Failed to create request: %v", err)
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -556,7 +558,7 @@ func (c *OpenStackClient) updatePort(ctx context.Context, endpoint, portID strin
 
 	reqURL := fmt.Sprintf("%s/v2.0/ports/%s", endpoint, portID)
 
-	req, err := http.NewRequestWithContext(ctx, "PUT", reqURL, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, reqURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -612,7 +614,7 @@ func (c *OpenStackClient) GetNetwork(ctx context.Context, networkID string) (*Ne
 	reqURL := fmt.Sprintf("%s/v2.0/networks/%s", endpoint, networkID)
 	c.Logger.Debugf("OpenStack Network - Making request to: %s", reqURL)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
 		c.Logger.Errorf("OpenStack Network - Failed to create request: %v", err)
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -680,7 +682,7 @@ func (c *OpenStackClient) GetSubnet(ctx context.Context, subnetID string) (*Subn
 	reqURL := fmt.Sprintf("%s/v2.0/subnets/%s", endpoint, subnetID)
 	c.Logger.Debugf("OpenStack Subnet - Making request to: %s", reqURL)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
 		c.Logger.Errorf("OpenStack Subnet - Failed to create request: %v", err)
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -748,7 +750,7 @@ func (c *OpenStackClient) ListNetworkSubnets(ctx context.Context, networkID stri
 	reqURL := fmt.Sprintf("%s/v2.0/subnets?network_id=%s", endpoint, url.QueryEscape(networkID))
 	c.Logger.Debugf("OpenStack Subnets - Making request to: %s", reqURL)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
 		c.Logger.Errorf("OpenStack Subnets - Failed to create request: %v", err)
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -930,7 +932,7 @@ func (c *OpenStackClient) GetNetworkUsedIPs(ctx context.Context, networkID strin
 
 	// List all ports for this network
 	url := fmt.Sprintf("%s/v2.0/ports?network_id=%s", endpoint, networkID)
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}

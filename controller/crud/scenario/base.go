@@ -1,3 +1,5 @@
+// Package scenario provides the scenario system for building and executing
+// Envoy configuration templates with component-based definitions.
 package scenario
 
 import (

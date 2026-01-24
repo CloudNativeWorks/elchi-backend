@@ -1,3 +1,5 @@
+// Package security provides input validation and security utilities
+// including protection against injection attacks and ReDoS patterns.
 package security
 
 import (

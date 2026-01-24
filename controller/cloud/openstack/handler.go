@@ -255,20 +255,7 @@ func (h *Handler) GetClientInterfaces(c *gin.Context) {
 
 	// Convert to response format with network details
 	h.Logger.Debugf("OpenStack Interface API - Converting %d ports to response format with network details", len(ports))
-	interfaces, err := h.enrichPortsWithNetworkInfo(context.Background(), ports, osClient)
-	if err != nil {
-		h.Logger.Errorf("OpenStack Interface API - Failed to enrich ports with network info: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"message": fmt.Sprintf("Failed to enrich interface data: %v", err),
-			"client_info": ClientInfo{
-				ClientID:   clientInfo.ClientID,
-				ClientName: clientInfo.Name,
-				Provider:   clientInfo.Provider,
-				ServerID:   serverID,
-			},
-		})
-		return
-	}
+	interfaces := h.enrichPortsWithNetworkInfo(context.Background(), ports, osClient)
 
 	response := InterfaceListResponse{
 		Message: "Success",
@@ -286,7 +273,7 @@ func (h *Handler) GetClientInterfaces(c *gin.Context) {
 }
 
 // enrichPortsWithNetworkInfo enriches port data with network and subnet details
-func (h *Handler) enrichPortsWithNetworkInfo(ctx context.Context, ports []ServerPort, osClient *OpenStackClient) ([]InterfaceInfo, error) {
+func (h *Handler) enrichPortsWithNetworkInfo(ctx context.Context, ports []ServerPort, osClient *OpenStackClient) []InterfaceInfo {
 	interfaces := make([]InterfaceInfo, len(ports))
 	networkCache := make(map[string]*NetworkInfo)
 
@@ -329,7 +316,7 @@ func (h *Handler) enrichPortsWithNetworkInfo(ctx context.Context, ports []Server
 			i, interfaceName, networkName)
 	}
 
-	return interfaces, nil
+	return interfaces
 }
 
 // getNetworkInfoWithCache gets network info using cache to avoid duplicate API calls
@@ -349,11 +336,7 @@ func (h *Handler) getNetworkInfoWithCache(ctx context.Context, networkID string,
 
 	// Fetch subnet details
 	h.Logger.Debugf("OpenStack Interface API - Fetching subnet details for network %s (%d subnets)", networkID, len(network.Subnets))
-	subnetInfos, err := h.fetchSubnetDetails(ctx, network.Subnets, osClient)
-	if err != nil {
-		h.Logger.Warnf("OpenStack Interface API - Failed to fetch some subnet details: %v", err)
-		// Continue with empty subnets rather than failing
-	}
+	subnetInfos := h.fetchSubnetDetails(ctx, network.Subnets, osClient)
 
 	// Create NetworkInfo
 	networkInfo := &NetworkInfo{
@@ -382,7 +365,7 @@ func (h *Handler) getNetworkInfoWithCache(ctx context.Context, networkID string,
 }
 
 // fetchSubnetDetails fetches details for multiple subnets
-func (h *Handler) fetchSubnetDetails(ctx context.Context, subnetIDs []string, osClient *OpenStackClient) ([]SubnetInfo, error) {
+func (h *Handler) fetchSubnetDetails(ctx context.Context, subnetIDs []string, osClient *OpenStackClient) []SubnetInfo {
 	subnetInfos := make([]SubnetInfo, 0, len(subnetIDs))
 
 	for _, subnetID := range subnetIDs {
@@ -415,7 +398,7 @@ func (h *Handler) fetchSubnetDetails(ctx context.Context, subnetIDs []string, os
 		subnetInfos = append(subnetInfos, subnetInfo)
 	}
 
-	return subnetInfos, nil
+	return subnetInfos
 }
 
 // calculateAvailableIPs calculates available IPs for a subnet

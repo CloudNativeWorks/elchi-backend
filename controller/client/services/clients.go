@@ -1,12 +1,13 @@
+// Package services provides business logic for client management
+// including client registration, command execution, and registry synchronization.
 package services
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
-
 	"sync"
+	"time"
 
 	"github.com/CloudNativeWorks/elchi-backend/controller/client/client"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
@@ -71,7 +72,6 @@ func (s *ClientService) getDefaultProjectID(ctx context.Context) (string, error)
 		ctx,
 		bson.M{"projectname": "default"},
 	).Decode(&defaultProject)
-
 	if err != nil {
 		return "", fmt.Errorf("default project not found: %w", err)
 	}
@@ -122,7 +122,6 @@ func (s *ClientService) getProjectName(ctx context.Context, projectID string) st
 		ctx,
 		bson.M{"_id": objID},
 	).Decode(&project)
-
 	if err != nil {
 		return projectID
 	}
@@ -361,7 +360,7 @@ func (s *ClientService) getAllClientsFromDB(ctx context.Context, projectID strin
 	return clients, nil
 }
 
-// GetClientByClientID, returns a single client.
+// GetClientByClientID returns a single client by its ID.
 func (s *ClientService) GetClientByClientID(ctx context.Context, clientID string) (*client.ClientInfo, error) {
 	client := client.ClientInfo{}
 	err := s.Context.Client.Collection("clients").FindOne(ctx, bson.M{"client_id": clientID}).Decode(&client)
@@ -431,16 +430,16 @@ func (s *ClientService) GetAllClients() ([]*client.ClientInfo, error) {
 
 // GetAllClientsWithFilter gets clients with custom filter
 func (s *ClientService) GetAllClientsWithFilter(filter bson.M) ([]*client.ClientInfo, error) {
-	s.logger.Debugf("🔍 DEBUG: GetAllClientsWithFilter started with filter: %+v", filter)
+	s.logger.Debugf("DEBUG: GetAllClientsWithFilter started with filter: %+v", filter)
 
 	cursor, err := s.Context.Client.Collection("clients").Find(context.Background(), filter)
 	if err != nil {
-		s.logger.Errorf("🔍 DEBUG: MongoDB query failed: %v", err)
+		s.logger.Errorf("DEBUG: MongoDB query failed: %v", err)
 		return nil, fmt.Errorf("failed to get clients: %w", err)
 	}
 	defer cursor.Close(context.Background())
 
-	s.logger.Debugf("🔍 DEBUG: MongoDB query successful, processing cursor...")
+	s.logger.Debugf("DEBUG: MongoDB query successful, processing cursor...")
 	result := []*client.ClientInfo{}
 	clientCount := 0
 	for cursor.Next(context.Background()) {
@@ -451,12 +450,12 @@ func (s *ClientService) GetAllClientsWithFilter(filter bson.M) ([]*client.Client
 			continue
 		}
 
-		s.logger.Debugf("🔍 DEBUG: Processing client %d: %s (connected=%t)", clientCount, client.ClientID, client.Connected)
+		s.logger.Debugf("DEBUG: Processing client %d: %s (connected=%t)", clientCount, client.ClientID, client.Connected)
 
 		result = append(result, &client)
 	}
 
-	s.logger.Debugf("🔍 DEBUG: Processed %d clients, returning %d results", clientCount, len(result))
+	s.logger.Debugf("DEBUG: Processed %d clients, returning %d results", clientCount, len(result))
 	return result, nil
 }
 
@@ -568,7 +567,7 @@ func (s *ClientService) UpdateClientStream(clientID string, stream pb.CommandSer
 		if err != nil {
 			s.logger.Errorf("Failed to update client connected status in DB: %v", err)
 		} else {
-			s.logger.Infof("✅ Client connected status updated in DB: %s (connect_time: %v, reason: %s)",
+			s.logger.Infof("Client connected status updated in DB: %s (connect_time: %v, reason: %s)",
 				clientID, client.ConnectTime.Format("15:04:05"), client.ConnectReason)
 		}
 	}()
@@ -596,7 +595,7 @@ func (s *ClientService) MarkClientDisconnectedInDBWithReason(ctx context.Context
 		"last_seen":           lastSeen,
 		"last_seen_age":       time.Since(lastSeen),
 		"caller_context":      "db_disconnection",
-	}).Warnf("🔴 MARKING CLIENT DISCONNECTED IN DB: %s (reason: %s)", clientID, reason)
+	}).Warnf("MARKING CLIENT DISCONNECTED IN DB: %s (reason: %s)", clientID, reason)
 
 	// Check if client is locally connected
 	isLocallyConnected := s.IsClientConnected(clientID)
@@ -604,7 +603,7 @@ func (s *ClientService) MarkClientDisconnectedInDBWithReason(ctx context.Context
 		s.logger.WithFields(logger.Fields{
 			"client_id": clientID,
 			"reason":    reason,
-		}).Errorf("⚠️ WARNING: Marking locally connected client as disconnected in DB! This may be a bug!")
+		}).Errorf("WARNING: Marking locally connected client as disconnected in DB! This may be a bug!")
 	}
 
 	filter := bson.M{"client_id": clientID}
@@ -629,7 +628,7 @@ func (s *ClientService) MarkClientDisconnectedInDBWithReason(ctx context.Context
 		"modified_count":    result.ModifiedCount,
 		"was_connected":     wasConnected,
 		"locally_connected": isLocallyConnected,
-	}).Infof("✅ Client disconnection updated in DB: %s", clientID)
+	}).Infof("Client disconnection updated in DB: %s", clientID)
 
 	return nil
 }
@@ -776,29 +775,29 @@ func (s *ClientService) IsConnectionHealthy(clientID string) bool {
 		client, exists := s.clients[clientID]
 
 		if !exists {
-			s.logger.Debugf("🔍 DEBUG: Health check for client %s - FAILED: Client not found", clientID)
+			s.logger.Debugf("DEBUG: Health check for client %s - FAILED: Client not found", clientID)
 			done <- false
 			return
 		}
 
 		if !client.Connected {
-			s.logger.Debugf("🔍 DEBUG: Health check for client %s - FAILED: Client not connected", clientID)
+			s.logger.Debugf("DEBUG: Health check for client %s - FAILED: Client not connected", clientID)
 			done <- false
 			return
 		}
 
 		// Check if stream is available
 		if client.Stream == nil {
-			s.logger.Debugf("🔍 DEBUG: Health check for client %s - FAILED: Stream is nil", clientID)
+			s.logger.Debugf("DEBUG: Health check for client %s - FAILED: Stream is nil", clientID)
 			done <- false
 			return
 		}
 
-		// Check if context is cancelled
+		// Check if context is canceled
 		if client.Context != nil {
 			select {
 			case <-client.Context.Done():
-				s.logger.Debugf("🔍 DEBUG: Health check for client %s - FAILED: Context cancelled", clientID)
+				s.logger.Debugf("DEBUG: Health check for client %s - FAILED: Context canceled", clientID)
 				done <- false
 				return
 			default:
@@ -810,13 +809,13 @@ func (s *ClientService) IsConnectionHealthy(clientID string) bool {
 		// Stale threshold: 5 minutes (aligned with ping interval and sync mechanisms)
 		lastSeenAge := time.Since(client.LastSeen)
 		if lastSeenAge > 5*time.Minute {
-			s.logger.Debugf("🔍 DEBUG: Health check for client %s - FAILED: Last seen too old (%v > 5m)",
+			s.logger.Debugf("DEBUG: Health check for client %s - FAILED: Last seen too old (%v > 5m)",
 				clientID, lastSeenAge)
 			done <- false
 			return
 		}
 
-		s.logger.Debugf("🔍 DEBUG: Health check for client %s - SUCCESS: All checks passed (last seen: %v ago)",
+		s.logger.Debugf("DEBUG: Health check for client %s - SUCCESS: All checks passed (last seen: %v ago)",
 			clientID, lastSeenAge)
 		done <- true
 	}()
@@ -826,7 +825,7 @@ func (s *ClientService) IsConnectionHealthy(clientID string) bool {
 	case result := <-done:
 		return result
 	case <-time.After(5 * time.Second):
-		s.logger.Errorf("🔍 DEBUG: Health check for client %s - TIMEOUT: Mutex acquisition timed out", clientID)
+		s.logger.Errorf("DEBUG: Health check for client %s - TIMEOUT: Mutex acquisition timed out", clientID)
 		return false
 	}
 }
@@ -933,7 +932,7 @@ func (s *ClientService) AddClientToMemoryFromPing(clientInfo *client.ClientInfo)
 
 	s.clients[clientInfo.ClientID] = clientInfo
 
-	s.logger.Infof("✅ Added client %s to memory from ping (recovery)", clientInfo.ClientID)
+	s.logger.Infof("Added client %s to memory from ping (recovery)", clientInfo.ClientID)
 }
 
 // HasRegistryClient checks if registry client is set

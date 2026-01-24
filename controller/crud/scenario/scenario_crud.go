@@ -320,17 +320,15 @@ func (t *AppHandler) ExecuteScenario(request models.ExecuteScenarioRequest, reqD
 			// Check if XDS already performed internal rollback
 			errStr := err.Error()
 			if strings.Contains(errStr, "Bootstrap creation failed") || strings.Contains(errStr, "Service creation failed") {
-				t.Logger.Logger.Infof("🔄 XDS internal rollback detected for %s, current resource already cleaned up", componentInstance.Name)
+				t.Logger.Logger.Infof("XDS internal rollback detected for %s, current resource already cleaned up", componentInstance.Name)
 				// XDS already rolled back the current resource, but we still need to rollback previous resources
 				if len(createdResources) > 0 {
-					t.Logger.Logger.Infof("🔄 Rolling back %d previously created resources", len(createdResources))
+					t.Logger.Logger.Infof("Rolling back %d previously created resources", len(createdResources))
 					t.rollbackCreatedResources(createdResources, reqDetails)
 				}
-			} else {
+			} else if len(createdResources) > 0 {
 				// Normal rollback: rollback all previously created resources
-				if len(createdResources) > 0 {
-					t.rollbackCreatedResources(createdResources, reqDetails)
-				}
+				t.rollbackCreatedResources(createdResources, reqDetails)
 			}
 			return nil, fmt.Errorf("failed to save component %s to database: %w", componentInstance.Name, err)
 		}
@@ -347,7 +345,7 @@ func (t *AppHandler) ExecuteScenario(request models.ExecuteScenarioRequest, reqD
 		generatedResources = append(generatedResources, document)
 	}
 
-	t.Logger.Logger.Infof("✅ Successfully created %d resources\n", len(createdResources))
+	t.Logger.Logger.Infof("Successfully created %d resources\n", len(createdResources))
 	return generatedResources, nil
 }
 
@@ -379,7 +377,7 @@ func (t *AppHandler) saveResourceToDatabaseWithID(document map[string]interface{
 	// Call XDS SetResource with full validation, bootstrap creation, etc.
 	result, err := t.XDS.SetResource(context.Background(), resource, reqDetails)
 	if err != nil {
-		t.Logger.Logger.Infof("❌ XDS SetResource failed for %s: %v\n", resource.GetGeneral().Name, err)
+		t.Logger.Logger.Infof("XDS SetResource failed for %s: %v\n", resource.GetGeneral().Name, err)
 
 		// Check for duplicate key error and provide cleaner message
 		errStr := err.Error()
@@ -460,12 +458,12 @@ func (t *AppHandler) deleteListenerWithDependencies(resourceID interface{}, reso
 		return fmt.Errorf("XDS delete failed: %w", err)
 	}
 
-	t.Logger.Logger.Infof("    ✅ Deleted listener %s and its dependencies (bootstrap, service, admin_port)\n", resourceName)
+	t.Logger.Logger.Infof("Deleted listener %s and its dependencies (bootstrap, service, admin_port)\n", resourceName)
 	return nil
 }
 
 // deleteResourceDirectly deletes a non-listener resource using direct MongoDB deletion
-func (t *AppHandler) deleteResourceDirectly(resourceID interface{}, collectionName, resourceName string) error {
+func (t *AppHandler) deleteResourceDirectly(resourceID any, collectionName, resourceName string) error {
 	collection := t.Context.Client.Collection(collectionName)
 	if collection == nil {
 		return fmt.Errorf("collection %s not found", collectionName)
@@ -487,29 +485,39 @@ func (t *AppHandler) deleteResourceDirectly(resourceID interface{}, collectionNa
 		return fmt.Errorf("no document found with ID: %v", resourceID)
 	}
 
-	t.Logger.Logger.Infof("    ✅ Deleted %s successfully\n", resourceName)
+	t.Logger.Logger.Infof("Deleted %s successfully\n", resourceName)
 	return nil
 }
 
 // buildDeleteFilter converts resource ID (string or ObjectID) to MongoDB filter
-func (t *AppHandler) buildDeleteFilter(resourceID interface{}) (bson.M, error) {
-	if idStr, ok := resourceID.(string); ok {
-		// Try to convert string to ObjectID
-		if objectID, err := primitive.ObjectIDFromHex(idStr); err == nil {
-			return bson.M{"_id": objectID}, nil
-		}
-		// If conversion fails, use string directly
-		return bson.M{"_id": idStr}, nil
+func (t *AppHandler) buildDeleteFilter(resourceID any) (bson.M, error) {
+	if resourceID == nil {
+		return nil, fmt.Errorf("resourceID cannot be nil")
 	}
-	// Use resourceID directly (already ObjectID or other type)
-	return bson.M{"_id": resourceID}, nil
+
+	switch id := resourceID.(type) {
+	case string:
+		if id == "" {
+			return nil, fmt.Errorf("resourceID string cannot be empty")
+		}
+		// Try to convert string to ObjectID
+		objectID, err := primitive.ObjectIDFromHex(id)
+		if err != nil {
+			return nil, fmt.Errorf("invalid ObjectID format: %s", id)
+		}
+		return bson.M{"_id": objectID}, nil
+	case primitive.ObjectID:
+		return bson.M{"_id": id}, nil
+	default:
+		return nil, fmt.Errorf("unsupported resourceID type: %T", resourceID)
+	}
 }
 
 // rollbackCreatedResources removes all created resources in reverse order (LIFO)
 // For listeners: Uses XDS.DelResource to ensure bootstrap, service, and admin_port are also deleted
 // For other resources: Uses direct MongoDB deletion
 func (t *AppHandler) rollbackCreatedResources(createdResources []CreatedResource, reqDetails models.RequestDetails) {
-	t.Logger.Logger.Infof("🔄 Starting rollback of %d resources\n", len(createdResources))
+	t.Logger.Logger.Infof("Starting rollback of %d resources\n", len(createdResources))
 
 	// Rollback in reverse order (LIFO - Last In First Out)
 	for i := len(createdResources) - 1; i >= 0; i-- {
@@ -529,12 +537,12 @@ func (t *AppHandler) rollbackCreatedResources(createdResources []CreatedResource
 		}
 
 		if err != nil {
-			t.Logger.Logger.Infof("    ⚠️  Failed to delete %s: %v\n", resource.Name, err)
+			t.Logger.Logger.Infof("Failed to delete %s: %v\n", resource.Name, err)
 			// Continue with rollback even if one deletion fails
 		}
 	}
 
-	t.Logger.Logger.Info("🔄 Rollback completed\n")
+	t.Logger.Logger.Info("Rollback completed\n")
 }
 
 // getCollectionName returns MongoDB collection name for component type
@@ -652,7 +660,8 @@ func (t *AppHandler) ImportScenarios(request models.ImportScenarioRequest, reqDe
 			ImportName: scenario.Name,
 		}
 
-		if err == nil {
+		switch {
+		case err == nil:
 			// Scenario exists - handle conflict
 			conflict.ExistingName = existingScenario.Name
 
@@ -715,7 +724,8 @@ func (t *AppHandler) ImportScenarios(request models.ImportScenarioRequest, reqDe
 				conflicts = append(conflicts, conflict)
 				imported++
 			}
-		} else if errors.Is(err, mongo.ErrNoDocuments) {
+
+		case errors.Is(err, mongo.ErrNoDocuments):
 			// Scenario doesn't exist - create new
 			scenario.ID = primitive.NewObjectID()
 			scenario.CreatedAt = time.Now()
@@ -735,7 +745,8 @@ func (t *AppHandler) ImportScenarios(request models.ImportScenarioRequest, reqDe
 				return nil, fmt.Errorf("failed to import scenario %s: %w", scenario.ScenarioID, err)
 			}
 			imported++
-		} else {
+
+		default:
 			return nil, fmt.Errorf("failed to check existing scenario %s: %w", scenario.ScenarioID, err)
 		}
 	}

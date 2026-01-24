@@ -120,7 +120,6 @@ func (r *MongoShardRepository) AcquireShardsWithRetry(ctx context.Context, shard
 		bulkResult, bulkErr = r.collection.BulkWrite(ctx, bulkOps)
 		return bulkErr
 	}, maxRetries, r.logger, "bulk shard acquisition")
-
 	if err != nil {
 		return 0, err
 	}
@@ -162,10 +161,10 @@ func (r *MongoShardRepository) ReleaseShardsWithIDs(ctx context.Context, shardID
 
 	// Log partial failures (but don't error)
 	if len(failedShards) > 0 {
-		r.logger.Warnf("⚠️  Partial shard release failure: %d/%d succeeded (failed shards: %v)",
+		r.logger.Warnf("Partial shard release failure: %d/%d succeeded (failed shards: %v)",
 			successCount, len(shardIDs), failedShards)
 	} else if successCount > 0 {
-		r.logger.Debugf("✅ Released %d shards for controller %s", successCount, controllerID)
+		r.logger.Debugf("Released %d shards for controller %s", successCount, controllerID)
 	}
 
 	return nil

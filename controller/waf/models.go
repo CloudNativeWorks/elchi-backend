@@ -4,11 +4,11 @@ import "github.com/CloudNativeWorks/elchi-backend/pkg/models"
 
 // CRSRulesResponse represents the API response for CRS rules
 type CRSRulesResponse struct {
-	CorazaVersion string            `json:"coraza_version"`
-	CRSVersion    string            `json:"crs_version"`
-	TotalRules    int               `json:"total_rules"`
-	FilteredRules int               `json:"filtered_rules,omitempty"`
-	Rules         []models.CRSRule  `json:"rules"`
+	CorazaVersion string           `json:"coraza_version"`
+	CRSVersion    string           `json:"crs_version"`
+	TotalRules    int              `json:"total_rules"`
+	FilteredRules int              `json:"filtered_rules,omitempty"`
+	Rules         []models.CRSRule `json:"rules"`
 }
 
 // CRSMetadata represents metadata about available CRS versions

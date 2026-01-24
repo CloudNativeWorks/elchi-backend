@@ -1,3 +1,5 @@
+// Package metrics provides metrics aggregation for the registry service
+// collecting and exposing control-plane and controller statistics.
 package metrics
 
 import (
@@ -174,11 +176,12 @@ func (a *Aggregator) formatPrometheus(metrics map[string]*MetricEntry) string {
 		// Determine metric type
 		isHistogram := histogramBases[baseName]
 		var metricType string
-		if isHistogram {
+		switch {
+		case isHistogram:
 			metricType = "histogram"
-		} else if len(baseName) > 6 && baseName[len(baseName)-6:] == "_total" {
+		case len(baseName) > 6 && baseName[len(baseName)-6:] == "_total":
 			metricType = "counter"
-		} else {
+		default:
 			metricType = "gauge"
 		}
 

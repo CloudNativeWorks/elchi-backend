@@ -1,3 +1,5 @@
+// Package models provides data structures for the registry service
+// including controller and control-plane information.
 package models
 
 import "time"
@@ -6,7 +8,7 @@ import "time"
 type ControllerInfo struct {
 	ID          string    `json:"controller_id" bson:"controller_id"`
 	Version     string    `json:"version" bson:"version"` // v1.2.1
-	HttpAddress string    `json:"http_address" bson:"http_address"`
+	HTTPAddress string    `json:"http_address" bson:"http_address"`
 	LastSeen    time.Time `json:"last_seen" bson:"last_seen"`
 }
 

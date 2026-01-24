@@ -1,3 +1,5 @@
+// Package downstreamfilters provides MongoDB filter definitions for detecting
+// downstream resource dependencies in Envoy XDS configurations.
 package downstreamfilters
 
 import (

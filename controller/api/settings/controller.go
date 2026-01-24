@@ -10,7 +10,6 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"golang.org/x/crypto/bcrypt"
 
@@ -82,7 +81,7 @@ func ValidateToken(signedToken string) (claims *models.SignedDetails, msg string
 }
 
 func UpdateAllTokens(handler *AppHandler, signedToken, signedRefreshToken, userID string) {
-	var userCollection *mongo.Collection = handler.Context.Client.Collection("users")
+	userCollection := handler.Context.Client.Collection("users")
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
 	defer cancel()
 	var updateObj primitive.D

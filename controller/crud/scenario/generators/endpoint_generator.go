@@ -125,7 +125,7 @@ func (eg *EndpointGenerator) Generate(instance models.ComponentInstance) (any, e
 			addressTypeStr = fmt.Sprint(addressType)
 		}
 
-		// Convert single role selection to string slice  
+		// Convert single role selection to string slice
 		var rolesSlice []string
 		if roles != nil {
 			roleStr := fmt.Sprint(roles)

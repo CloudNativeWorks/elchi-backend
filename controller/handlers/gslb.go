@@ -26,7 +26,7 @@ import (
 type GSLBHandler struct {
 	db         *mongo.Database
 	logger     *logger.Logger
-	gslbSystem *gslb.System // GSLB system for triggering bucket reloads
+	gslbSystem *gslb.System // GSLB system for triggering Time Wheel reloads
 }
 
 // NewGSLBHandler creates a new GSLB handler
@@ -75,11 +75,11 @@ func (h *GSLBHandler) ListGSLBRecords(c *gin.Context) {
 	}
 
 	// Optional filters
-	search := strings.TrimSpace(c.Query("search"))           // Search in FQDN
-	statusFilter := strings.ToLower(c.Query("status"))       // enabled/disabled
-	probeType := strings.ToLower(c.Query("probe_type"))      // http/https/tcp
-	probeInterval := c.Query("probe_interval")               // 10/20/30/60/90/120/180/300
-	ttlFilter := c.Query("ttl")                              // TTL value
+	search := strings.TrimSpace(c.Query("search"))      // Search in FQDN
+	statusFilter := strings.ToLower(c.Query("status"))  // enabled/disabled
+	probeType := strings.ToLower(c.Query("probe_type")) // http/https/tcp
+	probeInterval := c.Query("probe_interval")          // 10/20/30/60/90/120/180/300
+	ttlFilter := c.Query("ttl")                         // TTL value
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -108,7 +108,7 @@ func (h *GSLBHandler) ListGSLBRecords(c *gin.Context) {
 		matchFilter = append(matchFilter, bson.E{Key: "enabled", Value: true})
 	case "disabled":
 		matchFilter = append(matchFilter, bson.E{Key: "enabled", Value: false})
-	// default: no filter (show all)
+		// default: no filter (show all)
 	}
 
 	// Add probe type filter
@@ -347,7 +347,7 @@ func (h *GSLBHandler) CreateGSLBRecord(c *gin.Context) {
 		Project      string            `json:"project" binding:"required"`
 		Version      string            `json:"version" binding:"required"`
 		Enabled      bool              `json:"enabled"`
-		TTL          uint32            `json:"ttl" binding:"required"` // REQUIRED for manual records
+		TTL          uint32            `json:"ttl" binding:"required"`  // REQUIRED for manual records
 		FailoverZone string            `json:"failover_zone,omitempty"` // Optional - defaults to first zone in settings.FailoverZones
 		Probe        *models.GSLBProbe `json:"probe,omitempty"`
 	}
@@ -411,7 +411,7 @@ func (h *GSLBHandler) CreateGSLBRecord(c *gin.Context) {
 	}
 
 	// Normalize FQDN with zone and calculate shard ID
-	// Example: "dedeff" + zone "atest.elchi" → "dedeff.atest.elchi."
+	// Example: "dedeff" + zone "atest.elchi" -> "dedeff.atest.elchi."
 	normalizedFQDN := helper.NormalizeFQDNWithZone(input.FQDN, settings.GSLBConfig.Zone)
 	shardID := calculateShardID(normalizedFQDN)
 
@@ -464,18 +464,18 @@ func (h *GSLBHandler) CreateGSLBRecord(c *gin.Context) {
 
 	h.logger.Infof("User %s created manual GSLB record: %s (shard: %d)", user.UserName, normalizedFQDN, shardID)
 
-	// Trigger bucket reload to pick up new record immediately
+	// Trigger Time Wheel reload to pick up new record immediately
 	if h.gslbSystem != nil {
 		if err := h.gslbSystem.ReloadAllRecords(); err != nil {
 			// Check if error is due to GSLB system not started (standby mode)
 			if err.Error() == "GSLB system not started" {
 				h.logger.Debugf("GSLB system in standby mode, record will be loaded when system starts")
 			} else {
-				h.logger.Warnf("Failed to reload GSLB buckets after create: %v", err)
+				h.logger.Warnf("Failed to reload GSLB Time Wheel after create: %v", err)
 			}
 			// Don't fail the request, just log the warning
 		} else {
-			h.logger.Debugf("GSLB buckets reloaded after creating record: %s", normalizedFQDN)
+			h.logger.Debugf("GSLB Time Wheel reloaded after creating record: %s", normalizedFQDN)
 		}
 	}
 
@@ -627,7 +627,7 @@ func (h *GSLBHandler) UpdateGSLBRecord(c *gin.Context) {
 		resetUpdate := bson.M{
 			"$set": bson.M{
 				"backoff_until":   time.Time{}, // Clear backoff timestamp
-				"current_backoff": 0,            // Reset backoff duration
+				"current_backoff": 0,           // Reset backoff duration
 				"updated_at":      time.Now(),
 			},
 		}
@@ -646,18 +646,18 @@ func (h *GSLBHandler) UpdateGSLBRecord(c *gin.Context) {
 
 	h.logger.Infof("User %s updated GSLB record: %s", user.UserName, id)
 
-	// Trigger bucket reload to pick up record changes immediately
+	// Trigger Time Wheel reload to pick up record changes immediately
 	if h.gslbSystem != nil {
 		if err := h.gslbSystem.ReloadAllRecords(); err != nil {
 			// Check if error is due to GSLB system not started (standby mode)
 			if err.Error() == "GSLB system not started" {
 				h.logger.Debugf("GSLB system in standby mode, record will be loaded when system starts")
 			} else {
-				h.logger.Warnf("Failed to reload GSLB buckets after update: %v", err)
+				h.logger.Warnf("Failed to reload GSLB Time Wheel after update: %v", err)
 			}
 			// Don't fail the request, just log the warning
 		} else {
-			h.logger.Debugf("GSLB buckets reloaded after updating record: %s", id)
+			h.logger.Debugf("GSLB Time Wheel reloaded after updating record: %s", id)
 		}
 	}
 
@@ -767,16 +767,16 @@ func (h *GSLBHandler) BulkUpdateGSLBRecords(c *gin.Context) {
 
 	h.logger.Infof("User %s bulk %s %d GSLB records", user.UserName, action, result.ModifiedCount)
 
-	// Trigger bucket reload to pick up record changes immediately
+	// Trigger Time Wheel reload to pick up record changes immediately
 	if h.gslbSystem != nil {
 		if err := h.gslbSystem.ReloadAllRecords(); err != nil {
 			if err.Error() == "GSLB system not started" {
 				h.logger.Debugf("GSLB system in standby mode, records will be loaded when system starts")
 			} else {
-				h.logger.Warnf("Failed to reload GSLB buckets after bulk update: %v", err)
+				h.logger.Warnf("Failed to reload GSLB Time Wheel after bulk update: %v", err)
 			}
 		} else {
-			h.logger.Debugf("GSLB buckets reloaded after bulk updating %d records", result.ModifiedCount)
+			h.logger.Debugf("GSLB Time Wheel reloaded after bulk updating %d records", result.ModifiedCount)
 		}
 	}
 
@@ -873,18 +873,18 @@ func (h *GSLBHandler) DeleteGSLBRecord(c *gin.Context) {
 
 	h.logger.Infof("User %s deleted manual GSLB record: %s (%s)", user.UserName, record.FQDN, id)
 
-	// Trigger bucket reload to remove deleted record immediately
+	// Trigger Time Wheel reload to remove deleted record immediately
 	if h.gslbSystem != nil {
 		if err := h.gslbSystem.ReloadAllRecords(); err != nil {
 			// Check if error is due to GSLB system not started (standby mode)
 			if err.Error() == "GSLB system not started" {
 				h.logger.Debugf("GSLB system in standby mode, no reload needed")
 			} else {
-				h.logger.Warnf("Failed to reload GSLB buckets after delete: %v", err)
+				h.logger.Warnf("Failed to reload GSLB Time Wheel after delete: %v", err)
 			}
 			// Don't fail the request, just log the warning
 		} else {
-			h.logger.Debugf("GSLB buckets reloaded after deleting record: %s", record.FQDN)
+			h.logger.Debugf("GSLB Time Wheel reloaded after deleting record: %s", record.FQDN)
 		}
 	}
 
@@ -971,7 +971,6 @@ func validateProbe(probe *models.GSLBProbe) error {
 
 	return nil
 }
-
 
 // AddIPToRecord adds a new IP to an existing GSLB record
 // POST /api/v3/gslb/:id/ips
@@ -1089,18 +1088,18 @@ func (h *GSLBHandler) AddIPToRecord(c *gin.Context) {
 	h.logger.Infof("User %s added IP %s to GSLB record %s (FQDN: %s, shard: %d/%d, initial state: %s)",
 		user.UserName, input.IP, id, existingRecord.FQDN, existingRecord.ShardID, subShardID, initialHealthState.String())
 
-	// Trigger bucket reload to start probing new IP immediately
+	// Trigger Time Wheel reload to start probing new IP immediately
 	if h.gslbSystem != nil {
 		if err := h.gslbSystem.ReloadAllRecords(); err != nil {
 			// Check if error is due to GSLB system not started (standby mode)
 			if err.Error() == "GSLB system not started" {
 				h.logger.Debugf("GSLB system in standby mode, IP will be probed when system starts")
 			} else {
-				h.logger.Warnf("Failed to reload GSLB buckets after adding IP: %v", err)
+				h.logger.Warnf("Failed to reload GSLB Time Wheel after adding IP: %v", err)
 			}
 			// Don't fail the request, just log the warning
 		} else {
-			h.logger.Debugf("GSLB buckets reloaded after adding IP %s to record: %s", input.IP, existingRecord.FQDN)
+			h.logger.Debugf("GSLB Time Wheel reloaded after adding IP %s to record: %s", input.IP, existingRecord.FQDN)
 		}
 	}
 
@@ -1217,18 +1216,18 @@ func (h *GSLBHandler) RemoveIPFromRecord(c *gin.Context) {
 
 	h.logger.Infof("User %s removed IP %s from GSLB record %s (FQDN: %s)", user.UserName, ipToRemove, id, record.FQDN)
 
-	// Trigger bucket reload to stop probing removed IP immediately
+	// Trigger Time Wheel reload to stop probing removed IP immediately
 	if h.gslbSystem != nil {
 		if err := h.gslbSystem.ReloadAllRecords(); err != nil {
 			// Check if error is due to GSLB system not started (standby mode)
 			if err.Error() == "GSLB system not started" {
 				h.logger.Debugf("GSLB system in standby mode, no reload needed")
 			} else {
-				h.logger.Warnf("Failed to reload GSLB buckets after removing IP: %v", err)
+				h.logger.Warnf("Failed to reload GSLB Time Wheel after removing IP: %v", err)
 			}
 			// Don't fail the request, just log the warning
 		} else {
-			h.logger.Debugf("GSLB buckets reloaded after removing IP %s from record: %s", ipToRemove, record.FQDN)
+			h.logger.Debugf("GSLB Time Wheel reloaded after removing IP %s from record: %s", ipToRemove, record.FQDN)
 		}
 	}
 
@@ -1342,9 +1341,9 @@ func (h *GSLBHandler) UpdateIPHealthState(c *gin.Context) {
 			"health_state":       newHealthState,
 			"last_status_change": now,
 			"updated_at":         now,
-			"backoff_until":      time.Time{},  // Clear any backoff
+			"backoff_until":      time.Time{}, // Clear any backoff
 			"current_backoff":    0,
-			"manual_reset_at":    now,          // Mark as manually reset (prevents infinite detection loop)
+			"manual_reset_at":    now, // Mark as manually reset (prevents infinite detection loop)
 		},
 		"$push": bson.M{
 			"status_history": bson.M{
@@ -1379,7 +1378,7 @@ func (h *GSLBHandler) UpdateIPHealthState(c *gin.Context) {
 		user.UserName, ipToUpdate, newHealthState.String(), id, record.FQDN)
 
 	// CRITICAL: Trigger immediate re-probe to verify actual health status
-	// Without this, manually-changed IPs stay in incorrect state until next bucket cycle
+	// Without this, manually-changed IPs stay in incorrect state until next scheduled probe
 	// Background execution to not block API response
 	// IMPORTANT: Pass newHealthState directly to avoid MongoDB race condition
 	go func() {
@@ -1391,6 +1390,11 @@ func (h *GSLBHandler) UpdateIPHealthState(c *gin.Context) {
 			healthChecker := h.gslbSystem.GetHealthChecker()
 			if healthChecker != nil {
 				// Pass the manual state directly - don't read from MongoDB (race condition)
+				// NOTE: TriggerImmediateReProbeForManualChange will:
+				//   1. Execute immediate probe
+				//   2. Process result via evaluateStatusChangeForRecord
+				//   3. Automatically reschedule in Time Wheel via HandleProbeResult
+				// No need for explicit RescheduleImmediate call here!
 				if err := healthChecker.TriggerImmediateReProbeForManualChange(probeCtx, objectID, ipToUpdate, newHealthState); err != nil {
 					h.logger.Warnf("Failed to trigger immediate re-probe for manually changed IP %s: %v", ipToUpdate, err)
 				}
@@ -1531,4 +1535,3 @@ func calculateShardID(fqdn string) int {
 	_, _ = hash.Write([]byte(fqdn)) // hash.Write never returns an error, but satisfying gosec
 	return int(hash.Sum32() % uint32(models.GSLBNumShards))
 }
-

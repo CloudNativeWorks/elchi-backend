@@ -200,7 +200,7 @@ func InitSettingMiddleware() gin.HandlerFunc {
 		userDetails, _ := handlers.GetUserDetails(c)
 
 		// Special case for OpenRouter token GET - allow editors to read
-		if c.Request.URL.Path == "/api/v3/setting/openrouter-token" && c.Request.Method == "GET" {
+		if c.Request.URL.Path == "/api/v3/setting/openrouter-token" && c.Request.Method == http.MethodGet {
 			// Editors, Admins, and Owners can GET OpenRouter token
 			if userDetails.Role == models.RoleEditor || userDetails.Role == models.RoleAdmin || userDetails.IsOwner {
 				c.Next()
@@ -208,13 +208,13 @@ func InitSettingMiddleware() gin.HandlerFunc {
 			}
 		}
 
-		if strings.HasPrefix(c.Request.URL.Path, "/api/v3/setting/users/") && c.Request.Method == "GET" {
+		if strings.HasPrefix(c.Request.URL.Path, "/api/v3/setting/users/") && c.Request.Method == http.MethodGet {
 			c.Next()
 			return
 		}
 
 		// Special case for client list - Editor/Viewer can GET (list/view clients)
-		if strings.HasPrefix(c.Request.URL.Path, "/api/op/clients") && c.Request.Method == "GET" {
+		if strings.HasPrefix(c.Request.URL.Path, "/api/op/clients") && c.Request.Method == http.MethodGet {
 			// Editor and Viewer can view clients
 			if userDetails.Role == models.RoleEditor || userDetails.Role == models.RoleViewer {
 				c.Next()
@@ -223,7 +223,7 @@ func InitSettingMiddleware() gin.HandlerFunc {
 		}
 
 		// Special case for client operations - check for editor/viewer readonly commands
-		if strings.HasPrefix(c.Request.URL.Path, "/api/op/clients") && c.Request.Method == "POST" {
+		if strings.HasPrefix(c.Request.URL.Path, "/api/op/clients") && c.Request.Method == http.MethodPost {
 			if userDetails.Role == models.RoleEditor || userDetails.Role == models.RoleViewer {
 				// Check if this operation is allowed for editors/viewers (readonly commands)
 				if isClientOperationAllowedForEditor(c) {
@@ -234,7 +234,7 @@ func InitSettingMiddleware() gin.HandlerFunc {
 		}
 
 		// Special case for service operations - Editor/Viewer can GET (list/view services)
-		if strings.HasPrefix(c.Request.URL.Path, "/api/op/services") && c.Request.Method == "GET" {
+		if strings.HasPrefix(c.Request.URL.Path, "/api/op/services") && c.Request.Method == http.MethodGet {
 			// Editor and Viewer can view services (with permission filtering in handler)
 			if userDetails.Role == models.RoleEditor || userDetails.Role == models.RoleViewer {
 				c.Next()
@@ -250,14 +250,14 @@ func InitSettingMiddleware() gin.HandlerFunc {
 		}
 
 		// Special case for WAF CRS rules - All users can GET CRS rules (readonly)
-		if strings.HasPrefix(c.Request.URL.Path, "/api/v3/waf/crs") && c.Request.Method == "GET" {
+		if strings.HasPrefix(c.Request.URL.Path, "/api/v3/waf/crs") && c.Request.Method == http.MethodGet {
 			// All authenticated users can read CRS rules
 			c.Next()
 			return
 		}
 
 		// Special case for WAF config GET operations - All users can view configs
-		if strings.HasPrefix(c.Request.URL.Path, "/api/v3/waf/config") && c.Request.Method == "GET" {
+		if strings.HasPrefix(c.Request.URL.Path, "/api/v3/waf/config") && c.Request.Method == http.MethodGet {
 			// All authenticated users can read WAF configs
 			// Editor and Viewer have readonly access
 			c.Next()

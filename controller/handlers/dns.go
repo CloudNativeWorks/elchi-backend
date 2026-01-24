@@ -37,7 +37,6 @@ type DNSRecord struct {
 	Type     string   `json:"type"`               // "A" or "CNAME"
 	TTL      uint32   `json:"ttl"`                // Time to live
 	IPs      []string `json:"ips"`                // Healthy IPs (empty triggers failover)
-	Enabled  bool     `json:"enabled"`            // Record enabled status
 	Failover string   `json:"failover,omitempty"` // Per-record failover FQDN
 }
 
@@ -48,8 +47,20 @@ type DNSSnapshot struct {
 	Records     []DNSRecord `json:"records"`      // DNS records
 }
 
+// aggregatedRecord is the internal representation from MongoDB aggregation
+type aggregatedRecord struct {
+	FQDN         string `bson:"fqdn"`
+	TTL          uint32 `bson:"ttl"`
+	Enabled      bool   `bson:"enabled"`
+	FailoverZone string `bson:"failover_zone"`
+	HealthyIPs   []struct {
+		IP          string `bson:"ip"`
+		HealthState string `bson:"health_state"`
+	} `bson:"healthy_ips"`
+}
+
 // GetDNSSnapshot returns complete DNS snapshot for a zone
-// Authentication: X-Elchi-DNS-Secret header must match GSLBConfig.DNSSecret
+// Authentication: X-Elchi-Secret header must match GSLBConfig.DNSSecret
 // GET /api/v3/dns/snapshot?zone=X
 func (h *DNSHandler) GetDNSSnapshot(c *gin.Context) {
 	zone := c.Query("zone")
@@ -61,22 +72,91 @@ func (h *DNSHandler) GetDNSSnapshot(c *gin.Context) {
 		return
 	}
 
-	// Get GSLB records for this zone (across ALL projects)
+	// Build DNS records from database
+	records, err := h.buildDNSRecords(zone)
+	if err != nil {
+		h.logger.Errorf("Failed to build DNS records: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to query DNS records",
+		})
+		return
+	}
+
+	// Calculate version hash (SHA256 of sorted records)
+	versionHash := h.calculateVersion(records)
+
+	snapshot := DNSSnapshot{
+		Zone:        zone,
+		VersionHash: versionHash,
+		Records:     records,
+	}
+
+	c.JSON(http.StatusOK, snapshot)
+}
+
+// GetDNSChanges returns incremental DNS changes since a specific version
+// If "since" hash matches current version, returns HTTP 304 Not Modified
+// Authentication: DNSAuthMiddleware validates X-Elchi-Secret header
+// GET /dns/changes?zone=X&since=VERSION
+func (h *DNSHandler) GetDNSChanges(c *gin.Context) {
+	zone := c.Query("zone")
+	since := c.Query("since")
+
+	if zone == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "zone parameter is required",
+		})
+		return
+	}
+
+	// If "since" parameter is provided, check if data has changed
+	if since != "" {
+		// Build records and calculate current hash
+		records, err := h.buildDNSRecords(zone)
+		if err != nil {
+			h.logger.Errorf("Failed to build DNS records for 304 check: %v", err)
+			// Fall through to full snapshot on error
+		} else {
+			currentHash := h.calculateVersion(records)
+			if currentHash == since {
+				// No changes - return 304 Not Modified
+				h.logger.Debugf("Zone %s: No changes since %s, returning 304", zone, since[:min(16, len(since))])
+				c.Status(http.StatusNotModified)
+				return
+			}
+
+			// Hash mismatch - return full snapshot (we already have records, avoid re-querying)
+			h.logger.Debugf("Zone %s: Changes detected (old: %s, new: %s), returning full snapshot",
+				zone, since[:min(16, len(since))], currentHash[:min(16, len(currentHash))])
+
+			snapshot := DNSSnapshot{
+				Zone:        zone,
+				VersionHash: currentHash,
+				Records:     records,
+			}
+			c.JSON(http.StatusOK, snapshot)
+			return
+		}
+	}
+
+	// No "since" provided or error - return full snapshot via GetDNSSnapshot
+	h.logger.Debugf("Zone %s: No since param, returning full snapshot", zone)
+	h.GetDNSSnapshot(c)
+}
+
+// buildDNSRecords queries MongoDB and builds sorted DNS records for a zone
+func (h *DNSHandler) buildDNSRecords(zone string) ([]DNSRecord, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	collection := h.db.Collection("gslb_records")
 	filter := bson.M{
-		"zone":    zone,
-		"enabled": true,
+		"zone": zone,
 	}
-
-	// NOTE: Failover zone is now per-record (stored in GSLB record)
-	// No need to query settings for zone-level failover anymore
 
 	// Use aggregation pipeline to join GSLB records with IP health in a single query
 	pipeline := mongo.Pipeline{
-		// Match enabled GSLB records in this zone/project (already filtered above)
+		// Match all GSLB records in this zone (disabled records get empty IPs for failover)
 		bson.D{{Key: "$match", Value: filter}},
 
 		// Lookup healthy IPs from gslb_ip_health collection
@@ -104,6 +184,7 @@ func (h *DNSHandler) GetDNSSnapshot(c *gin.Context) {
 		bson.D{{Key: "$project", Value: bson.D{
 			{Key: "fqdn", Value: 1},
 			{Key: "ttl", Value: 1},
+			{Key: "enabled", Value: 1},
 			{Key: "failover_zone", Value: 1},
 			{Key: "healthy_ips", Value: 1},
 		}}},
@@ -111,54 +192,41 @@ func (h *DNSHandler) GetDNSSnapshot(c *gin.Context) {
 
 	aggCursor, err := collection.Aggregate(ctx, pipeline)
 	if err != nil {
-		h.logger.Errorf("Failed to execute aggregation pipeline: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Failed to query DNS records",
-		})
-		return
+		return nil, err
 	}
 	defer aggCursor.Close(ctx)
 
-	// Process aggregated results
-	type AggregatedRecord struct {
-		FQDN         string `bson:"fqdn"`
-		TTL          uint32 `bson:"ttl"`
-		FailoverZone string `bson:"failover_zone"`
-		HealthyIPs   []struct {
-			IP          string `bson:"ip"`
-			HealthState string `bson:"health_state"`
-		} `bson:"healthy_ips"`
-	}
-
-	var aggRecords []AggregatedRecord
+	var aggRecords []aggregatedRecord
 	if err := aggCursor.All(ctx, &aggRecords); err != nil {
-		h.logger.Errorf("Failed to decode aggregated records: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Failed to decode DNS records",
-		})
-		return
+		return nil, err
 	}
 
 	// Build DNS records from aggregated results
 	records := make([]DNSRecord, 0, len(aggRecords))
 	for _, aggRecord := range aggRecords {
 		// Extract IPs from aggregated healthy_ips
-		healthyIPs := make([]string, 0, len(aggRecord.HealthyIPs))
-		for _, healthyIP := range aggRecord.HealthyIPs {
-			healthyIPs = append(healthyIPs, healthyIP.IP)
+		// If record is disabled, return empty IPs to trigger failover (controlled failover)
+		var healthyIPs []string
+		if aggRecord.Enabled {
+			healthyIPs = make([]string, 0, len(aggRecord.HealthyIPs))
+			for _, healthyIP := range aggRecord.HealthyIPs {
+				healthyIPs = append(healthyIPs, healthyIP.IP)
+			}
+		} else {
+			// Disabled record: empty IPs -> failover
+			healthyIPs = []string{}
 		}
 
 		// Use per-record failover zone (stored in GSLB record)
 		// Build per-record failover FQDN by replacing zone with failover zone
-		// Example: "dedeff.atest.elchi." + zone "atest.elchi" + failover "btest.elchi" → "dedeff.btest.elchi."
+		// Example: "dedeff.atest.elchi." + zone "atest.elchi" + failover "btest.elchi" -> "dedeff.btest.elchi."
 		recordFailover := ""
 		if aggRecord.FailoverZone != "" {
 			// Extract record name by removing zone suffix (optimized with TrimSuffix)
 			// aggRecord.FQDN = "dedeff.atest.elchi.", zone = "atest.elchi"
-			// Remove ".zone." → "dedeff"
-			zoneSuffix := "." + zone
+			// FQDN ends with "." so suffix must also include trailing dot: ".zone."
+			zoneSuffix := "." + zone + "."
 			recordName := strings.TrimSuffix(aggRecord.FQDN, zoneSuffix)
-			recordName = strings.TrimSuffix(recordName, ".") // Remove any trailing dot
 
 			// Reconstruct with failover zone: "dedeff" + "." + "btest.elchi" + "."
 			recordFailover = recordName + "." + aggRecord.FailoverZone
@@ -172,19 +240,14 @@ func (h *DNSHandler) GetDNSSnapshot(c *gin.Context) {
 			Name:     aggRecord.FQDN,
 			Type:     "A",
 			TTL:      aggRecord.TTL,
-			Enabled:  true, // All records in query are enabled (filtered in pipeline)
 			Failover: recordFailover,
 		}
 
 		if len(healthyIPs) > 0 {
-			// Healthy IPs available → return A record
+			// Healthy IPs available -> return A record
 			dnsRecord.IPs = healthyIPs
-		} else if aggRecord.FailoverZone != "" {
-			// No healthy IPs but failover configured → return empty (plugin will create CNAME)
-			dnsRecord.IPs = []string{}
-			// Note: DNS plugin will see empty IPs and create CNAME to failover zone
 		} else {
-			// No healthy IPs and no failover → return empty (plugin will return NXDOMAIN)
+			// No healthy IPs -> return empty (plugin handles failover/NXDOMAIN)
 			dnsRecord.IPs = []string{}
 		}
 
@@ -196,36 +259,7 @@ func (h *DNSHandler) GetDNSSnapshot(c *gin.Context) {
 		return records[i].Name < records[j].Name
 	})
 
-	// Calculate version hash (SHA256 of sorted records)
-	versionHash := h.calculateVersion(records)
-
-	snapshot := DNSSnapshot{
-		Zone:        zone,
-		VersionHash: versionHash,
-		Records:     records,
-	}
-
-	c.JSON(http.StatusOK, snapshot)
-}
-
-// GetDNSChanges returns incremental DNS changes since a specific version
-// Authentication: DNSAuthMiddleware validates X-Elchi-DNS-Secret header
-// GET /dns/changes?zone=X&since=VERSION
-func (h *DNSHandler) GetDNSChanges(c *gin.Context) {
-	zone := c.Query("zone")
-	since := c.Query("since")
-
-	if zone == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "zone parameter is required",
-		})
-		return
-	}
-
-	// For now, return full snapshot (incremental changes can be implemented later)
-	// This is acceptable because DNS plugin will detect version mismatch and fetch full snapshot
-	h.logger.Debugf("Incremental changes requested (since: %s), returning full snapshot", since)
-	h.GetDNSSnapshot(c)
+	return records, nil
 }
 
 // calculateVersion calculates SHA256 hash of sorted DNS records

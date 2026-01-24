@@ -1,3 +1,5 @@
+// Package config provides configuration management using Viper
+// for loading and accessing application settings from files and environment.
 package config
 
 import (

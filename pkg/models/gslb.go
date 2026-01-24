@@ -12,7 +12,7 @@ import (
 type GSLBRecord struct {
 	ID           primitive.ObjectID `bson:"_id,omitempty" json:"id,omitempty"`
 	FQDN         string             `bson:"fqdn" json:"fqdn"`
-	ServiceID    string             `bson:"service_id,omitempty" json:"service_id,omitempty"`       // Reference to services collection ObjectID (empty for manual records)
+	ServiceID    string             `bson:"service_id,omitempty" json:"service_id,omitempty"` // Reference to services collection ObjectID (empty for manual records)
 	Project      string             `bson:"project" json:"project"`
 	Version      string             `bson:"version" json:"version"`
 	Zone         string             `bson:"zone" json:"zone"`
@@ -45,17 +45,18 @@ type GSLBProbe struct {
 	Port       int     `bson:"port,omitempty" json:"port,omitempty"`               // Target port for health check
 	Path       string  `bson:"path,omitempty" json:"path,omitempty"`               // HTTP/HTTPS only - request path
 	HostHeader string  `bson:"host_header,omitempty" json:"host_header,omitempty"` // HTTP/HTTPS only - Host header for virtual hosting
-	Interval   int     `bson:"interval" json:"interval"`                           // V2.0: Seconds - STRICT bucket intervals only (10, 20, 30, 60, 90, 120, 180, 300)
+	Interval   int     `bson:"interval" json:"interval"`                           // Seconds - STRICT intervals only (10, 20, 30, 60, 90, 120, 180, 300)
 	Timeout    float64 `bson:"timeout" json:"timeout"`                             // Seconds with ms precision (0.1-3.0s, e.g., 0.5 = 500ms)
 	Enabled    *bool   `bson:"enabled,omitempty" json:"enabled,omitempty"`         // Enable/disable probe execution (nil or true = enabled, false = disabled, keeps config when disabled)
 
 	// Tri-state thresholds (REQUIRED - no defaults)
-	WarningThreshold  int `bson:"warning_threshold" json:"warning_threshold" validate:"required,min=1,max=10"`     // Failures before warning state (e.g., 1-3)
+	WarningThreshold  int `bson:"warning_threshold" json:"warning_threshold" validate:"required,min=1,max=10"`   // Failures before warning state (e.g., 1-3)
 	CriticalThreshold int `bson:"critical_threshold" json:"critical_threshold" validate:"required,min=2,max=20"` // Failures before critical state (e.g., 3-10)
+	PassingThreshold  int `bson:"passing_threshold,omitempty" json:"passing_threshold,omitempty"`                // Successes before passing state (default: 1, max: 10) - anti-flapping
 
 	ExpectedStatusCodes []string            `bson:"expected_status_codes,omitempty" json:"expected_status_codes,omitempty"` // HTTP/HTTPS only - Expected status codes (e.g., ["200-299", "301", "302"]) - defaults to ["200-399"] if empty
-	FollowRedirects     *bool               `bson:"follow_redirects" json:"follow_redirects"`                                // HTTP/HTTPS only - Follow HTTP redirects (default: true if nil)
-	SkipSSLVerify       *bool               `bson:"skip_ssl_verify" json:"skip_ssl_verify"`                                  // HTTPS only - Skip SSL certificate verification (default: false if nil, use true for self-signed certs)
+	FollowRedirects     *bool               `bson:"follow_redirects" json:"follow_redirects"`                               // HTTP/HTTPS only - Follow HTTP redirects (default: true if nil)
+	SkipSSLVerify       *bool               `bson:"skip_ssl_verify" json:"skip_ssl_verify"`                                 // HTTPS only - Skip SSL certificate verification (default: false if nil, use true for self-signed certs)
 	compiledStatusCodes []statusCodeMatcher `bson:"-" json:"-"`                                                             // Compiled status code matchers (not stored in DB, computed on load)
 }
 
@@ -104,6 +105,20 @@ func (p *GSLBProbe) IsEnabled() bool {
 		return true // Default: enabled
 	}
 	return *p.Enabled
+}
+
+// GetPassingThreshold returns the passing threshold with default value
+// Default is 1 (single success = PASSING) for backward compatibility
+// When > 1, IP must have consecutive successes to transition from CRITICAL/WARNING to PASSING
+// This prevents flapping (rapid UP/DOWN oscillation) for unstable endpoints
+func (p *GSLBProbe) GetPassingThreshold() int {
+	if p.PassingThreshold <= 0 {
+		return 1 // Default: single success = PASSING
+	}
+	if p.PassingThreshold > 10 {
+		return 10 // Cap at 10 to prevent excessive recovery time
+	}
+	return p.PassingThreshold
 }
 
 // CompileStatusCodes pre-compiles status code matchers for fast matching
@@ -226,14 +241,14 @@ const (
 	GSLBMaxStatusHistorySize = 50 // Maximum number of status change events to keep per IP (FIFO)
 )
 
-// AllowedProbeIntervals defines the valid probe interval values for V2.0 bucket-based timer system (in seconds)
-// These intervals correspond to pre-defined timer buckets with dedicated worker pools
+// AllowedProbeIntervals defines the valid probe interval values for Time Wheel system (in seconds)
+// These intervals are the standard probe frequencies supported by the system
 // User MUST select one of these values when configuring health checks
 //
-// V2.0 Bucket Strategy:
-//   - Each interval has its own independent timer bucket
-//   - 10s bucket gets most workers (critical priority)
-//   - FastFail bucket (5s) exists separately for warning IPs
+// Time Wheel Strategy:
+//   - Each record+IP is scheduled independently based on its interval
+//   - 10s interval is most common (default priority)
+//   - Time Wheel handles all intervals dynamically with 1-second granularity
 //   - NO custom intervals allowed - strict validation enforced
 var AllowedProbeIntervals = []int{10, 20, 30, 60, 90, 120, 180, 300}
 
@@ -248,7 +263,7 @@ var (
 	ErrInvalidProbeInterval = errors.New("invalid probe interval - must be one of: 10, 20, 30, 60, 90, 120, 180, 300 seconds")
 )
 
-// ValidateProbeInterval validates that the interval is one of the allowed bucket intervals (V2.0)
+// ValidateProbeInterval validates that the interval is one of the allowed intervals
 // Returns error if interval is not in AllowedProbeIntervals
 func (p *GSLBProbe) ValidateProbeInterval() error {
 	for _, allowed := range AllowedProbeIntervals {

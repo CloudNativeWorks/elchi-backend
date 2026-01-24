@@ -95,7 +95,6 @@ func (h *ResourceTemplateHandler) GetTemplate(c *gin.Context) {
 
 	var template models.ResourceTemplate
 	err := collection.FindOne(context.Background(), filter).Decode(&template)
-
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			c.JSON(http.StatusNotFound, gin.H{
@@ -231,7 +230,6 @@ func (h *ResourceTemplateHandler) CreateOrUpdateTemplate(c *gin.Context) {
 
 	result, err := collection.UpdateOne(context.Background(), filter, update,
 		options.Update().SetUpsert(true))
-
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,

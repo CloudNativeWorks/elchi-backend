@@ -1,3 +1,5 @@
+// Package middleware provides HTTP middleware functions for the controller API
+// including authentication, authorization, CORS, logging, and request validation.
 package middleware
 
 import (

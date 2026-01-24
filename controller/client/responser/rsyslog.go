@@ -5,8 +5,7 @@ import (
 	pb "github.com/CloudNativeWorks/elchi-proto/client"
 )
 
-type RsyslogResponser struct {
-}
+type RsyslogResponser struct{}
 
 func (p *RsyslogResponser) ValidateAndTransform(op models.OperationClass, response *pb.CommandResponse) any {
 	// Check if rsyslog response exists

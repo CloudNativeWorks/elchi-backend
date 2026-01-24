@@ -1,3 +1,5 @@
+// Package bridge provides gRPC client implementations for inter-service communication
+// between controller, control-plane, and registry components.
 package bridge
 
 import (
@@ -23,9 +25,10 @@ func ipv4Dialer(ctx context.Context, addr string) (net.Conn, error) {
 func NewGRPCClient(appCtx *db.AppContext) (*grpc.ClientConn, error) {
 	var transportCredentials credentials.TransportCredentials
 
-	if appCtx.Config.ElchiInternalCommunication == "true" {
+	switch {
+	case appCtx.Config.ElchiInternalCommunication == "true":
 		transportCredentials = insecure.NewCredentials()
-	} else if appCtx.Config.ElchiTLSEnabled == "true" {
+	case appCtx.Config.ElchiTLSEnabled == "true":
 		// G402: InsecureSkipVerify is acceptable for internal controller<->control-plane communication
 		// This is internal service-to-service communication within the same Kubernetes cluster
 		// Self-signed certificates or internal CA are commonly used without hostname verification
@@ -33,7 +36,7 @@ func NewGRPCClient(appCtx *db.AppContext) (*grpc.ClientConn, error) {
 			InsecureSkipVerify: true, // #nosec G402
 		}
 		transportCredentials = credentials.NewTLS(tlsConfig)
-	} else {
+	default:
 		transportCredentials = insecure.NewCredentials()
 	}
 

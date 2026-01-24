@@ -238,7 +238,7 @@ func (dh *DiscoveryHandler) DeleteCluster(c *gin.Context) {
 	err := dh.service.DeleteCluster(ctx, clusterID, project)
 	if err != nil {
 		dh.logger.Errorf("Failed to delete cluster: %v", err)
-		
+
 		// Check if it's a usage error (cluster being used)
 		if strings.Contains(err.Error(), "is being used by") {
 			c.JSON(http.StatusConflict, gin.H{
@@ -247,7 +247,7 @@ func (dh *DiscoveryHandler) DeleteCluster(c *gin.Context) {
 			})
 			return
 		}
-		
+
 		// Check if it's a not found error
 		if strings.Contains(err.Error(), "cluster not found") || strings.Contains(err.Error(), "invalid cluster ID") {
 			c.JSON(http.StatusNotFound, gin.H{
@@ -256,7 +256,7 @@ func (dh *DiscoveryHandler) DeleteCluster(c *gin.Context) {
 			})
 			return
 		}
-		
+
 		// Generic server error
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Failed to delete cluster",
@@ -299,7 +299,7 @@ func (dh *DiscoveryHandler) GetClusterUsage(c *gin.Context) {
 	usage, err := dh.service.GetClusterUsage(ctx, clusterID, project)
 	if err != nil {
 		dh.logger.Errorf("Failed to get cluster usage: %v", err)
-		
+
 		// Check if it's a not found error
 		if strings.Contains(err.Error(), "cluster not found") || strings.Contains(err.Error(), "invalid cluster ID") {
 			c.JSON(http.StatusNotFound, gin.H{
@@ -308,7 +308,7 @@ func (dh *DiscoveryHandler) GetClusterUsage(c *gin.Context) {
 			})
 			return
 		}
-		
+
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Failed to get cluster usage",
 			"message": err.Error(),
@@ -317,9 +317,9 @@ func (dh *DiscoveryHandler) GetClusterUsage(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"cluster_id":   clusterID,
-		"project":      project,
-		"usage_count":  len(usage),
-		"endpoints":    usage,
+		"cluster_id":  clusterID,
+		"project":     project,
+		"usage_count": len(usage),
+		"endpoints":   usage,
 	})
 }

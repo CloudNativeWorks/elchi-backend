@@ -2,7 +2,7 @@ package downstreamfilters
 
 import "go.mongodb.org/mongo-driver/bson"
 
-// This is unused because listener using typed_config for filters
+// ConfigDiscoveryListenerDownstreamFilters returns downstream filters for config discovery (unused because listener uses typed_config for filters).
 func ConfigDiscoveryListenerDownstreamFilters(dfm DownstreamFilter) []MongoFilters {
 	return []MongoFilters{
 		{

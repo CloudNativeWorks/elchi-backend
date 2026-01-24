@@ -5,7 +5,7 @@ import (
 	"runtime"
 )
 
-// WorkerLimits defines minimum and maximum worker counts for a bucket
+// WorkerLimits defines minimum and maximum worker counts for an interval
 type WorkerLimits struct {
 	MinWorkers int
 	MaxWorkers int
@@ -15,7 +15,7 @@ type WorkerLimits struct {
 // Uses fixed, well-calibrated limits that work across all environments
 // Auto-scaling handles dynamic load adjustments
 type CPUConfig struct {
-	// Worker limits per bucket interval (fixed configuration)
+	// Worker limits per interval (fixed configuration)
 	workerLimits map[int]WorkerLimits // key: interval in seconds
 }
 
@@ -65,7 +65,7 @@ func (c *CPUConfig) GetAllWorkerLimits() map[int]WorkerLimits {
 	return result
 }
 
-// GetTotalMaxWorkers returns the sum of max workers across all buckets
+// GetTotalMaxWorkers returns the sum of max workers across all intervals
 // Useful for capacity planning and monitoring
 func (c *CPUConfig) GetTotalMaxWorkers() int {
 	total := 0
@@ -75,7 +75,7 @@ func (c *CPUConfig) GetTotalMaxWorkers() int {
 	return total
 }
 
-// GetTotalMinWorkers returns the sum of min workers across all buckets
+// GetTotalMinWorkers returns the sum of min workers across all intervals
 // Represents baseline resource usage
 func (c *CPUConfig) GetTotalMinWorkers() int {
 	total := 0

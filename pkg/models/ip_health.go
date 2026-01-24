@@ -82,35 +82,29 @@ func (iph *GSLBIPHealth) IsHealthy() bool {
 }
 
 // IsInBackoff returns true if the circuit breaker is active (probe should be skipped)
-// Uses dynamic tolerance based on probe interval to allow bucket cycles to catch IPs near backoff expiry
-func (iph *GSLBIPHealth) IsInBackoff(probeInterval int) bool {
+// Uses ±5 second tolerance to allow Time Wheel scheduling to catch IPs near backoff expiry
+func (iph *GSLBIPHealth) IsInBackoff() bool {
 	if iph.BackoffUntil.IsZero() {
 		return false
 	}
 
-	// ✅ DYNAMIC TOLERANCE WINDOW:
-	// Allow probing slightly before backoff expires to align with bucket cycles.
-	// We use 25% of the probe interval, capped at 5 seconds.
+	// TOLERANCE WINDOW: Allow probing up to 5 seconds before backoff expires
+	// Problem: Graduated backoff (10s, 20s, 30s...) expires at arbitrary times
+	// Time Wheel schedules IPs dynamically based on their individual backoff state
+	// Without tolerance, IP might be scheduled 1-5s after backoff expires (scheduling granularity)
 	//
-	// Rationale:
-	// - 10s interval: Tolerance = 2.5s (allows probe at :08/:09 for :10 expiry)
-	//                 Prevents "too early" probe at :05 for :10 expiry (which hardcoded 5s allowed)
-	// - 30s interval: Tolerance = 5s (capped)
+	// Example:
+	//   Probe at 23:12:45 + 10s backoff = expire at 23:12:55
+	//   Time Wheel slot: IP scheduled for 23:12:58 (3s after expiry)
+	//   Without tolerance: Skip at 23:12:58, wait for next reschedule (additional delay)
+	//   With 5s tolerance: Probe at 23:12:58 (considered "close enough" to 23:12:55)
 	//
-	// This ensures we respect the backoff duration while handling clock skew and processing delays.
-	toleranceSeconds := probeInterval / 3
-	if toleranceSeconds < 1 {
-		toleranceSeconds = 1 // Minimum 1s tolerance
-	}
-	if toleranceSeconds > 5 {
-		toleranceSeconds = 5 // Maximum 5s tolerance
-	}
-
+	// Tolerance = 5 seconds (half of minimum 10s interval)
+	const toleranceSeconds = 5
 	now := time.Now()
-	toleranceWindow := iph.BackoffUntil.Add(-time.Duration(toleranceSeconds) * time.Second)
+	toleranceWindow := iph.BackoffUntil.Add(-toleranceSeconds * time.Second)
 
-	// In backoff if now is BEFORE the tolerance window
-	// i.e., we are still "too far" from the expiry time
+	// In backoff if now is MORE than 5 seconds before expiry
 	return now.Before(toleranceWindow)
 }
 
@@ -140,13 +134,13 @@ func (iph *GSLBIPHealth) GetLastChangeTime() time.Time {
 //   - Warning state: NO backoff (returns 0)
 //   - Critical state: Graduated backoff based on probe interval with 5-minute cap
 //
-// Backoff scales with probe interval using bucket-aligned multipliers: [1.0, 2.0, 3.0, 5.0, 8.0, 12.0]
-// This ensures probes occur at bucket boundaries and prevents probe storms on degraded backends.
+// Backoff scales with probe interval using graduated multipliers: [1.0, 2.0, 3.0, 5.0, 8.0, 12.0]
+// This provides progressive backoff escalation and prevents probe storms on degraded backends.
 //
 // Examples by interval:
-//   - 10s interval: 10s → 20s → 30s → 50s → 80s → 120s (max)
-//   - 30s interval: 30s → 60s → 90s → 150s → 240s → 300s (capped)
-//   - 60s interval: 60s → 120s → 180s → 300s (capped)
+//   - 10s interval: 10s -> 20s -> 30s -> 50s -> 80s -> 120s (max)
+//   - 30s interval: 30s -> 60s -> 90s -> 150s -> 240s -> 300s (capped)
+//   - 60s interval: 60s -> 120s -> 180s -> 300s (capped)
 //
 // Parameters:
 //   - healthState: Current health state (passing/warning/critical)
@@ -167,7 +161,7 @@ func CalculateGraduatedBackoff(healthState HealthState, consecutiveFailures int,
 			failuresSinceCritical = 0
 		}
 
-		// Bucket-aligned multipliers for gradual backoff escalation
+		// Graduated multipliers for progressive backoff escalation
 		multipliers := []float64{1.0, 2.0, 3.0, 5.0, 8.0, 12.0}
 
 		multiplierIndex := failuresSinceCritical
@@ -192,7 +186,7 @@ func CalculateGraduatedBackoff(healthState HealthState, consecutiveFailures int,
 }
 
 // SetBackoff applies circuit breaker backoff based on current state and consecutive failures
-// Backoff is aligned to bucket cycle boundaries for predictable probe timing
+// Time Wheel scheduler handles dynamic rescheduling based on backoff expiry
 func (iph *GSLBIPHealth) SetBackoff(consecutiveFailures int, criticalThreshold int, probeInterval int) {
 	backoffDuration := CalculateGraduatedBackoff(iph.HealthState, consecutiveFailures, criticalThreshold, probeInterval)
 
@@ -210,8 +204,8 @@ func (iph *GSLBIPHealth) SetBackoff(consecutiveFailures int, criticalThreshold i
 		}
 
 		// Simple backoff: now + graduated duration
-		// IsInBackoff() uses tolerance to let bucket cycles catch IPs near expiry
-		// No alignment needed - tolerance handles bucket cycle timing variations
+		// IsInBackoff() uses tolerance to handle Time Wheel scheduling granularity
+		// No special alignment needed - Time Wheel reschedules based on backoff expiry
 		iph.BackoffUntil = time.Now().Add(backoffDuration)
 		iph.CurrentBackoff = backoffSeconds
 	} else {

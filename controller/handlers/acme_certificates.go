@@ -254,7 +254,6 @@ func (h *ACMEHandler) CreateCertificate(c *gin.Context) {
 			TriggerUser:     userDetails,
 			IsRenewal:       false, // Initial verification
 		})
-
 		if err != nil {
 			h.logger.Errorf("Failed to create verification job: %v", err)
 			h.auditHelper.SetAuditError(c, err)
@@ -384,7 +383,7 @@ func (h *ACMEHandler) ListCertificates(c *gin.Context) {
 
 	// Add warning if there are orphaned certificates
 	if orphanedCount > 0 {
-		response["warning"] = fmt.Sprintf("⚠️ %d certificate(s) have missing ACME accounts. Automatic renewal will fail for these certificates.", orphanedCount)
+		response["warning"] = fmt.Sprintf("%d certificate(s) have missing ACME accounts. Automatic renewal will fail for these certificates.", orphanedCount)
 		response["orphaned_count"] = orphanedCount
 	}
 
@@ -439,7 +438,7 @@ func (h *ACMEHandler) GetCertificate(c *gin.Context) {
 		_, err := h.manager.GetACMEAccount(ctx, *certificate.ACME.AccountID, project)
 		if err != nil {
 			// Account not found - certificate is orphaned
-			warning = "⚠️ ACME account not found. Automatic renewal may fail. The account may have been deleted."
+			warning = "ACME account not found. Automatic renewal may fail. The account may have been deleted."
 		}
 	}
 
@@ -655,7 +654,6 @@ func (h *ACMEHandler) RetryVerification(c *gin.Context) {
 		TriggerUser:     userDetails,
 		IsRenewal:       false, // Retry verification (not renewal)
 	})
-
 	if err != nil {
 		h.logger.Errorf("Failed to create retry verification job: %v", err)
 		h.auditHelper.SetAuditError(c, err)
@@ -966,7 +964,6 @@ func (h *ACMEHandler) RenewCertificate(c *gin.Context) {
 			TriggerUser:     userDetails,
 			IsRenewal:       true, // This is a renewal operation
 		})
-
 		if err != nil {
 			h.logger.Errorf("Failed to create renewal job: %v", err)
 			h.auditHelper.SetAuditError(c, err)

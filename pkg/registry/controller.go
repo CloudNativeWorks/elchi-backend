@@ -445,21 +445,21 @@ func (r *RegistryClient) StartHealthMonitor(getConnectedClients func() []string)
 	r.wg.Add(1)
 	go r.clientListUpdateLoop(getConnectedClients)
 
-	r.logger.Infof("✅ Enhanced health monitor started with continuous reconnect capability")
+	r.logger.Infof("Enhanced health monitor started with continuous reconnect capability")
 }
 
 // continuousReconnectLoop provides continuous reconnection capability
 func (r *RegistryClient) continuousReconnectLoop() {
 	defer r.wg.Done()
 
-	r.logger.Infof("🔄 Controller continuous reconnect loop started")
+	r.logger.Infof("Controller continuous reconnect loop started")
 	ticker := time.NewTicker(15 * time.Second) // Check every 15 seconds
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-r.ctx.Done():
-			r.logger.Infof("🔄 Controller continuous reconnect loop terminated")
+			r.logger.Infof("Controller continuous reconnect loop terminated")
 			return
 		case <-ticker.C:
 			if !r.getReconnectEnabled() {
@@ -468,7 +468,7 @@ func (r *RegistryClient) continuousReconnectLoop() {
 
 			state := r.getConnectionState()
 			if state == ControllerStateDisconnected {
-				r.logger.Infof("🔄 Detected disconnected state, attempting reconnection...")
+				r.logger.Infof("Detected disconnected state, attempting reconnection...")
 				go r.attemptReconnection()
 			}
 		}
@@ -482,10 +482,10 @@ func (r *RegistryClient) attemptReconnection() {
 		return
 	}
 
-	r.logger.Infof("🔄 Starting controller reconnection attempt...")
+	r.logger.Infof("Starting controller reconnection attempt...")
 
 	if err := r.ConnectAndRegister(); err != nil {
-		r.logger.Errorf("🔄 Controller reconnection failed: %v", err)
+		r.logger.Errorf("Controller reconnection failed: %v", err)
 		r.setConnectionState(ControllerStateDisconnected)
 	}
 }
@@ -496,7 +496,7 @@ func (r *RegistryClient) ConnectAndRegister() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	r.logger.Infof("🔗 Attempting to connect controller to registry at %s...", r.registryAddr)
+	r.logger.Infof("Attempting to connect controller to registry at %s...", r.registryAddr)
 
 	// Disconnect first if needed
 	if err := r.Disconnect(); err != nil {
@@ -505,19 +505,19 @@ func (r *RegistryClient) ConnectAndRegister() error {
 
 	// Connect with retry - now includes real connectivity test
 	if err := r.ConnectWithRetry(ctx); err != nil {
-		r.logger.Errorf("❌ Controller registry connection failed: %v", err)
+		r.logger.Errorf("Controller registry connection failed: %v", err)
 		return fmt.Errorf("failed to connect to registry: %w", err)
 	}
 
-	r.logger.Infof("✅ Controller registry connection established successfully")
+	r.logger.Infof("Controller registry connection established successfully")
 
 	// Register with retry
 	if err := r.RegisterControllerWithRetry(ctx); err != nil {
-		r.logger.Errorf("❌ Controller registration failed: %v", err)
+		r.logger.Errorf("Controller registration failed: %v", err)
 		return fmt.Errorf("failed to register controller: %w", err)
 	}
 
-	r.logger.Infof("✅ Controller registered successfully with registry")
+	r.logger.Infof("Controller registered successfully with registry")
 	return nil
 }
 
@@ -525,14 +525,14 @@ func (r *RegistryClient) ConnectAndRegister() error {
 func (r *RegistryClient) clientListUpdateLoop(getConnectedClients func() []string) {
 	defer r.wg.Done()
 
-	r.logger.Infof("🔍 Controller client list update loop started")
+	r.logger.Infof("Controller client list update loop started")
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-r.ctx.Done():
-			r.logger.Infof("🔍 Controller client list update loop terminated")
+			r.logger.Infof("Controller client list update loop terminated")
 			return
 		case <-ticker.C:
 			// Check if we're connected and registered
@@ -554,7 +554,7 @@ func (r *RegistryClient) clientListUpdateLoop(getConnectedClients func() []strin
 				r.logger.Errorf("Failed to update client list: %v", err)
 				r.handleConnectionFailure("client list update")
 			} else {
-				r.logger.Debugf("✅ Client list update completed successfully: %d clients", len(connectedClients))
+				r.logger.Debugf("Client list update completed successfully: %d clients", len(connectedClients))
 			}
 		}
 	}

@@ -1,3 +1,5 @@
+// Package metrics provides metrics collection functionality
+// for monitoring controller and client statistics.
 package metrics
 
 import (

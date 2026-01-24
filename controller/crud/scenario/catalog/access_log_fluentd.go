@@ -30,10 +30,10 @@ var FluentdAccessLogDefinition = models.ComponentDefinition{
 			Type:                 models.FieldTypeSelect,
 			RequiredForCreation:  true,
 			RequiredForExecution: true,
-			ApiEndpoint:          "/api/v3/custom/resource_list_search?collection=clusters",
+			APIEndpoint:          "/api/v3/custom/resource_list_search?collection=clusters",
 			HasMetadata:          true,
 			UseInScenario:        false, // Don't include scenario clusters
-			UseApi:               true,  // Only API clusters
+			UseAPI:               true,  // Only API clusters
 			ValidationRules:      []string{"required"},
 		},
 		{

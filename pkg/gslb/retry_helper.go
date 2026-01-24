@@ -12,7 +12,7 @@ import (
 type RetryableOperation func(context.Context) error
 
 // ExecuteWithExponentialBackoff retries an operation with exponential backoff
-// Uses 1s → 2s → 4s backoff strategy, up to maxRetries attempts
+// Uses 1s -> 2s -> 4s backoff strategy, up to maxRetries attempts
 //
 // Example:
 //
@@ -49,7 +49,7 @@ func ExecuteWithExponentialBackoff(
 			case <-time.After(backoffDuration):
 				// Continue to next retry
 			case <-ctx.Done():
-				return fmt.Errorf("%s cancelled during backoff: %w", operationName, ctx.Err())
+				return fmt.Errorf("%s canceled during backoff: %w", operationName, ctx.Err())
 			}
 		}
 	}

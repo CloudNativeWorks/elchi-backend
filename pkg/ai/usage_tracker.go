@@ -12,7 +12,7 @@ import (
 )
 
 // calculateTokenCost calculates the cost in USD for token usage based on OpenRouter model pricing
-func calculateTokenCost(inputTokens, outputTokens int, modelID string) float64 {
+func calculateTokenCost(_, _ int, modelID string) float64 {
 	// For now, assume all models are free since we removed the recommendation system
 	// In a real implementation, you could query OpenRouter API for pricing info
 	// or maintain a simple pricing cache
@@ -24,7 +24,7 @@ func calculateTokenCost(inputTokens, outputTokens int, modelID string) float64 {
 
 	// For non-free models, return 0.0 for now since we don't have pricing info
 	// In production, you'd want to query OpenRouter API or maintain a pricing cache
-	return 0.0
+	return 0.1
 }
 
 // AIUsageRecord represents a single AI usage record

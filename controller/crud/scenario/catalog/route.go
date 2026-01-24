@@ -45,7 +45,7 @@ var RouteDefinition = models.ComponentDefinition{
 								Type:                 models.FieldTypeSelect,
 								RequiredForCreation:  true,
 								RequiredForExecution: true,
-								ApiEndpoint:          "/api/v3/custom/resource_list_search?collection=virtual_hosts&type=virtual_hosts",
+								APIEndpoint:          "/api/v3/custom/resource_list_search?collection=virtual_hosts&type=virtual_hosts",
 								HasMetadata:          true,
 								Connected: &models.ConnectedField{
 									ComponentTypes: []string{"virtual_host"},

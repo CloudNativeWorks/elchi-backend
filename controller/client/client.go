@@ -1,3 +1,5 @@
+// Package client provides the main client subsystem initialization
+// for managing gRPC connections and client lifecycle.
 package client
 
 import (

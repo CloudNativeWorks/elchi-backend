@@ -1,3 +1,5 @@
+// Package logger provides structured logging functionality using logrus
+// with configurable output formats and log levels.
 package logger
 
 import (
@@ -23,7 +25,7 @@ type Logger struct {
 // Global logger instance
 var globalLogger *Logger
 
-// Configuration for the logger
+// Config holds configuration options for the logger.
 type Config struct {
 	Level      string `mapstructure:"level"`
 	Format     string `mapstructure:"format"`
@@ -78,11 +80,11 @@ func (f *CustomTextFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 
 	// Insert [module] right after timestamp with spacing
 	var result strings.Builder
-	result.WriteString(line[:timestampEnd+1])      // "LEVEL  [timestamp]"
-	result.WriteString(" [")                       // Space before module
+	result.WriteString(line[:timestampEnd+1]) // "LEVEL  [timestamp]"
+	result.WriteString(" [")                  // Space before module
 	result.WriteString(moduleStr)
-	result.WriteString("] ")                       // Space after module
-	result.WriteString(line[timestampEnd+1:])      // "filename:line message fields..."
+	result.WriteString("] ")                  // Space after module
+	result.WriteString(line[timestampEnd+1:]) // "filename:line message fields..."
 
 	return []byte(result.String()), nil
 }
@@ -153,13 +155,13 @@ func Init(config Config) error {
 		// Ensure the directory exists with secure permissions
 		// 0750 = rwxr-x--- (owner: rwx, group: r-x, others: no access)
 		dir := filepath.Dir(config.OutputPath)
-		if err := os.MkdirAll(dir, 0750); err != nil {
+		if err := os.MkdirAll(dir, 0o750); err != nil {
 			return fmt.Errorf("failed to create log directory: %w", err)
 		}
 
 		// 0600 = rw------- (owner: rw, group: no access, others: no access)
 		// Only the owner can read/write log files for security
-		file, err := os.OpenFile(config.OutputPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+		file, err := os.OpenFile(config.OutputPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 		if err != nil {
 			return fmt.Errorf("failed to open log file: %w", err)
 		}
@@ -216,62 +218,58 @@ func callerPrettyfier(f *runtime.Frame) (string, string) {
 }
 
 // withModule adds the module field to the entry
-func (l *Logger) withModule(fields Fields) *logrus.Entry {
-	if fields == nil {
-		fields = Fields{}
-	}
-	fields["module"] = l.module
-	return l.WithFields(fields)
+func (l *Logger) withModule() *logrus.Entry {
+	return l.WithFields(Fields{"module": l.module})
 }
 
 // Debug logs a message at the debug level
 func (l *Logger) Debug(args ...any) {
-	l.withModule(nil).Debug(args...)
+	l.withModule().Debug(args...)
 }
 
 // Debugf logs a formatted message at the debug level
 func (l *Logger) Debugf(format string, args ...any) {
-	l.withModule(nil).Debugf(format, args...)
+	l.withModule().Debugf(format, args...)
 }
 
 // Info logs a message at the info level
 func (l *Logger) Info(args ...any) {
-	l.withModule(nil).Info(args...)
+	l.withModule().Info(args...)
 }
 
 // Infof logs a formatted message at the info level
 func (l *Logger) Infof(format string, args ...any) {
-	l.withModule(nil).Infof(format, args...)
+	l.withModule().Infof(format, args...)
 }
 
 // Warn logs a message at the warn level
 func (l *Logger) Warn(args ...any) {
-	l.withModule(nil).Warn(args...)
+	l.withModule().Warn(args...)
 }
 
 // Warnf logs a formatted message at the warn level
 func (l *Logger) Warnf(format string, args ...any) {
-	l.withModule(nil).Warnf(format, args...)
+	l.withModule().Warnf(format, args...)
 }
 
 // Error logs a message at the error level
 func (l *Logger) Error(args ...any) {
-	l.withModule(nil).Error(args...)
+	l.withModule().Error(args...)
 }
 
 // Errorf logs a formatted message at the error level
 func (l *Logger) Errorf(format string, args ...any) {
-	l.withModule(nil).Errorf(format, args...)
+	l.withModule().Errorf(format, args...)
 }
 
 // Fatal logs a message at the fatal level and then exits
 func (l *Logger) Fatal(args ...any) {
-	l.withModule(nil).Fatal(args...)
+	l.withModule().Fatal(args...)
 }
 
 // Fatalf logs a formatted message at the fatal level and then exits
 func (l *Logger) Fatalf(format string, args ...any) {
-	l.withModule(nil).Fatalf(format, args...)
+	l.withModule().Fatalf(format, args...)
 }
 
 // WithFields adds fields to the logger

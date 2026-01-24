@@ -5,8 +5,7 @@ import (
 	pb "github.com/CloudNativeWorks/elchi-proto/client"
 )
 
-type UpgradeResponser struct {
-}
+type UpgradeResponser struct{}
 
 func (p *UpgradeResponser) ValidateAndTransform(op models.OperationClass, response *pb.CommandResponse) any {
 	return response

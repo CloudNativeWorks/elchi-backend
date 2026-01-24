@@ -89,7 +89,7 @@ func createDefaults(ctx context.Context, context *AppContext, logger *logger.Log
 		logger.Infof("Admin group not created: %s", err)
 	}
 
-	if err := CreateDefaultHttpProtocolOptions(ctx, context, projectID, vrs, groupID); err != nil {
+	if err := CreateDefaultHTTPProtocolOptions(ctx, context, projectID, vrs, groupID); err != nil {
 		logger.Infof("Default hpo not created: %s", err)
 	}
 
@@ -175,7 +175,7 @@ func createAdminUser(ctx context.Context, db *AppContext) (string, error) {
 }
 
 func CreateGroup(ctx context.Context, collection *mongo.Collection, userID, projectID string) (*mongo.InsertOneResult, error) {
-	var members = []string{}
+	members := []string{}
 	if userID != "" {
 		members = []string{userID}
 	}
@@ -444,7 +444,7 @@ func CreateDefaultCluster(ctx context.Context, db *AppContext, projectID string,
 	return nil
 }
 
-func CreateDefaultHttpProtocolOptions(ctx context.Context, db *AppContext, projectID string, vers string, groupID string) error {
+func CreateDefaultHTTPProtocolOptions(ctx context.Context, db *AppContext, projectID string, vers string, groupID string) error {
 	gtype := models.HTTPProtocolOptions
 	collection := db.Client.Collection(gtype.CollectionString())
 	var hpo models.Resource

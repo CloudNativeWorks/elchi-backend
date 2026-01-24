@@ -37,14 +37,14 @@ type ACMECertificate struct {
 	// Possible values: pending_dns, verifying, active, renewal_pending, renewal_failed, expired
 
 	// Certificate Validity
-	IssuedAt       time.Time `json:"issued_at" bson:"issued_at"`
-	ExpiresAt      time.Time `json:"expires_at" bson:"expires_at"`
+	IssuedAt        time.Time `json:"issued_at" bson:"issued_at"`
+	ExpiresAt       time.Time `json:"expires_at" bson:"expires_at"`
 	RenewalStartsAt time.Time `json:"renewal_starts_at" bson:"renewal_starts_at"`
 
 	// Renewal Settings
-	AutoRenew            bool      `json:"auto_renew" bson:"auto_renew"`
-	RenewalAttempts      int       `json:"renewal_attempts" bson:"renewal_attempts"`
-	LastRenewalAttempt   time.Time `json:"last_renewal_attempt,omitempty" bson:"last_renewal_attempt,omitempty"`
+	AutoRenew          bool      `json:"auto_renew" bson:"auto_renew"`
+	RenewalAttempts    int       `json:"renewal_attempts" bson:"renewal_attempts"`
+	LastRenewalAttempt time.Time `json:"last_renewal_attempt,omitempty" bson:"last_renewal_attempt,omitempty"`
 
 	// Job Tracking (for async verification/renewal)
 	LastJobID string `json:"last_job_id,omitempty" bson:"last_job_id,omitempty"`
@@ -56,11 +56,11 @@ type ACMECertificate struct {
 	Permissions Permissions `json:"permissions" bson:"permissions"`
 
 	// Audit
-	CreatedBy      string    `json:"created_by" bson:"created_by"`
-	CreatedAt      time.Time `json:"created_at" bson:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at" bson:"updated_at"`
-	LastRenewedBy  string    `json:"last_renewed_by,omitempty" bson:"last_renewed_by,omitempty"`
-	LastRenewedAt  time.Time `json:"last_renewed_at,omitempty" bson:"last_renewed_at,omitempty"`
+	CreatedBy     string    `json:"created_by" bson:"created_by"`
+	CreatedAt     time.Time `json:"created_at" bson:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at" bson:"updated_at"`
+	LastRenewedBy string    `json:"last_renewed_by,omitempty" bson:"last_renewed_by,omitempty"`
+	LastRenewedAt time.Time `json:"last_renewed_at,omitempty" bson:"last_renewed_at,omitempty"`
 }
 
 // ACMEMetadata contains Let's Encrypt ACME protocol metadata
@@ -86,12 +86,12 @@ type DNSVerification struct {
 
 // DNSChallenge represents a DNS-01 challenge that needs to be completed
 type DNSChallenge struct {
-	Domain    string    `json:"domain" bson:"domain"`         // Base domain (e.g., example.com)
-	FQDN      string    `json:"fqdn" bson:"fqdn"`             // Full DNS record name (e.g., _acme-challenge.example.com)
-	Type      string    `json:"type" bson:"type"`             // "TXT"
-	Value     string    `json:"value" bson:"value"`           // DNS TXT record value (base64 encoded)
+	Domain    string    `json:"domain" bson:"domain"`                   // Base domain (e.g., example.com)
+	FQDN      string    `json:"fqdn" bson:"fqdn"`                       // Full DNS record name (e.g., _acme-challenge.example.com)
+	Type      string    `json:"type" bson:"type"`                       // "TXT"
+	Value     string    `json:"value" bson:"value"`                     // DNS TXT record value (base64 encoded)
 	Token     string    `json:"token,omitempty" bson:"token,omitempty"` // ACME challenge token
-	KeyAuth   string    `json:"-" bson:"-"`                   // Full key authorization (not stored/exposed)
+	KeyAuth   string    `json:"-" bson:"-"`                             // Full key authorization (not stored/exposed)
 	CreatedAt time.Time `json:"created_at" bson:"created_at"`
 	ExpiresAt time.Time `json:"expires_at" bson:"expires_at"` // created_at + 24 hours
 }
@@ -163,8 +163,8 @@ type TempKey struct {
 
 // EABCredentials represents External Account Binding credentials for CA providers that require it
 type EABCredentials struct {
-	KeyID            string `json:"key_id" bson:"key_id"`                               // Encrypted EAB Key ID (from CA)
-	HMACKeyEncrypted string `json:"hmac_key_encrypted" bson:"hmac_key_encrypted"`       // Encrypted EAB HMAC key (base64-encoded)
+	KeyID            string `json:"key_id" bson:"key_id"`                         // Encrypted EAB Key ID (from CA)
+	HMACKeyEncrypted string `json:"hmac_key_encrypted" bson:"hmac_key_encrypted"` // Encrypted EAB HMAC key (base64-encoded)
 }
 
 // ACMEAccount represents an ACME account stored in the acme_accounts collection
@@ -181,8 +181,8 @@ type ACMEAccount struct {
 	Email       string `json:"email" bson:"email"`
 
 	// CA Provider Selection (NEW for multi-CA support)
-	CAProvider  string `json:"ca_provider" bson:"ca_provider"`   // "letsencrypt" | "google" | "zerossl" | "buypass"
-	Environment string `json:"environment" bson:"environment"`   // "staging" | "production"
+	CAProvider  string `json:"ca_provider" bson:"ca_provider"` // "letsencrypt" | "google" | "zerossl" | "buypass"
+	Environment string `json:"environment" bson:"environment"` // "staging" | "production"
 
 	// ACME Registration Details
 	AccountKeyEncrypted string `json:"account_key_encrypted" bson:"account_key_encrypted"` // Encrypted ECDSA private key
@@ -237,9 +237,9 @@ type DigitalOceanCredentials struct {
 
 // Route53Credentials represents AWS Route 53 DNS provider credentials
 type Route53Credentials struct {
-	AccessKeyID     string `json:"access_key_id"`     // AWS Access Key ID
-	SecretAccessKey string `json:"secret_access_key"` // AWS Secret Access Key
-	Region          string `json:"region,omitempty"`  // AWS Region (optional, defaults to us-east-1)
+	AccessKeyID     string `json:"access_key_id"`            // AWS Access Key ID
+	SecretAccessKey string `json:"secret_access_key"`        // AWS Secret Access Key
+	Region          string `json:"region,omitempty"`         // AWS Region (optional, defaults to us-east-1)
 	HostedZoneID    string `json:"hosted_zone_id,omitempty"` // Specific Hosted Zone ID (optional)
 }
 

@@ -11,12 +11,12 @@ fi
 
 # Check required environment variables
 if [ -z "$GITHUB_TOKEN" ]; then
-    echo "⚠️  GITHUB_TOKEN environment variable is required for private repository access"
+    echo "GITHUB_TOKEN environment variable is required for private repository access"
     exit 1
 fi
 
 if [ -z "$DOCKER_USERNAME" ] || [ -z "$DOCKER_PASSWORD" ]; then
-    echo "⚠️  DOCKER_USERNAME and DOCKER_PASSWORD environment variables are required"
+    echo "DOCKER_USERNAME and DOCKER_PASSWORD environment variables are required"
     exit 1
 fi
 
@@ -26,7 +26,7 @@ echo "🔑 Setting up Docker authentication..."
 DOCKER_CONFIG_DIR=$(mktemp -d)
 DOCKER_BUILDX_DIR=$(mktemp -d)
 echo "{\"auths\": {\"https://index.docker.io/v1/\": {\"auth\": \"$(echo -n "${DOCKER_USERNAME}:${DOCKER_PASSWORD}" | base64)\"}}}" > "${DOCKER_CONFIG_DIR}/config.json"
-echo "✅ Docker config created"
+echo "Docker config created"
 
 # Create a temporary directory for the build
 TEMP_DIR=$(mktemp -d)
@@ -36,20 +36,20 @@ cd "${TEMP_DIR}"
 
 # Builder image management
 BUILDER_IMAGE="elchi-backend-arm64-builder"
-echo "🔍 Checking builder image status..."
+echo "Checking builder image status..."
 
 if docker image inspect ${BUILDER_IMAGE} >/dev/null 2>&1; then
-    read -p "⚠️  Builder image already exists. Do you want to rebuild it? (y/N): " rebuild
+    read -p "Builder image already exists. Do you want to rebuild it? (y/N): " rebuild
     if [[ $rebuild =~ ^[Yy]$ ]]; then
-        echo "🗑️  Removing existing builder image..."
+        echo "Removing existing builder image..."
         docker rmi ${BUILDER_IMAGE} || true
-        echo "🏗️  Building fresh builder image..."
+        echo " Building fresh builder image..."
         docker build -t ${BUILDER_IMAGE} -f Dockerfile.builder .
     else
-        echo "✅ Using existing builder image"
+        echo "Using existing builder image"
     fi
 else
-    echo "🏗️  Building builder image for the first time..."
+    echo " Building builder image for the first time..."
     docker build -t ${BUILDER_IMAGE} -f Dockerfile.builder .
 fi
 

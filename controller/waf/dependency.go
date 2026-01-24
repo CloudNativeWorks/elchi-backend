@@ -61,13 +61,13 @@ func searchInCollection(ctx context.Context, db *mongo.Database, collectionName 
 
 	// Projection to get only needed fields
 	projection := bson.M{
-		"_id":                   1,
-		"general.name":          1,
+		"_id":                    1,
+		"general.name":           1,
 		"general.canonical_name": 1,
-		"general.version":       1,
-		"general.collection":    1,
-		"general.project":       1,
-		"general.gtype":         1,
+		"general.version":        1,
+		"general.collection":     1,
+		"general.project":        1,
+		"general.gtype":          1,
 	}
 
 	cursor, err := collection.Find(ctx, filter, options.Find().SetProjection(projection))

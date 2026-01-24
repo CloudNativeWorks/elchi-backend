@@ -42,7 +42,7 @@ func (m *MockProbeExecutor) ExecuteProbe(ctx context.Context, ipHealth *models.G
 func (m *MockProbeExecutor) Close() {}
 
 // Note: TriggerImmediateReProbeForManualChange requires full HealthChecker setup with MongoDB,
-// BucketScheduler, and IPHealthManager. These are integration tests that require full system setup.
+// Time Wheel, and IPHealthManager. These are integration tests that require full system setup.
 // For unit testing, we focus on the components used by manual re-probe (CounterManager, WriteBuffer).
 
 // TestManualReProbeContextInjection tests that manual health state is injected into probe context
@@ -103,7 +103,9 @@ func TestProcessProbeResult_ManualResetDetection(t *testing.T) {
 
 	assert.False(t, isNew, "Counter should already exist")
 	assert.True(t, isManualReset, "Should detect manual reset")
-	assert.Equal(t, 0, counter.ConsecutiveFailures, "Manual reset should clear failure count")
+	// When admin sets state to CRITICAL, counter should match critical threshold
+	// This ensures the IP stays in CRITICAL state on next failed probe
+	assert.Equal(t, probe.CriticalThreshold, counter.ConsecutiveFailures, "Manual reset to CRITICAL should set failures to critical threshold")
 	assert.Equal(t, 0, counter.ConsecutiveSuccesses, "Manual reset should clear success count")
 }
 
@@ -163,8 +165,8 @@ func TestImmediateReProbe_WarningState(t *testing.T) {
 		Type:              "http",
 		Port:              80,
 		Interval:          30,
-		WarningThreshold:  1,  // 1 failure = WARNING
-		CriticalThreshold: 2,  // 2 failures = CRITICAL
+		WarningThreshold:  1, // 1 failure = WARNING
+		CriticalThreshold: 2, // 2 failures = CRITICAL
 	}
 
 	// Initialize counter at 0 failures

@@ -1,3 +1,5 @@
+// Package custom provides specialized API endpoints for resource operations
+// including counts, resource lists, error summaries, and version management.
 package custom
 
 import (

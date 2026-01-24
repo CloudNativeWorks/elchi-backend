@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
 	"time"
 
@@ -72,7 +73,7 @@ func (h *Handler) getScenarioNameFromID(c *gin.Context, scenarioID string) strin
 // setScenarioAuditChanges handles changes detection for scenario operations
 func (h *Handler) setScenarioAuditChanges(c *gin.Context, path string) {
 	// Only handle scenario UPDATE operations that have scenario_id in path
-	if !strings.Contains(path, "/scenarios/") || c.Request.Method != "PUT" {
+	if !strings.Contains(path, "/scenarios/") || c.Request.Method != http.MethodPut {
 		return
 	}
 

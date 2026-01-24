@@ -102,7 +102,7 @@ draw_sparkline() {
 
 check_health() {
     if ! curl -s -f -m 2 "${PPROF_URL}" > /dev/null 2>&1; then
-        echo -e "${RED}✗ Controller not reachable at ${HOST}${RESET}"
+        echo -e "${RED} Controller not reachable at ${HOST}${RESET}"
         echo "Make sure the controller is running and pprof is enabled."
         exit 1
     fi
@@ -114,13 +114,16 @@ get_goroutine_stats() {
     # Total goroutines
     local total=$(echo "$output" | grep "^goroutine" | wc -l | tr -d ' ')
 
-    # GSLB-specific goroutines (count actual goroutine lines, not function refs)
-    local bucket_workers=$(echo "$output" | grep -c "BucketWorkerPool.*worker" || echo "0")
+    # GSLB-specific goroutines (NEW ARCHITECTURE: TimeWheel + WorkerPool)
+    local worker_pool=$(echo "$output" | grep -c "WorkerPool.*worker\b" || echo "0")
     local autoscale_monitor=$(echo "$output" | grep -c "autoScaleMonitor" || echo "0")
-    local timer_buckets=$(echo "$output" | grep -c "TimerBucket" || echo "0")
+    local time_wheel=$(echo "$output" | grep -c "TimeWheel.*tick\|TimeWheel.*Start" || echo "0")
     local result_processor=$(echo "$output" | grep -c "processResults" || echo "0")
     local shard_manager=$(echo "$output" | grep -c "ShardManager" || echo "0")
-    local write_buffer=$(echo "$output" | grep -c "WriteBuffer.*periodicFlush" || echo "0")
+    local write_buffer=$(echo "$output" | grep -c "WriteBuffer.*periodicFlush\|WriteBuffer.*Start" || echo "0")
+    local ip_health_manager=$(echo "$output" | grep -c "IPHealthManager" || echo "0")
+    local counter_manager=$(echo "$output" | grep -c "CounterManager" || echo "0")
+    local metrics_pusher=$(echo "$output" | grep -c "startMetricsPusher\|metricsHelper" || echo "0")
 
     # MongoDB goroutines
     local mongo_pool=$(echo "$output" | grep "go.mongodb.org/mongo-driver" | wc -l | tr -d ' ')
@@ -151,7 +154,7 @@ get_goroutine_stats() {
     local chan_ops=$(echo "$output" | grep -c "chan receive\|chan send" || echo "0")
     local select_blocks=$(echo "$output" | grep -c "select\]" || echo "0")
 
-    echo "$total|$bucket_workers|$autoscale_monitor|$timer_buckets|$result_processor|$shard_manager|$write_buffer|$mongo_pool|$mongo_pool_maintain|$mongo_rtt|$http_total|$http_persist|$http_transport|$http_server|$grpc_total|$grpc_callback|$grpc_keepalive|$registry_sync|$client_sync|$async_workers|$acme_renewal|$io_wait|$chan_ops|$select_blocks"
+    echo "$total|$worker_pool|$autoscale_monitor|$time_wheel|$result_processor|$shard_manager|$write_buffer|$ip_health_manager|$counter_manager|$metrics_pusher|$mongo_pool|$mongo_pool_maintain|$mongo_rtt|$http_total|$http_persist|$http_transport|$http_server|$grpc_total|$grpc_callback|$grpc_keepalive|$registry_sync|$client_sync|$async_workers|$acme_renewal|$io_wait|$chan_ops|$select_blocks"
 }
 
 get_memory_stats() {
@@ -184,13 +187,13 @@ get_mutex_stats() {
 main() {
     echo -e "${BOLD}${CYAN}"
     echo "╔══════════════════════════════════════════════════════════════════════════╗"
-    echo "║         🚀 GSLB Controller Runtime Resource Monitor v2.0               ║"
+    echo "║         GSLB Controller Runtime Resource Monitor                      ║"
     echo "╚══════════════════════════════════════════════════════════════════════════╝"
     echo -e "${RESET}"
 
     check_health
 
-    echo -e "${GREEN}✓ Connected to ${HOST}${RESET}"
+    echo -e "${GREEN}Connected to ${HOST}${RESET}"
     echo -e "${GRAY}Monitoring interval: ${INTERVAL}s | Press Ctrl+C to stop${RESET}"
     echo ""
 
@@ -201,7 +204,7 @@ main() {
         iteration=$((iteration + 1))
 
         # Fetch all stats
-        IFS='|' read -r total_goroutines bucket_workers autoscale_monitor timer_buckets result_processor shard_manager write_buffer mongo_pool mongo_pool_maintain mongo_rtt http_total http_persist http_transport http_server grpc_total grpc_callback grpc_keepalive registry_sync client_sync async_workers acme_renewal io_wait chan_ops select_blocks <<< "$(get_goroutine_stats)"
+        IFS='|' read -r total_goroutines worker_pool autoscale_monitor time_wheel result_processor shard_manager write_buffer ip_health_manager counter_manager metrics_pusher mongo_pool mongo_pool_maintain mongo_rtt http_total http_persist http_transport http_server grpc_total grpc_callback grpc_keepalive registry_sync client_sync async_workers acme_renewal io_wait chan_ops select_blocks <<< "$(get_goroutine_stats)"
         IFS='|' read -r heap_alloc heap_inuse heap_sys stack_inuse num_gc pause_ns <<< "$(get_memory_stats)"
         local block_count=$(get_block_stats)
         local mutex_count=$(get_mutex_stats)
@@ -242,7 +245,7 @@ main() {
 
         # Goroutines Section - Detailed Breakdown
         # Calculate totals per category
-        local gslb_total=$((bucket_workers + autoscale_monitor + timer_buckets + result_processor + shard_manager + write_buffer))
+        local gslb_total=$((worker_pool + autoscale_monitor + time_wheel + result_processor + shard_manager + write_buffer + ip_health_manager + counter_manager + metrics_pusher))
         local controller_total=$((registry_sync + client_sync + async_workers + acme_renewal))
         local sync_total=$((io_wait + chan_ops + select_blocks))
 
@@ -259,12 +262,15 @@ main() {
         echo -e "${BOLD}${MAGENTA}┌─ Goroutines ${gor_trend} (Total: ${BOLD}${total_goroutines}${RESET}${BOLD}${MAGENTA})${RESET}"
         echo -e "${MAGENTA}│${RESET}"
         echo -e "${MAGENTA}│${RESET} ${BOLD}GSLB System:${RESET} ${CYAN}${gslb_total}${RESET}"
-        echo -e "${MAGENTA}│${RESET}   • Bucket Workers:      ${bucket_workers}"
-        echo -e "${MAGENTA}│${RESET}   • Autoscale Monitors:  ${autoscale_monitor}"
-        echo -e "${MAGENTA}│${RESET}   • Timer Buckets:       ${timer_buckets}"
+        echo -e "${MAGENTA}│${RESET}   • Worker Pool:         ${worker_pool}"
+        echo -e "${MAGENTA}│${RESET}   • Autoscale Monitor:   ${autoscale_monitor}"
+        echo -e "${MAGENTA}│${RESET}   • Time Wheel:          ${time_wheel}"
         echo -e "${MAGENTA}│${RESET}   • Result Processor:    ${result_processor}"
         echo -e "${MAGENTA}│${RESET}   • Shard Manager:       ${shard_manager}"
         echo -e "${MAGENTA}│${RESET}   • Write Buffer:        ${write_buffer}"
+        echo -e "${MAGENTA}│${RESET}   • IP Health Manager:   ${ip_health_manager}"
+        echo -e "${MAGENTA}│${RESET}   • Counter Manager:     ${counter_manager}"
+        echo -e "${MAGENTA}│${RESET}   • Metrics Pusher:      ${metrics_pusher}"
         echo -e "${MAGENTA}│${RESET}"
         echo -e "${MAGENTA}│${RESET} ${BOLD}MongoDB:${RESET} ${CYAN}${mongo_pool}${RESET}"
         echo -e "${MAGENTA}│${RESET}   • Pool Maintainers:    ${mongo_pool_maintain}"
@@ -327,7 +333,7 @@ main() {
         echo -e "${YELLOW}│${RESET} Last GC Pause:    $(format_duration $pause_ns)"
 
         # GC health indicator
-        local gc_health="🟢 Healthy"
+        local gc_health="Healthy"
         if [ $gc_rate -gt 10 ]; then
             gc_health="${RED}🔴 High GC Pressure${RESET}"
         elif [ $gc_rate -gt 5 ]; then
@@ -348,7 +354,7 @@ main() {
         echo -e "${BOLD}${GREEN}┌─ Health Summary${RESET}"
 
         # Goroutine health
-        local gor_health="🟢 Normal"
+        local gor_health="Normal"
         if [ "$total_goroutines" -gt 1000 ]; then
             gor_health="${YELLOW}🟡 Elevated${RESET}"
         fi
@@ -358,7 +364,7 @@ main() {
         echo -e "${GREEN}│${RESET} Goroutines:       ${gor_health}"
 
         # Memory health
-        local mem_health="🟢 Normal"
+        local mem_health="Normal"
         if [ "$heap_alloc" -gt 524288000 ]; then  # 500MB
             mem_health="${YELLOW}🟡 Elevated${RESET}"
         fi
@@ -368,9 +374,9 @@ main() {
         echo -e "${GREEN}│${RESET} Memory Usage:     ${mem_health}"
 
         # Overall status
-        local overall_status="${GREEN}✓ System Healthy${RESET}"
+        local overall_status="${GREEN}System Healthy${RESET}"
         if [[ "$gor_health" =~ "🔴" ]] || [[ "$mem_health" =~ "🔴" ]] || [[ "$gc_health" =~ "🔴" ]]; then
-            overall_status="${RED}✗ System Degraded${RESET}"
+            overall_status="${RED} System Degraded${RESET}"
         elif [[ "$gor_health" =~ "🟡" ]] || [[ "$mem_health" =~ "🟡" ]] || [[ "$gc_health" =~ "🟡" ]]; then
             overall_status="${YELLOW}⚠ System Warning${RESET}"
         fi

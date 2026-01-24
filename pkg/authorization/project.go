@@ -1,3 +1,5 @@
+// Package authorization provides role-based access control functionality
+// including project filtering, permission validation, and user authorization.
 package authorization
 
 import (

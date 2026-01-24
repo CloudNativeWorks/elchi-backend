@@ -383,7 +383,7 @@ func (ihm *IPHealthManager) GetIPsByRecordID(ctx context.Context, recordID primi
 // Parameters:
 //   - recordIDs: List of GSLB record ObjectIDs to query
 //
-// Returns map[recordID][]IPHealth for fast lookup during bucket cycle processing
+// Returns map[recordID][]IPHealth for fast lookup during Time Wheel slot execution
 func (ihm *IPHealthManager) GetIPsByRecordIDs(ctx context.Context, recordIDs []primitive.ObjectID) (map[primitive.ObjectID][]models.GSLBIPHealth, error) {
 	if len(recordIDs) == 0 {
 		return make(map[primitive.ObjectID][]models.GSLBIPHealth), nil
@@ -408,7 +408,7 @@ func (ihm *IPHealthManager) GetIPsByRecordIDs(ctx context.Context, recordIDs []p
 	// status_history can be 100+ entries × 840 IPs = 10MB+ data transfer!
 	// Only fetch fields needed for health checking (reduces transfer by 90%)
 	projection := bson.M{
-		"status_history": 0, // ❌ EXCLUDE - massive array slows down query
+		"status_history": 0, // EXCLUDE - massive array slows down query
 	}
 
 	opts := options.Find().SetProjection(projection)
@@ -449,7 +449,7 @@ func (ihm *IPHealthManager) GetIPsByRecordIDs(ctx context.Context, recordIDs []p
 	// Performance monitoring: Warn if query takes too long (indicates network/performance issue)
 	totalDuration := time.Since(queryStart)
 	if totalDuration > 2*time.Second {
-		ihm.logger.Warnf("⚠️  Slow MongoDB query detected | Total=%v Find()=%v Decoding=%v | Records=%d IPs=%d",
+		ihm.logger.Warnf("Slow MongoDB query detected | Total=%v Find()=%v Decoding=%v | Records=%d IPs=%d",
 			totalDuration, findDuration, decodingDuration, len(recordIDs), ipCount)
 	}
 
@@ -669,11 +669,11 @@ func (ihm *IPHealthManager) GetHealthSummary(ctx context.Context, fqdn string) (
 }
 
 // ============================================================================
-// BUCKET-BASED TIMER SYSTEM QUERY METHODS
+// TIME WHEEL QUERY METHODS
 // ============================================================================
 
 // GetRecordsByShards fetches GSLB records for owned shards filtered by probe interval
-// Used by TimerBucket to load records during initialization and rebalancing
+// Used by TimeWheel to load records during initialization and rebalancing
 //
 // Parameters:
 //   - shards: List of owned shards (each shard has shard_id and sub_shard_id)
@@ -682,14 +682,14 @@ func (ihm *IPHealthManager) GetHealthSummary(ctx context.Context, fqdn string) (
 // # Returns slice of GSLB records that match the shard ownership AND interval
 //
 // This implements intelligent shard distribution:
-//   - Shards are assigned to ALL buckets (not exclusive)
-//   - Each bucket queries with probe.interval filter
-//   - Records naturally filtered by interval
-//   - No idle buckets, balanced load
+//   - Shards are assigned across Time Wheel scheduling
+//   - Time Wheel queries records filtered by probe.interval
+//   - Records naturally distributed by interval in Time Wheel slots
+//   - Balanced load across Time Wheel slots
 //
 // Example: Shard 0/0 has records with 10s, 30s, 60s intervals
-//   - Bucket 10s: queries interval=10s → gets only 10s records
-//   - Bucket 30s: queries interval=30s → gets only 30s records
+//   - Time Wheel schedules 10s records every 10 seconds
+//   - Time Wheel schedules 30s records every 30 seconds
 func (ihm *IPHealthManager) GetRecordsByShards(ctx context.Context, shards []ShardOwnership, interval int) ([]models.GSLBRecord, error) {
 	// PERFORMANCE: Add timeout for query
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -741,9 +741,9 @@ func (ihm *IPHealthManager) GetRecordsByShards(ctx context.Context, shards []Sha
 	}
 
 	if len(records) == 0 {
-		ihm.logger.Debugf("⚠️  No records found for interval %ds from %d shards (filter may not match)", interval, len(shards))
+		ihm.logger.Debugf("No records found for interval %ds from %d shards (filter may not match)", interval, len(shards))
 	} else {
-		ihm.logger.Debugf("✅ Loaded %d records for interval %ds from %d shards", len(records), interval, len(shards))
+		ihm.logger.Debugf("Loaded %d records for interval %ds from %d shards", len(records), interval, len(shards))
 	}
 	return records, nil
 }

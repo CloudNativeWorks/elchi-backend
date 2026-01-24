@@ -138,12 +138,10 @@ func (xds *AppHandler) UpdateResource(ctx context.Context, resource models.Resou
 		if !compareElchiDiscovery(existingResource.General.ElchiDiscovery, general.ElchiDiscovery) {
 			needsPopulate = true
 			xds.Logger.Infof("ElchiDiscovery changed for endpoint %s, will repopulate from discovery", general.Name)
-		} else {
+		} else if areDiscoveryEndpointsMissing(resource) {
 			// ElchiDiscovery didn't change, but check if discovery endpoints are missing
-			if areDiscoveryEndpointsMissing(resource) {
-				needsPopulate = true
-				xds.Logger.Infof("Discovery endpoints missing for endpoint %s, will repopulate from discovery", general.Name)
-			}
+			needsPopulate = true
+			xds.Logger.Infof("Discovery endpoints missing for endpoint %s, will repopulate from discovery", general.Name)
 		}
 	}
 

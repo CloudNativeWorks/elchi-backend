@@ -163,8 +163,24 @@ func TestCounterManager_ManualReset(t *testing.T) {
 
 	assert.False(t, isNew, "Counter already exists")
 	assert.True(t, isManualReset, "Should detect manual reset")
-	assert.Equal(t, 0, counter.ConsecutiveFailures, "Manual reset should clear failure count")
+	// When admin sets state to CRITICAL, counter should match critical threshold
+	// This ensures the IP stays in CRITICAL state on next failed probe
+	assert.Equal(t, probe.CriticalThreshold, counter.ConsecutiveFailures, "Manual reset to CRITICAL should set failures to critical threshold")
 	assert.Equal(t, 0, counter.ConsecutiveSuccesses, "Manual reset should clear success count")
+
+	// Test manual reset to PASSING (should clear counter)
+	manualResetAt2 := time.Now().Add(-3 * time.Second)
+	counter2, _, isManualReset2 := cm.GetOrInitialize(
+		recordID,
+		ip,
+		models.HealthStatePassing, // Admin set to PASSING
+		probe,
+		BackoffInfo{},
+		manualResetAt2,
+	)
+
+	assert.True(t, isManualReset2, "Should detect manual reset to PASSING")
+	assert.Equal(t, 0, counter2.ConsecutiveFailures, "Manual reset to PASSING should clear failures")
 }
 
 // TestCounterManager_ManualResetExpired tests that old manual resets are ignored

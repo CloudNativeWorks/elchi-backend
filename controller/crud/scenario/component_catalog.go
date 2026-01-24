@@ -55,7 +55,10 @@ func (t *AppHandler) ValidateComponentRulesWithContext(components []models.Compo
 			case ValidationContextCreation:
 				rulesToApply = compDef.Rules.ValidationRulesForCreation
 			case ValidationContextExecution:
-				rulesToApply = append(compDef.Rules.ValidationRulesForCreation, compDef.Rules.ValidationRulesForExecution...)
+				// Combine creation and execution rules
+				rulesToApply = make([]string, 0, len(compDef.Rules.ValidationRulesForCreation)+len(compDef.Rules.ValidationRulesForExecution))
+				rulesToApply = append(rulesToApply, compDef.Rules.ValidationRulesForCreation...)
+				rulesToApply = append(rulesToApply, compDef.Rules.ValidationRulesForExecution...)
 			}
 
 			for _, rule := range rulesToApply {
@@ -320,7 +323,7 @@ func (t *AppHandler) applyComponentValidationRule(rule string, components []mode
 
 	default:
 		// Unknown component validation rule
-		fmt.Printf("⚠️  Unknown component validation rule: %s\n", rule)
+		fmt.Printf("Unknown component validation rule: %s\n", rule)
 	}
 
 	return errors

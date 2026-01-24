@@ -388,7 +388,7 @@ func (ra *RouteAnalyzer) processRouteMatchesFromRouteConfigWithVH(route any, mat
 }
 
 // processRouteActionFromRouteConfigWithVH processes route actions connected to match nodes with virtual host context
-func (ra *RouteAnalyzer) processRouteActionFromRouteConfigWithVH(route any, sourceNodeID string, action extractors.RouteAction, routeName, domain string, uniqueRouteIndex string) {
+func (ra *RouteAnalyzer) processRouteActionFromRouteConfigWithVH(_ any, sourceNodeID string, action extractors.RouteAction, routeName, domain string, uniqueRouteIndex string) {
 	ra.logger.Debugf("processRouteActionFromRouteConfigWithVH called with action: %+v, uniqueIndex: %s", action, uniqueRouteIndex)
 
 	switch action.Type {

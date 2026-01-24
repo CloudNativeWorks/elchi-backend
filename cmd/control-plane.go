@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 
 	"github.com/CloudNativeWorks/versioned-go-control-plane/pkg/server/v3"
 	"github.com/spf13/cobra"
@@ -45,7 +44,6 @@ var grpcCmd = &cobra.Command{
 			Module:     "root",
 		}); err != nil {
 			log.Fatalf("Fatal: Logger could not be initialized: %v", err)
-			os.Exit(1)
 		}
 
 		appContext := db.NewMongoDB(appConfig, true)

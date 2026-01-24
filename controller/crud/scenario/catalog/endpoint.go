@@ -86,7 +86,7 @@ var EndpointDefinition = models.ComponentDefinition{
 								Type:                 models.FieldTypeSelect,
 								RequiredForCreation:  true,
 								RequiredForExecution: true,
-								ApiEndpoint:          "/api/discovery/clusters",
+								APIEndpoint:          "/api/discovery/clusters",
 								HasDiscovery:         true,
 								ValidationRules:      []string{"required"},
 							},

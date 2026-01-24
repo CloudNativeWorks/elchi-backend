@@ -5,8 +5,7 @@ import (
 	pb "github.com/CloudNativeWorks/elchi-proto/client"
 )
 
-type BootstrapResponser struct {
-}
+type BootstrapResponser struct{}
 
 func (p *BootstrapResponser) ValidateAndTransform(op models.OperationClass, response *pb.CommandResponse) any {
 	return response

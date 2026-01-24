@@ -1,3 +1,5 @@
+// Package authorization provides command authorization for client operations
+// including role-based access control and command category permissions.
 package authorization
 
 import (

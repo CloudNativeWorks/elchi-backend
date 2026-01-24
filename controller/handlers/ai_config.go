@@ -113,7 +113,7 @@ func (h *Handler) GetAIStatus(c *gin.Context) {
 		}
 	}
 
-	// Default model'ı al
+	// Get default model
 	defaultModel, _ := h.getAIModelFromSettings(project)
 
 	status := map[string]any{
@@ -138,7 +138,7 @@ func (h *Handler) GetAIStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, status)
 }
 
-// getOpenRouterTokenFromSettings project settings'den OpenRouter token'ını alır
+// getOpenRouterTokenFromSettings retrieves OpenRouter token from project settings
 func (h *Handler) getOpenRouterTokenFromSettings(project string) (string, error) {
 	ctx := context.Background()
 	settingsCollection := h.Settings.Context.Client.Collection("settings")
@@ -161,7 +161,7 @@ func (h *Handler) getOpenRouterTokenFromSettings(project string) (string, error)
 	return "", fmt.Errorf("no OpenRouter token found in settings for project: %s", project)
 }
 
-// getAIModelFromSettings project settings'den AI model'ını alır
+// getAIModelFromSettings retrieves AI model from project settings
 func (h *Handler) getAIModelFromSettings(project string) (string, error) {
 	ctx := context.Background()
 	settingsCollection := h.Settings.Context.Client.Collection("settings")
@@ -172,7 +172,7 @@ func (h *Handler) getAIModelFromSettings(project string) (string, error) {
 	err := settingsCollection.FindOne(ctx, filter).Decode(&settings)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
-			return ai.DefaultModel, nil // Return default model if no settings
+			return ai.DefaultModel, fmt.Errorf("no settings found %w", err)
 		}
 		return ai.DefaultModel, nil
 	}
@@ -285,12 +285,8 @@ func (h *Handler) AnalyzeLogsWithConfig(c *gin.Context) {
 
 // setupAIAnalyzer is a helper function to set up AI analyzer with common logic
 // Returns analyzer, context, cancel function, and error
-func (h *Handler) setupAIAnalyzer(c *gin.Context, project string, depth int, _ bool) (*ai.ConfigAnalyzer, context.Context, context.CancelFunc, error) {
-	// Set default values
-	if depth == 0 {
-		depth = 3
-	}
-
+// Note: depth and includeDependencies parameters are reserved for future use
+func (h *Handler) setupAIAnalyzer(c *gin.Context, project string, _ int, _ bool) (*ai.ConfigAnalyzer, context.Context, context.CancelFunc, error) {
 	// AI API key check - first from header, then from settings, finally from env
 	aiAPIKey := c.GetHeader("x-openrouter-token")
 	if aiAPIKey == "" {

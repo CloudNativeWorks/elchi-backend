@@ -25,7 +25,7 @@ func NewInMemoryRoutingStorage() *InMemoryRoutingStorage {
 	}
 }
 
-// Control Plane operations
+// RegisterControlPlane registers a control plane in the storage
 func (s *InMemoryRoutingStorage) RegisterControlPlane(ctx context.Context, controlPlane *models.ControlPlane) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -113,7 +113,7 @@ func (s *InMemoryRoutingStorage) UpdateControlPlaneLastSeen(ctx context.Context,
 	return nil
 }
 
-// Node mapping operations
+// SetNodeMapping sets a node mapping in the storage
 func (s *InMemoryRoutingStorage) SetNodeMapping(ctx context.Context, mapping *models.NodeMapping) error {
 	if ctx.Err() != nil {
 		return ctx.Err()

@@ -1,3 +1,5 @@
+// Package async provides asynchronous job processing infrastructure
+// including job management, worker pools, and dependency analysis.
 package async
 
 import (
@@ -221,7 +223,7 @@ func (s *asyncJobSystem) GetWorkerStatus(ctx context.Context) (*WorkerStatus, er
 	}, nil
 }
 
-// RetryJob retries a failed or cancelled job
+// RetryJob retries a failed or canceled job
 func (s *asyncJobSystem) RetryJob(ctx context.Context, jobID string, reason string) (*Job, error) {
 	return s.jobManager.RetryJob(ctx, jobID, reason)
 }

@@ -166,7 +166,7 @@ func (rg *RouteGenerator) Generate(instance models.ComponentInstance) (any, erro
 
 	// Debug log for route generation
 	if finalDocJSON, err := json.MarshalIndent(finalDoc, "", "  "); err == nil {
-		fmt.Printf("🎯 Route Generator - Final JSON:\\n%s\\n", string(finalDocJSON))
+		fmt.Printf("Route Generator - Final JSON:\\n%s\\n", string(finalDocJSON))
 	}
 
 	return finalDoc, nil

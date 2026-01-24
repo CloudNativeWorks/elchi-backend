@@ -33,7 +33,7 @@ const (
 	StatusIgnored  ErrorStatus = "ignored"  // User acknowledged but didn't fix
 )
 
-// Enhanced error entry with rich metadata
+// EnhancedErrorEntry represents an enhanced error entry with rich metadata
 type EnhancedErrorEntry struct {
 	ID               string        `bson:"_id" json:"id"`
 	Message          string        `bson:"message" json:"message"`
@@ -55,7 +55,7 @@ type EnhancedErrorEntry struct {
 	DocumentationURL string        `bson:"documentation_url,omitempty" json:"documentationUrl,omitempty"`
 }
 
-// Service-level error summary for dashboard
+// ServiceErrorSummary represents a service-level error summary for dashboard
 type ServiceErrorSummary struct {
 	ServiceName    string     `bson:"service_name" json:"serviceName"`
 	Project        string     `bson:"project" json:"project"`
@@ -67,7 +67,7 @@ type ServiceErrorSummary struct {
 	ActiveErrorIDs []string   `bson:"active_error_ids" json:"activeErrorIds"`
 }
 
-// Enhanced error handler with intelligent categorization
+// InsertEnhancedError inserts an enhanced error with intelligent categorization
 func InsertEnhancedError(ctx context.Context, dbClient *mongo.Database, nodeID, resourceType, errorMsg, nonce string, logger *logger.Logger) {
 	name, project, downstreamAddress := GetNodeIDParts(nodeID)
 	if downstreamAddress == "" {
@@ -133,7 +133,6 @@ func InsertEnhancedError(ctx context.Context, dbClient *mongo.Database, nodeID, 
 		if severity == SeverityCritical {
 			logger.Errorf("🚨 CRITICAL ERROR: Service %s - %s", name, userFriendlyMsg)
 		}
-
 	} else {
 		// Existing error - update occurrence count and timestamp
 		update := bson.M{
@@ -229,19 +228,17 @@ func (ea *ErrorAnalyzer) detectSeverityByKeywords(errorMsg string) ErrorSeverity
 	}
 
 	// Determine severity based on scores
-	if criticalScore >= 2 {
+	switch {
+	case criticalScore >= 2:
 		return SeverityCritical
-	} else if criticalScore > 0 || errorScore >= 2 {
+	case criticalScore > 0 || errorScore >= 2:
 		return SeverityError
-	} else if warningScore > 0 {
+	case warningScore > 0:
 		return SeverityWarning
+	default:
+		return SeverityError
 	}
-
-	return SeverityError // Default
 }
-
-// Removed complex message generation functions - keeping it simple
-// No need for detailed templates, fixes, or documentation URLs for every possible error
 
 // Generate unique error ID for deduplication
 func generateErrorID(nodeID, resourceType, errorMsg string) string {
@@ -268,7 +265,7 @@ func AutoResolveAllErrors(ctx context.Context, dbClient *mongo.Database, nodeID 
 		return
 	}
 
-	logger.Debugf("🔄 AUTO-RESOLVE: Optimistically resolving errors for node %s (name=%s, project=%s)", nodeID, name, project)
+	logger.Debugf("AUTO-RESOLVE: Optimistically resolving errors for node %s (name=%s, project=%s)", nodeID, name, project)
 
 	// Update all active errors to resolved status using pipeline update
 	collection := dbClient.Collection("envoys")
@@ -304,7 +301,7 @@ func AutoResolveAllErrors(ctx context.Context, dbClient *mongo.Database, nodeID 
 		},
 	}
 
-	logger.Debugf("🔄 AUTO-RESOLVE: Executing MongoDB update for name=%s, project=%s", name, project)
+	logger.Debugf("AUTO-RESOLVE: Executing MongoDB update for name=%s, project=%s", name, project)
 
 	result, err := collection.UpdateOne(ctx,
 		bson.M{
@@ -315,20 +312,20 @@ func AutoResolveAllErrors(ctx context.Context, dbClient *mongo.Database, nodeID 
 		pipeline,
 	)
 	if err != nil {
-		logger.Errorf("🔄 AUTO-RESOLVE ERROR: Failed to resolve errors for %s: %v", nodeID, err)
-		logger.Errorf("🔄 AUTO-RESOLVE ERROR DETAILS: name=%s, project=%s, collection=%s", name, project, collection.Name())
+		logger.Errorf("AUTO-RESOLVE ERROR: Failed to resolve errors for %s: %v", nodeID, err)
+		logger.Errorf("AUTO-RESOLVE ERROR DETAILS: name=%s, project=%s, collection=%s", name, project, collection.Name())
 		return
 	}
 
-	logger.Debugf("🔄 AUTO-RESOLVE: MongoDB update completed for %s, modified=%d", nodeID, result.ModifiedCount)
+	logger.Debugf("AUTO-RESOLVE: MongoDB update completed for %s, modified=%d", nodeID, result.ModifiedCount)
 
 	if result.ModifiedCount > 0 {
-		logger.Infof("🔄 AUTO-RESOLVE SUCCESS: Optimistically resolved errors for %s (modified: %d)", nodeID, result.ModifiedCount)
+		logger.Infof("AUTO-RESOLVE SUCCESS: Optimistically resolved errors for %s (modified: %d)", nodeID, result.ModifiedCount)
 
 		// Also update service error summary to clear counters
 		updateServiceErrorSummaryOnResolve(ctx, dbClient, name, project, logger)
 	} else {
-		logger.Debugf("🔄 AUTO-RESOLVE: No active errors found for %s", nodeID)
+		logger.Debugf("AUTO-RESOLVE: No active errors found for %s", nodeID)
 	}
 }
 

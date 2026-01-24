@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/audit"
@@ -34,7 +35,7 @@ func (h *Handler) updateSettingsActionIfNeeded(c *gin.Context) {
 	}
 
 	// Only process PUT requests (potential CREATE operations)
-	if c.Request.Method != "PUT" {
+	if c.Request.Method != http.MethodPut {
 		return
 	}
 
@@ -214,10 +215,7 @@ func (h *Handler) fetchResourceNameFromDB(ctx context.Context, resType settingsR
 	var result bson.M
 	err := db.Collection(resType.dbCollection).FindOne(ctx, query).Decode(&result)
 	if err != nil {
-		// Log error but don't fail audit - graceful degradation
-		if !errors.Is(err, mongo.ErrNoDocuments) {
-			// Could add logging here if logger is available
-		}
+		// Graceful degradation - return empty on any error (including ErrNoDocuments)
 		return ""
 	}
 
@@ -561,12 +559,13 @@ func maskEmail(email string) string {
 	domain := parts[1]
 
 	// Mask username part
-	maskedUsername := ""
-	if len(username) <= 1 {
+	var maskedUsername string
+	switch {
+	case len(username) <= 1:
 		maskedUsername = "*"
-	} else if len(username) <= 3 {
+	case len(username) <= 3:
 		maskedUsername = username[:1] + strings.Repeat("*", len(username)-1)
-	} else {
+	default:
 		maskedUsername = username[:1] + strings.Repeat("*", len(username)-2) + username[len(username)-1:]
 	}
 
@@ -577,11 +576,12 @@ func maskEmail(email string) string {
 		if i > 0 {
 			maskedDomain += "."
 		}
-		if len(part) <= 1 {
+		switch {
+		case len(part) <= 1:
 			maskedDomain += "*"
-		} else if len(part) <= 3 {
+		case len(part) <= 3:
 			maskedDomain += part[:1] + strings.Repeat("*", len(part)-1)
-		} else {
+		default:
 			maskedDomain += part[:1] + strings.Repeat("*", len(part)-2) + part[len(part)-1:]
 		}
 	}

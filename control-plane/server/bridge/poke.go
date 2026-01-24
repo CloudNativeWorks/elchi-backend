@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -31,7 +32,7 @@ func NewPokeService(ctxCache *snapshot.Context, appContext *db.AppContext) *Poke
 	}
 }
 
-// load snapshot from controller via grpc
+// Poke loads snapshot from controller via gRPC and updates the cache.
 func (pss *PokeServiceServer) Poke(ctx context.Context, req *bridge.PokeRequest) (*bridge.PokeResponse, error) {
 	rawListenerResource, err := resources.GetResourceNGeneral(ctx, pss.AppContext, "listeners", req.NodeID, req.Project, req.Version)
 	if err != nil {
@@ -54,43 +55,49 @@ func (pss *PokeServiceServer) Poke(ctx context.Context, req *bridge.PokeRequest)
 	if req.IsConfigUpdate {
 		// Calculate hash of current snapshot
 		newHash := allResources.CalculateContentHash()
-		pss.Logger.Debugf("🔍 HASH: Calculated new hash for %s: %s", nodeID, getHashPrefix(newHash))
+		pss.Logger.Debugf("HASH: Calculated new hash for %s: %s", nodeID, getHashPrefix(newHash))
 
 		// Get previous hash from MongoDB
 		oldHash, err := getLastSnapshotHash(ctx, pss.AppContext.Client, nodeID)
 		if err != nil {
-			pss.Logger.Warnf("⚠️ HASH: Failed to get last snapshot hash: %v", err)
+			pss.Logger.Warnf("HASH: Failed to get last snapshot hash: %v", err)
 			// Continue anyway, treat as config change
 			oldHash = ""
 		}
 
 		if oldHash == "" {
-			pss.Logger.Debugf("🔍 HASH: No previous hash found for %s (first config or new field)", nodeID)
+			pss.Logger.Debugf("HASH: No previous hash found for %s (first config or new field)", nodeID)
 		} else {
-			pss.Logger.Debugf("🔍 HASH: Previous hash for %s: %s", nodeID, getHashPrefix(oldHash))
+			pss.Logger.Debugf("HASH: Previous hash for %s: %s", nodeID, getHashPrefix(oldHash))
 		}
 
 		// Compare hashes to determine if config actually changed
 		if newHash != oldHash {
-			// Config actually changed - trigger auto-resolve
-			go envoys.AutoResolveAllErrors(context.Background(), pss.AppContext.Client, nodeID, pss.Logger)
-			pss.Logger.Infof("✅ AUTO-RESOLVE: Triggered - config changed for %s (hash: %s -> %s)",
+			// Config actually changed - trigger auto-resolve with timeout
+			go func() {
+				resolveCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				envoys.AutoResolveAllErrors(resolveCtx, pss.AppContext.Client, nodeID, pss.Logger)
+			}()
+			pss.Logger.Infof("AUTO-RESOLVE: Triggered - config changed for %s (hash: %s -> %s)",
 				nodeID, getHashPrefix(oldHash), getHashPrefix(newHash))
 
-			// Update stored hash
-			if err := updateSnapshotHash(context.Background(), pss.AppContext.Client, nodeID, newHash); err != nil {
-				pss.Logger.Warnf("⚠️ HASH: Failed to update snapshot hash: %v", err)
+			// Update stored hash with timeout
+			hashCtx, hashCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			if err := updateSnapshotHash(hashCtx, pss.AppContext.Client, nodeID, newHash); err != nil {
+				pss.Logger.Warnf("HASH: Failed to update snapshot hash: %v", err)
 			} else {
-				pss.Logger.Debugf("💾 HASH: Updated hash in MongoDB for %s", nodeID)
+				pss.Logger.Debugf("HASH: Updated hash in MongoDB for %s", nodeID)
 			}
+			hashCancel()
 		} else {
 			// Same config re-published - skip auto-resolve
-			pss.Logger.Infof("⏭️ AUTO-RESOLVE: Skipped - same config re-published for %s (hash: %s)",
+			pss.Logger.Infof("AUTO-RESOLVE: Skipped - same config re-published for %s (hash: %s)",
 				nodeID, getHashPrefix(newHash))
 		}
 	} else {
 		// Control-plane restart - skip auto-resolve
-		pss.Logger.Infof("🔄 AUTO-RESOLVE: Skipped - control-plane restart for NodeID: %s", nodeID)
+		pss.Logger.Infof("AUTO-RESOLVE: Skipped - control-plane restart for NodeID: %s", nodeID)
 	}
 
 	response := &bridge.PokeResponse{Message: "Poke successful"}
@@ -226,42 +233,48 @@ func (ps *PokeService) GetResourceSetSnapshot(ctx context.Context, node, project
 	if isConfigUpdate {
 		// Calculate hash of current snapshot
 		newHash := allResource.CalculateContentHash()
-		ps.Logger.Debugf("🔍 HASH: [Callback] Calculated new hash for %s: %s", nodeID, getHashPrefix(newHash))
+		ps.Logger.Debugf("HASH: [Callback] Calculated new hash for %s: %s", nodeID, getHashPrefix(newHash))
 
 		// Get previous hash from MongoDB
 		oldHash, err := getLastSnapshotHash(ctx, ps.appContext.Client, nodeID)
 		if err != nil {
-			ps.Logger.Warnf("⚠️ HASH: [Callback] Failed to get last snapshot hash: %v", err)
+			ps.Logger.Warnf("HASH: [Callback] Failed to get last snapshot hash: %v", err)
 			oldHash = ""
 		}
 
 		if oldHash == "" {
-			ps.Logger.Debugf("🔍 HASH: [Callback] No previous hash found for %s (first config or new field)", nodeID)
+			ps.Logger.Debugf("HASH: [Callback] No previous hash found for %s (first config or new field)", nodeID)
 		} else {
-			ps.Logger.Debugf("🔍 HASH: [Callback] Previous hash for %s: %s", nodeID, getHashPrefix(oldHash))
+			ps.Logger.Debugf("HASH: [Callback] Previous hash for %s: %s", nodeID, getHashPrefix(oldHash))
 		}
 
 		// Compare hashes to determine if config actually changed
 		if newHash != oldHash {
-			// Config actually changed - trigger auto-resolve
-			go envoys.AutoResolveAllErrors(context.Background(), ps.appContext.Client, nodeID, ps.Logger)
-			ps.Logger.Infof("✅ AUTO-RESOLVE: [Callback] Triggered - config changed for %s (hash: %s -> %s)",
+			// Config actually changed - trigger auto-resolve with timeout
+			go func() {
+				resolveCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				envoys.AutoResolveAllErrors(resolveCtx, ps.appContext.Client, nodeID, ps.Logger)
+			}()
+			ps.Logger.Infof("AUTO-RESOLVE: [Callback] Triggered - config changed for %s (hash: %s -> %s)",
 				nodeID, getHashPrefix(oldHash), getHashPrefix(newHash))
 
-			// Update stored hash
-			if err := updateSnapshotHash(context.Background(), ps.appContext.Client, nodeID, newHash); err != nil {
-				ps.Logger.Warnf("⚠️ HASH: [Callback] Failed to update snapshot hash: %v", err)
+			// Update stored hash with timeout
+			hashCtx, hashCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			if err := updateSnapshotHash(hashCtx, ps.appContext.Client, nodeID, newHash); err != nil {
+				ps.Logger.Warnf("HASH: [Callback] Failed to update snapshot hash: %v", err)
 			} else {
-				ps.Logger.Debugf("💾 HASH: [Callback] Updated hash in MongoDB for %s", nodeID)
+				ps.Logger.Debugf("HASH: [Callback] Updated hash in MongoDB for %s", nodeID)
 			}
+			hashCancel()
 		} else {
 			// Same config - skip auto-resolve
-			ps.Logger.Infof("⏭️ AUTO-RESOLVE: [Callback] Skipped - same config for %s (hash: %s)",
+			ps.Logger.Infof("AUTO-RESOLVE: [Callback] Skipped - same config for %s (hash: %s)",
 				nodeID, getHashPrefix(newHash))
 		}
 	} else {
 		// Control-plane restart scenario (isConfigUpdate=false from callback)
-		ps.Logger.Infof("🔄 AUTO-RESOLVE: [Callback] Skipped - control-plane restart for NodeID: %s", nodeID)
+		ps.Logger.Infof("AUTO-RESOLVE: [Callback] Skipped - control-plane restart for NodeID: %s", nodeID)
 	}
 
 	return nil

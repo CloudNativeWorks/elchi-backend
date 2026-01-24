@@ -6,7 +6,6 @@ linters:
   enable:
     - errcheck
     - gosec
-    - contextcheck
     - sqlclosecheck
     - govet
     - unused
@@ -14,27 +13,27 @@ linters:
     - unparam
     - errorlint
     - gocritic
-    #- revive
     - makezero
-
-    # - gofumpt
-    # - goimports
-    # - misspell
-    # - testifylint
-    # - unconvert
-    # - whitespace
-    # - goconst
-    # - prealloc
-    # - nakedret
-    # - perfsprint
-    # - funlen
-    # - containedctx
-    # - forcetypeassert
-    # - inamedparam
-    # - usestdlibvars
-    # - nestif
-    # - err113
-    # - cyclop
+    - unconvert
+    - whitespace
+    - nakedret
+    - inamedparam
+    - usestdlibvars
+    #- revive
+    #- contextcheck
+    #- gofumpt
+    #- goimports
+    #- misspell
+    #- testifylint
+    #- goconst
+    #- prealloc
+    #- perfsprint
+    #- forcetypeassert
+    #- funlen
+    #- containedctx
+    #- nestif
+    #- err113
+    #- cyclop
 
 linters-settings:
   exhaustive:

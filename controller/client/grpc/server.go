@@ -1,3 +1,5 @@
+// Package grpc provides the gRPC server implementation for client connections
+// including connection management and request handling.
 package grpc
 
 import (
@@ -104,7 +106,7 @@ func (s *Server) Ping(ctx context.Context, req *pb.PingRequest) (*pb.PingRespons
 				s.clientService.NotifyRegistryClientConnect(req.ClientId)
 			}
 
-			s.logger.Infof("✅ Client %s recovered from DB and added to memory", req.ClientId)
+			s.logger.Infof("Client %s recovered from DB and added to memory", req.ClientId)
 			client = dbClient
 		} else {
 			// Truly unregistered
@@ -129,7 +131,7 @@ func (s *Server) Ping(ctx context.Context, req *pb.PingRequest) (*pb.PingRespons
 			"client_id":     req.ClientId,
 			"was_connected": wasConnected,
 			"source":        "ping_handler",
-		}).Infof("🟢 Client %s marked as connected after ping (was_connected: %v)", req.ClientId, wasConnected)
+		}).Infof("Client %s marked as connected after ping (was_connected: %v)", req.ClientId, wasConnected)
 	}
 
 	// Also update in database asynchronously
@@ -175,7 +177,7 @@ func (s *Server) Ping(ctx context.Context, req *pb.PingRequest) (*pb.PingRespons
 				"matched_count":  result.MatchedCount,
 				"modified_count": result.ModifiedCount,
 				"source":         "ping_handler_db",
-			}).Debugf("✅ Client %s connection status updated in DB via ping", clientID)
+			}).Debugf("Client %s connection status updated in DB via ping", clientID)
 		}
 	}(req.ClientId, client.LastSeen, wasConnected)
 
@@ -240,11 +242,11 @@ func (s *Server) CommandStream(stream pb.CommandService_CommandStreamServer) err
 		select {
 		case <-stream.Context().Done():
 			s.clientService.DisconnectClient(clientID)
-			s.logger.Infof("Client stream context cancelled (Client ID: %s): %v", clientID, stream.Context().Err())
+			s.logger.Infof("Client stream context canceled (Client ID: %s): %v", clientID, stream.Context().Err())
 			return stream.Context().Err()
 		case <-client.Context.Done():
 			s.clientService.DisconnectClient(clientID)
-			s.logger.Infof("Client context cancelled (Client ID: %s): %v", clientID, client.Context.Err())
+			s.logger.Infof("Client context canceled (Client ID: %s): %v", clientID, client.Context.Err())
 			return client.Context.Err()
 		default:
 			// Removed keepalive ticker - client sends pings via separate connection

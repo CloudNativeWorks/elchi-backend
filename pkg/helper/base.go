@@ -1,3 +1,5 @@
+// Package helper provides utility functions used across the application
+// including common operations, discovery utilities, and debugging tools.
 package helper
 
 import (

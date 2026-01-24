@@ -18,6 +18,9 @@ import (
 	brotli_compressor "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/compression/brotli/compressor/v3"
 	gzip_compressor "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/compression/gzip/compressor/v3"
 	zstd_compressor "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/compression/zstd/compressor/v3"
+	dns_resolver_apple "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/network/dns_resolver/apple/v3"
+	dns_resolver_cares "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/network/dns_resolver/cares/v3"
+	dns_resolver_getaddrinfo "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/network/dns_resolver/getaddrinfo/v3"
 	adaptive_concurrency "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/http/adaptive_concurrency/v3"
 	admission_control "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/http/admission_control/v3"
 	bandwidth_limit "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/http/bandwidth_limit/v3"
@@ -163,6 +166,7 @@ var URLs = map[string]string{
 	"cluster_dynamic_forward_proxy": "/extensions/cluster_dynamic_forward_proxy/",
 	"udp_proxy":                     "/filters/udp/l_udp_proxy/",
 	"dynamic_forward_proxy":         "/filters/http/dynamic_forward_proxy/",
+	"dns_resolver":                  "/extensions/dns_resolver/",
 }
 
 var gTypeMappings = map[GType]GTypeMapping{
@@ -1346,6 +1350,45 @@ var gTypeMappings = map[GType]GTypeMapping{
 		Message:                       &http_dynamic_forward_proxy.PerRouteConfig{},
 		DownstreamFiltersFunc:         downstreamfilters.ConfigDiscoveryHTTPFilterDownstreamFilters,
 		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(DynamicForwardProxyPerRoute.String()),
+		TypedConfigPaths:              nil,
+		UpstreamPaths:                 nil,
+	},
+	AppleDNSResolver: {
+		PrettyName:                    "Apple DNS Resolver",
+		Collection:                    "extensions",
+		Type:                          "dns_resolver",
+		CanonicalName:                 "envoy.network.dns_resolver.apple",
+		Category:                      "envoy.network.dns_resolver",
+		URL:                           URLs["dns_resolver"],
+		Message:                       &dns_resolver_apple.AppleDnsResolverConfig{},
+		DownstreamFiltersFunc:         downstreamfilters.DNSResolverDownstreamFilters,
+		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(AppleDNSResolver.String()),
+		TypedConfigPaths:              nil,
+		UpstreamPaths:                 nil,
+	},
+	CaresDNSResolver: {
+		PrettyName:                    "C-Ares DNS Resolver",
+		Collection:                    "extensions",
+		Type:                          "dns_resolver",
+		CanonicalName:                 "envoy.network.dns_resolver.cares",
+		Category:                      "envoy.network.dns_resolver",
+		URL:                           URLs["dns_resolver"],
+		Message:                       &dns_resolver_cares.CaresDnsResolverConfig{},
+		DownstreamFiltersFunc:         downstreamfilters.DNSResolverDownstreamFilters,
+		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(CaresDNSResolver.String()),
+		TypedConfigPaths:              nil,
+		UpstreamPaths:                 nil,
+	},
+	GetAddrInfoDNSResolver: {
+		PrettyName:                    "GetAddrInfo DNS Resolver",
+		Collection:                    "extensions",
+		Type:                          "dns_resolver",
+		CanonicalName:                 "envoy.network.dns_resolver.getaddrinfo",
+		Category:                      "envoy.network.dns_resolver",
+		URL:                           URLs["dns_resolver"],
+		Message:                       &dns_resolver_getaddrinfo.GetAddrInfoDnsResolverConfig{},
+		DownstreamFiltersFunc:         downstreamfilters.DNSResolverDownstreamFilters,
+		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(GetAddrInfoDNSResolver.String()),
 		TypedConfigPaths:              nil,
 		UpstreamPaths:                 nil,
 	},

@@ -1,3 +1,5 @@
+// Package responser provides response handlers for client command operations,
+// transforming and validating responses from connected clients.
 package responser
 
 import (

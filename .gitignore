@@ -68,3 +68,5 @@ goroutine.prof
 block.prof
 mutex.prof
 trace.out
+GSLB_API.md
+GSLB_API.md

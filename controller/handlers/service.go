@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 
+	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 	"github.com/gin-gonic/gin"
 )
 
@@ -55,4 +56,38 @@ func (h *Handler) GetService(c *gin.Context) {
 
 func (h *Handler) GetEnvoyDetails(c *gin.Context) {
 	h.handleOpRequest(c, h.Service.GetEnvoyDetails)
+}
+
+// RecreateGSLB handles POST /api/op/services/:service_id/recreate-gslb
+// This endpoint recreates GSLB record and IP health records for disaster recovery
+// When GSLB records are lost after backup restore, this endpoint can recreate them
+// Note: Probe configuration will NOT be restored - user must configure probes manually
+func (h *Handler) RecreateGSLB(c *gin.Context) {
+	ctx := c.Request.Context()
+	requestDetails, userDetails := h.getRequestDetails(c)
+
+	// Check role - only Admin/Owner can recreate GSLB records
+	if !userDetails.IsOwner && userDetails.Role != models.RoleAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"message": "Only Admin or Owner can recreate GSLB records"})
+		return
+	}
+
+	serviceID := c.Param("service_id")
+	if serviceID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "service_id is required"})
+		return
+	}
+
+	if requestDetails.Project == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "project query parameter is required"})
+		return
+	}
+
+	response, err := h.Service.RecreateGSLB(ctx, serviceID, requestDetails)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, response)
 }

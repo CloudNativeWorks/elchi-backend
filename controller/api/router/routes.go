@@ -31,6 +31,7 @@ func initServiceRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		{"GET", "/from_client", h.GetService},
 		{"GET", "/envoys/:service_id", h.GetEnvoyDetails},
 		{"GET", "/:service_id", h.GetService},
+		{"POST", "/:service_id/recreate-gslb", h.RecreateGSLB}, // Disaster recovery: recreate GSLB record from service
 	}
 
 	initRoutes(rg, routes)

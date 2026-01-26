@@ -121,6 +121,15 @@ var ClusterTypedConfigPaths = []TypedConfigPath{
 	},
 }
 
+// ProxyProtocolUpstreamTransportTypedConfigPaths - inner transport socket
+var ProxyProtocolUpstreamTransportTypedConfigPaths = []TypedConfigPath{
+	{
+		ArrayPaths:   []ArrayPath{},
+		PathTemplate: "transport_socket.typed_config",
+		Kind:         "transport_socket",
+	},
+}
+
 var RouteTypedConfigPaths = []TypedConfigPath{
 	{
 		ArrayPaths:       []ArrayPath{},

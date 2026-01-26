@@ -93,20 +93,13 @@ func (xds *AppHandler) DelResource(ctx context.Context, _ models.ResourceClass, 
 		xds.Logger.Infof("Managed listener delete allowed: no active clients found")
 	}
 
-	if err := deleteDocument(ctx, collection, filter); err != nil {
-		return nil, err
-	}
+	// IMPORTANT: Delete dependencies BEFORE main resource to prevent orphan records
+	// Order: GSLB/IPHealth (via Service cascade) → Service → AdminPort → Bootstrap → Listener
+	// If any step fails, we return error WITHOUT orphaning records
 
 	if resourceType == "listeners" {
-		// Always delete bootstrap
-		xds.Logger.Debugf("Attempting to delete bootstrap for listener: %s", requestDetails.Name)
-		if err := xds.delBootstrap(ctx, filter); err != nil {
-			xds.Logger.Errorf("Failed to delete bootstrap: %v", err)
-			return nil, err
-		}
-		xds.Logger.Infof("Successfully deleted bootstrap for listener: %s", requestDetails.Name)
-
-		// Only delete service and admin_port if listener was managed
+		// Step 1: Delete service and admin_port FIRST (only if managed)
+		// Service deletion cascades to GSLB record and IP health records
 		if isManaged {
 			xds.Logger.Debugf("Attempting to delete service for managed listener: %s", requestDetails.Name)
 			if err := xds.delService(ctx, requestDetails); err != nil {
@@ -122,6 +115,21 @@ func (xds *AppHandler) DelResource(ctx context.Context, _ models.ResourceClass, 
 			}
 			xds.Logger.Infof("Successfully deleted admin_port for listener: %s", requestDetails.Name)
 		}
+
+		// Step 2: Delete bootstrap
+		xds.Logger.Debugf("Attempting to delete bootstrap for listener: %s", requestDetails.Name)
+		if err := xds.delBootstrap(ctx, filter); err != nil {
+			xds.Logger.Errorf("Failed to delete bootstrap: %v", err)
+			return nil, err
+		}
+		xds.Logger.Infof("Successfully deleted bootstrap for listener: %s", requestDetails.Name)
+	}
+
+	// Step 3: Delete the listener itself (last step)
+	// By doing this last, if any earlier step fails, listener still exists
+	// and user can retry the delete operation
+	if err := deleteDocument(ctx, collection, filter); err != nil {
+		return nil, err
 	}
 
 	return gin.H{"message": "Success"}, nil

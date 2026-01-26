@@ -18,9 +18,6 @@ import (
 	brotli_compressor "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/compression/brotli/compressor/v3"
 	gzip_compressor "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/compression/gzip/compressor/v3"
 	zstd_compressor "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/compression/zstd/compressor/v3"
-	dns_resolver_apple "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/network/dns_resolver/apple/v3"
-	dns_resolver_cares "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/network/dns_resolver/cares/v3"
-	dns_resolver_getaddrinfo "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/network/dns_resolver/getaddrinfo/v3"
 	adaptive_concurrency "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/http/adaptive_concurrency/v3"
 	admission_control "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/http/admission_control/v3"
 	bandwidth_limit "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/filters/http/bandwidth_limit/v3"
@@ -69,6 +66,9 @@ import (
 	internal_redirect_allow_listed_routes "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/internal_redirect/allow_listed_routes/v3"
 	internal_redirect_previous_routes "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/internal_redirect/previous_routes/v3"
 	internal_redirect_safe_cross_scheme "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/internal_redirect/safe_cross_scheme/v3"
+	dns_resolver_apple "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/network/dns_resolver/apple/v3"
+	dns_resolver_cares "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/network/dns_resolver/cares/v3"
+	dns_resolver_getaddrinfo "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/network/dns_resolver/getaddrinfo/v3"
 	utm "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/path/match/uri_template/v3"
 	uri_template_rewrite "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/path/rewrite/uri_template/v3"
 	rm_cgroup_memory "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/resource_monitors/cgroup_memory/v3"
@@ -76,7 +76,9 @@ import (
 	rm_downstream_conn "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/resource_monitors/downstream_connections/v3"
 	rm_fixed_heap "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/resource_monitors/fixed_heap/v3"
 	stat_sink_otel "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/stat_sinks/open_telemetry/v3"
+	ts_proxy_protocol "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/transport_sockets/proxy_protocol/v3"
 	quic "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/transport_sockets/quic/v3"
+	raw_buffer "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/transport_sockets/raw_buffer/v3"
 	tls "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	http_protocol_options "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/extensions/upstreams/http/v3"
 )
@@ -157,7 +159,7 @@ var URLs = map[string]string{
 	"internal_redirect":             "/extensions/internal_redirect/",
 	"resource_monitors":             "/extensions/resource_monitors/",
 	"oauth2":                        "/filters/http/oauth2/",
-	"tls":                           "/resource/tls/",
+	"transport-socket":              "/resource/transport-socket/",
 	"stat_sinks":                    "/extensions/stat_sinks/",
 	"h_wasm":                        "/filters/http/http_wasm/",
 	"ext_authz":                     "/filters/http/http_ext_authz/",
@@ -410,7 +412,7 @@ var gTypeMappings = map[GType]GTypeMapping{
 		Type:                          "tls",
 		CanonicalName:                 "envoy.transport_sockets.downstream",
 		Category:                      "envoy.transport_sockets.tls",
-		URL:                           URLs["tls"],
+		URL:                           URLs["transport-socket"],
 		Message:                       &tls.DownstreamTlsContext{},
 		DownstreamFiltersFunc:         downstreamfilters.DownstreamTypedFilters,
 		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(DownstreamTLSContext.String()),
@@ -423,20 +425,59 @@ var gTypeMappings = map[GType]GTypeMapping{
 		Type:                          "tls",
 		CanonicalName:                 "envoy.transport_sockets.quic.downstream",
 		Category:                      "envoy.transport_sockets.quic",
-		URL:                           URLs["tls"],
+		URL:                           URLs["transport-socket"],
 		Message:                       &quic.QuicDownstreamTransport{},
 		DownstreamFiltersFunc:         downstreamfilters.DownstreamTypedFilters,
 		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(QuicDownstreamTransport.String()),
 		TypedConfigPaths:              nil,
 		UpstreamPaths:                 QuicDownstreamTransportUpstreams,
 	},
+	QuicUpstreamTransport: {
+		PrettyName:                    "QUIC Upstream Transport",
+		Collection:                    "tls",
+		Type:                          "tls",
+		CanonicalName:                 "envoy.transport_sockets.quic.upstream",
+		Category:                      "envoy.transport_sockets.quic",
+		URL:                           URLs["transport-socket"],
+		Message:                       &quic.QuicUpstreamTransport{},
+		DownstreamFiltersFunc:         downstreamfilters.UpstreamTLSDownstreamFilters,
+		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(QuicUpstreamTransport.String()),
+		TypedConfigPaths:              nil,
+		UpstreamPaths:                 QuicUpstreamTransportUpstreams,
+	},
+	ProxyProtocolUpstreamTransport: {
+		PrettyName:                    "Proxy Protocol Upstream Transport",
+		Collection:                    "tls",
+		Type:                          "tls",
+		CanonicalName:                 "envoy.transport_sockets.upstream_proxy_protocol",
+		Category:                      "envoy.transport_sockets.proxy_protocol",
+		URL:                           URLs["transport-socket"],
+		Message:                       &ts_proxy_protocol.ProxyProtocolUpstreamTransport{},
+		DownstreamFiltersFunc:         downstreamfilters.UpstreamTLSDownstreamFilters,
+		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(ProxyProtocolUpstreamTransport.String()),
+		TypedConfigPaths:              ProxyProtocolUpstreamTransportTypedConfigPaths,
+		UpstreamPaths:                 nil, // Inner transport socket resolved via TypedConfigPaths
+	},
+	RawBufferTransport: {
+		PrettyName:                    "Raw Buffer Transport",
+		Collection:                    "tls",
+		Type:                          "tls",
+		CanonicalName:                 "envoy.transport_sockets.raw_buffer",
+		Category:                      "envoy.transport_sockets.raw_buffer",
+		URL:                           URLs["transport-socket"],
+		Message:                       &raw_buffer.RawBuffer{},
+		DownstreamFiltersFunc:         downstreamfilters.TransportSocketDownstreamFilters,
+		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(RawBufferTransport.String()),
+		TypedConfigPaths:              nil,
+		UpstreamPaths:                 nil,
+	},
 	UpstreamTLSContext: {
 		PrettyName:                    "Upstream TLS",
 		Collection:                    "tls",
-		Type:                          "secret",
+		Type:                          "tls",
 		CanonicalName:                 "envoy.transport_sockets.upstream",
 		Category:                      "envoy.transport_sockets.tls",
-		URL:                           URLs["tls"],
+		URL:                           URLs["transport-socket"],
 		Message:                       &tls.UpstreamTlsContext{},
 		DownstreamFiltersFunc:         downstreamfilters.UpstreamTLSDownstreamFilters,
 		TemplateDownstreamFiltersFunc: createTemplateFilterFunc(UpstreamTLSContext.String()),

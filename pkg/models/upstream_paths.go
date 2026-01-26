@@ -102,6 +102,11 @@ var QuicDownstreamTransportUpstreams = map[string]GType{
 	"downstream_tls_context.common_tls_context.validation_context_sds_secret_config.name": CertificateValidationContext,
 }
 
+var QuicUpstreamTransportUpstreams = map[string]GType{
+	"upstream_tls_context.common_tls_context.tls_certificate_sds_secret_configs.#.name": TLSCertificate,
+	"upstream_tls_context.common_tls_context.validation_context_sds_secret_config.name": CertificateValidationContext,
+}
+
 var RedisProxyUpstreams = map[string]GType{
 	"prefix_routes.routes.#.cluster":                                Cluster,
 	"prefix_routes.routes.#.request_mirror_policy.#.cluster":        Cluster,

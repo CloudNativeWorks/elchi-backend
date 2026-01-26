@@ -27,6 +27,7 @@ type Dependency struct {
 		First     bool   `json:"first"`
 		Direction string `json:"direction"`
 		Version   string `json:"version"`
+		Count     int    `json:"count,omitempty"` // Number of times this resource is referenced (upstream only)
 	} `json:"data"`
 }
 
@@ -63,4 +64,5 @@ type Node struct {
 	ID         string       `json:"id"`
 	Direction  string       `json:"direction"`
 	Version    string       `json:"version"`
+	Count      int          `json:"count,omitempty"` // Number of times this resource is referenced
 }

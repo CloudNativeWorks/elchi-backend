@@ -38,7 +38,13 @@ func (h *AppHandler) processUpstream(ctx context.Context, activeResource Depend,
 	for _, up := range upstreams {
 		if up.ID != "" && up.Name != "" && up.Gtype != "" {
 			h.AddNodeAndEdge(node, up, true)
-			h.processUpstream(ctx, up, visited)
+			// Increment count for already visited nodes (same resource referenced multiple times)
+			upKey := generateUniqueKey(up)
+			if visited[upKey] {
+				h.IncrementNodeCount(up.ID)
+			} else {
+				h.processUpstream(ctx, up, visited)
+			}
 		} else {
 			h.Logger.Infof("Upstream is missing required fields, not adding: %+v\n", up)
 		}

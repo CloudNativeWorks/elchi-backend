@@ -427,7 +427,7 @@ func (hc *HealthChecker) evaluateStatusChangeForRecord(result ProbeResult, recor
 	if stateChanged {
 		hc.handleNonCriticalStateTransition(ipHealth, result, oldState, newState, consecutiveFailures, consecutiveSuccesses)
 	} else if (newState == models.HealthStateWarning && !result.Success) || wasManualReset {
-		//CRITICAL FIX: Even if state didn't change, we need to update in these cases:
+		// CRITICAL FIX: Even if state didn't change, we need to update in these cases:
 		// 1. WARNING state with probe failure - triggers continuous re-probe
 		// 2. Manual reset - probe result must be recorded even if state unchanged
 		// 3. PASSING state with probe failure after manual reset - counter incremented

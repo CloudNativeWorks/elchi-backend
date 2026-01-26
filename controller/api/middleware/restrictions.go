@@ -100,6 +100,7 @@ var AllowedEndpoints = []string{
 	"/api/op/clients/:client_id/openstack/subnets/:subnet_id/available_ips",
 	"/api/op/services",
 	"/api/op/services/:service_id",
+	"/api/op/services/:service_id/recreate-gslb",
 	"/api/op/services/envoys/:service_id",
 	"/api/v3/ai/analyze",
 	"/api/v3/ai/analyze-logs",

@@ -193,6 +193,10 @@ func (m *CertificateManager) ListCertificates(ctx context.Context, project strin
 		"project": project, // PROJECT ISOLATION - MANDATORY
 	}
 
+	// DEBUG: Log user details for troubleshooting
+	m.logger.Debugf("[ListCertificates] User: %s, Role: %s, IsOwner: %v, Groups: %v, BaseGroup: %s, Project: %s",
+		user.UserID, user.Role, user.IsOwner, user.Groups, user.BaseGroup, project)
+
 	// Add permission filtering for non-Owner/Admin users
 	if !user.IsOwner && user.Role != models.RoleAdmin {
 		// Build complete group list (includes base_group)
@@ -206,6 +210,9 @@ func (m *CertificateManager) ListCertificates(ctx context.Context, project strin
 			{"permissions.groups": bson.M{"$in": allGroups}},
 			{"permissions.users": user.UserID},
 		}
+		m.logger.Debugf("[ListCertificates] Permission filter applied for non-admin user, filter: %+v", filter)
+	} else {
+		m.logger.Debugf("[ListCertificates] No permission filter - user is Owner/Admin, filter: %+v", filter)
 	}
 
 	// Query database
@@ -220,6 +227,8 @@ func (m *CertificateManager) ListCertificates(ctx context.Context, project strin
 	if err := cursor.All(ctx, &certs); err != nil {
 		return nil, fmt.Errorf("failed to decode certificates: %w", err)
 	}
+
+	m.logger.Debugf("[ListCertificates] Found %d certificates for project %s", len(certs), project)
 
 	return certs, nil
 }

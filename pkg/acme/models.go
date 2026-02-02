@@ -50,7 +50,8 @@ type ACMECertificate struct {
 	LastJobID string `json:"last_job_id,omitempty" bson:"last_job_id,omitempty"`
 
 	// Error Tracking
-	LastError *ErrorDetails `json:"last_error,omitempty" bson:"last_error,omitempty"`
+	LastError        *ErrorDetails `json:"last_error,omitempty" bson:"last_error,omitempty"`
+	LastRenewalError string        `json:"last_renewal_error,omitempty" bson:"last_renewal_error,omitempty"`
 
 	// Permissions (matches secrets collection pattern)
 	Permissions Permissions `json:"permissions" bson:"permissions"`

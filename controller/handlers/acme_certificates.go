@@ -42,6 +42,28 @@ func (h *ACMEHandler) SetParentHandler(parent *Handler) {
 	h.parentHandler = parent
 }
 
+// ========== Helper Functions ==========
+
+// sanitizeCertificatesForResponse removes external ACME URLs from certificate data
+// to prevent network filtering issues with firewalls/WAFs that block Let's Encrypt URLs
+func sanitizeCertificatesForResponse(certificates []*acme.ACMECertificate) []*acme.ACMECertificate {
+	for _, cert := range certificates {
+		// Clear ACME URLs that may trigger network filtering
+		cert.ACME.CertURL = ""
+		cert.ACME.OrderURL = ""
+	}
+	return certificates
+}
+
+// sanitizeCertificateForResponse removes external ACME URLs from a single certificate
+func sanitizeCertificateForResponse(cert *acme.ACMECertificate) *acme.ACMECertificate {
+	if cert != nil {
+		cert.ACME.CertURL = ""
+		cert.ACME.OrderURL = ""
+	}
+	return cert
+}
+
 // ========== Request/Response Structures ==========
 
 // CreateDNSCredentialRequest represents the request body for creating a DNS credential
@@ -376,9 +398,12 @@ func (h *ACMEHandler) ListCertificates(c *gin.Context) {
 		}
 	}
 
+	// Sanitize certificates to remove ACME URLs that trigger network filtering
+	sanitizedCerts := sanitizeCertificatesForResponse(certificates)
+
 	response := gin.H{
 		"message": "Certificates retrieved successfully",
-		"data":    certificates,
+		"data":    sanitizedCerts,
 	}
 
 	// Add warning if there are orphaned certificates
@@ -442,9 +467,12 @@ func (h *ACMEHandler) GetCertificate(c *gin.Context) {
 		}
 	}
 
+	// Sanitize certificate to remove ACME URLs that trigger network filtering
+	sanitizedCert := sanitizeCertificateForResponse(certificate)
+
 	response := gin.H{
 		"message": "Certificate retrieved successfully",
-		"data":    certificate,
+		"data":    sanitizedCert,
 	}
 
 	if warning != "" {

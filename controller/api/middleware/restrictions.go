@@ -181,6 +181,8 @@ var AllowedEndpoints = []string{
 	"/api/v3/gslb/:id/ips",                // GSLB record IP management (POST, DELETE)
 	"/api/v3/gslb/:id/ips/:ip",            // GSLB record IP detail (GET, DELETE)
 	"/api/v3/gslb/ip/:id/history",         // Clear IP status history (DELETE) - Admin/Owner only
+	"/api/v3/gslb/nodes",                  // GSLB node tracking list (GET)
+	"/api/v3/gslb/nodes/:id",              // GSLB node delete (DELETE) - Admin/Owner only
 	// DNS API endpoints (CoreDNS plugin authentication via DNS secret)
 	"/dns/snapshot", // DNS snapshot for CoreDNS plugin
 	"/dns/changes",  // Incremental DNS changes (if implemented)

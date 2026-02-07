@@ -74,6 +74,8 @@ var Indices = map[string]mongo.IndexModel{
 	"gslb_shards": {Keys: bson.D{{Key: "shard_id", Value: 1}}, Options: options.Index().SetUnique(true).SetName("shard_id_1")},
 	// GSLB IP health collection - IP health state tracking separate from records
 	"gslb_ip_health": {Keys: bson.D{{Key: "record_id", Value: 1}, {Key: "ip", Value: 1}}, Options: options.Index().SetUnique(true).SetName("record_id_ip_1")},
+	// GSLB nodes collection - Tracks elchi-gslb instances that fetch DNS records
+	"gslb_nodes": {Keys: bson.D{{Key: "node_ip", Value: 1}, {Key: "zone", Value: 1}}, Options: options.Index().SetUnique(true).SetName("node_ip_zone_1")},
 }
 
 // TextSearchIndices defines text search indexes for secure search functionality

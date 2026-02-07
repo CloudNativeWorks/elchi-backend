@@ -208,6 +208,17 @@ func parseIntSafe(s string) int {
 	return result
 }
 
+// GSLBNode tracks elchi-gslb instances that fetch DNS records
+type GSLBNode struct {
+	ID              primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	NodeIP          string             `bson:"node_ip" json:"node_ip"`
+	Zone            string             `bson:"zone" json:"zone"`
+	FirstSeen       time.Time          `bson:"first_seen" json:"first_seen"`
+	LastSeen        time.Time          `bson:"last_seen" json:"last_seen"`
+	RequestCount    int64              `bson:"request_count" json:"request_count"`
+	LastVersionHash string             `bson:"last_version_hash" json:"last_version_hash"`
+}
+
 // GSLBShard represents ownership of a shard by a controller
 type GSLBShard struct {
 	ShardID       int       `bson:"shard_id" json:"shard_id"`

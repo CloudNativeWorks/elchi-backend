@@ -1535,3 +1535,95 @@ func calculateShardID(fqdn string) int {
 	_, _ = hash.Write([]byte(fqdn)) // hash.Write never returns an error, but satisfying gosec
 	return int(hash.Sum32() % uint32(models.GSLBNumShards))
 }
+
+// ListGSLBNodes returns all tracked GSLB node instances
+// GET /api/v3/gslb/nodes?zone=X (optional zone filter)
+func (h *GSLBHandler) ListGSLBNodes(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	// Only Admin/Owner can view GSLB nodes
+	user, err := GetUserDetails(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+	if !user.IsOwner && user.Role != models.RoleAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin or Owner access required"})
+		return
+	}
+
+	filter := bson.M{}
+	if zone := c.Query("zone"); zone != "" {
+		filter["zone"] = zone
+	}
+
+	collection := h.db.Collection("gslb_nodes")
+	cursor, err := collection.Find(ctx, filter)
+	if err != nil {
+		h.logger.Errorf("Failed to list GSLB nodes: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list GSLB nodes"})
+		return
+	}
+	defer cursor.Close(ctx)
+
+	var nodes []models.GSLBNode
+	if err := cursor.All(ctx, &nodes); err != nil {
+		h.logger.Errorf("Failed to decode GSLB nodes: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode GSLB nodes"})
+		return
+	}
+
+	if nodes == nil {
+		nodes = []models.GSLBNode{}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "GSLB nodes retrieved successfully",
+		"data":    nodes,
+		"total":   len(nodes),
+	})
+}
+
+// DeleteGSLBNode removes a tracked GSLB node entry
+// DELETE /api/v3/gslb/nodes/:id
+func (h *GSLBHandler) DeleteGSLBNode(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	// Only Admin/Owner can delete GSLB nodes
+	user, err := GetUserDetails(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+	if !user.IsOwner && user.Role != models.RoleAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin or Owner access required"})
+		return
+	}
+
+	id, err := primitive.ObjectIDFromHex(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid node ID"})
+		return
+	}
+
+	collection := h.db.Collection("gslb_nodes")
+	result, err := collection.DeleteOne(ctx, bson.M{"_id": id})
+	if err != nil {
+		h.logger.Errorf("Failed to delete GSLB node: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete GSLB node"})
+		return
+	}
+
+	if result.DeletedCount == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "GSLB node not found"})
+		return
+	}
+
+	h.logger.Infof("User %s deleted GSLB node: %s", user.UserName, id.Hex())
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "GSLB node deleted successfully",
+	})
+}

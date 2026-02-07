@@ -587,6 +587,10 @@ func initGSLBRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		{"PUT", "/:id/ips/:ip", h.GSLB.UpdateIPHealthState},   // PUT /api/v3/gslb/:id/ips/:ip (Admin/Owner only) - Manual health state control
 		{"DELETE", "/:id/ips/:ip", h.GSLB.RemoveIPFromRecord}, // DELETE /api/v3/gslb/:id/ips/:ip (Admin/Owner only)
 		{"DELETE", "/ip/:id/history", h.GSLB.ClearIPHistory},  // DELETE /api/v3/gslb/ip/:id/history (Admin/Owner only) - Clear status history for specific IP health document
+
+		// GSLB Node Tracking (elchi-gslb instances)
+		{"GET", "/nodes", h.GSLB.ListGSLBNodes},        // GET /api/v3/gslb/nodes?zone=X - List tracked GSLB nodes
+		{"DELETE", "/nodes/:id", h.GSLB.DeleteGSLBNode}, // DELETE /api/v3/gslb/nodes/:id - Remove stale node entry
 	}
 
 	initRoutes(rg, routes)

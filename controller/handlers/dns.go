@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"net"
 	"net/http"
 	"sort"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 // DNSHandler handles DNS snapshot and changes API
@@ -61,13 +63,21 @@ type aggregatedRecord struct {
 
 // GetDNSSnapshot returns complete DNS snapshot for a zone
 // Authentication: X-Elchi-Secret header must match GSLBConfig.DNSSecret
-// GET /api/v3/dns/snapshot?zone=X
+// GET /api/v3/dns/snapshot?zone=X&node_ip=Y
 func (h *DNSHandler) GetDNSSnapshot(c *gin.Context) {
 	zone := c.Query("zone")
+	nodeIP := c.Query("node_ip")
 
 	if zone == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "zone parameter is required",
+		})
+		return
+	}
+
+	if nodeIP == "" || net.ParseIP(nodeIP) == nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "valid node_ip parameter is required",
 		})
 		return
 	}
@@ -91,20 +101,31 @@ func (h *DNSHandler) GetDNSSnapshot(c *gin.Context) {
 		Records:     records,
 	}
 
+	// Track GSLB node
+	go h.trackGSLBNode(nodeIP, zone, versionHash)
+
 	c.JSON(http.StatusOK, snapshot)
 }
 
 // GetDNSChanges returns incremental DNS changes since a specific version
 // If "since" hash matches current version, returns HTTP 304 Not Modified
 // Authentication: DNSAuthMiddleware validates X-Elchi-Secret header
-// GET /dns/changes?zone=X&since=VERSION
+// GET /dns/changes?zone=X&since=VERSION&node_ip=Y
 func (h *DNSHandler) GetDNSChanges(c *gin.Context) {
 	zone := c.Query("zone")
 	since := c.Query("since")
+	nodeIP := c.Query("node_ip")
 
 	if zone == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "zone parameter is required",
+		})
+		return
+	}
+
+	if nodeIP == "" || net.ParseIP(nodeIP) == nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "valid node_ip parameter is required",
 		})
 		return
 	}
@@ -118,6 +139,10 @@ func (h *DNSHandler) GetDNSChanges(c *gin.Context) {
 			// Fall through to full snapshot on error
 		} else {
 			currentHash := h.calculateVersion(records)
+
+			// Track GSLB node regardless of 304 or 200
+			go h.trackGSLBNode(nodeIP, zone, currentHash)
+
 			if currentHash == since {
 				// No changes - return 304 Not Modified
 				h.logger.Debugf("Zone %s: No changes since %s, returning 304", zone, since[:min(16, len(since))])
@@ -260,6 +285,38 @@ func (h *DNSHandler) buildDNSRecords(zone string) ([]DNSRecord, error) {
 	})
 
 	return records, nil
+}
+
+// trackGSLBNode upserts the gslb_nodes collection to track which elchi-gslb instances are syncing
+func (h *DNSHandler) trackGSLBNode(nodeIP, zone, versionHash string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	collection := h.db.Collection("gslb_nodes")
+	now := time.Now()
+
+	filter := bson.M{
+		"node_ip": nodeIP,
+		"zone":    zone,
+	}
+
+	update := bson.M{
+		"$set": bson.M{
+			"last_seen":         now,
+			"last_version_hash": versionHash,
+		},
+		"$setOnInsert": bson.M{
+			"first_seen": now,
+		},
+		"$inc": bson.M{
+			"request_count": int64(1),
+		},
+	}
+
+	opts := options.Update().SetUpsert(true)
+	if _, err := collection.UpdateOne(ctx, filter, update, opts); err != nil {
+		h.logger.Errorf("Failed to track GSLB node %s for zone %s: %v", nodeIP, zone, err)
+	}
 }
 
 // calculateVersion calculates SHA256 hash of sorted DNS records

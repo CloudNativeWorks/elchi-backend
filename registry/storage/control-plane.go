@@ -171,8 +171,6 @@ func (s *InMemoryRoutingStorage) UpdateNodeList(ctx context.Context, controlPlan
 	}
 	controlPlane.LastSeen = time.Now()
 
-	// CRITICAL FIX: First, remove all existing mappings for this control-plane
-	// This ensures that disconnected nodes are properly cleaned up
 	keysToDelete := make([]string, 0)
 	for key, mapping := range s.nodeMappings {
 		if mapping.ControlPlaneID == controlPlaneID {

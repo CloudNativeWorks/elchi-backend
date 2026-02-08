@@ -94,7 +94,6 @@ func (cm *CounterManager) GetOrInitialize(
 
 	if isNewlyCreated {
 		if probe != nil {
-			// CRITICAL FIX: Always initialize counter based on current state
 			// For manual reset: Use state admin set (CRITICAL -> 3, WARNING -> 1, PASSING -> 0)
 			// For normal init: Infer from persisted state after controller restart
 			counter.ConsecutiveFailures = cm.inferFailureCount(currentState, probe)
@@ -110,7 +109,6 @@ func (cm *CounterManager) GetOrInitialize(
 	// Counter already exists - update access time for cleanup tracking
 	counter.LastAccessed = time.Now()
 
-	// CRITICAL FIX: If manual reset detected, set counter based on manual state
 	// This ensures counter matches what admin set via API
 	if isManualReset && probe != nil {
 		newFailureCount := cm.inferFailureCount(currentState, probe)
@@ -273,10 +271,11 @@ func (cm *CounterManager) cleanupStaleCounters() {
 			}
 		}
 	}
+	remaining := len(cm.counters) // Read under write lock to prevent data race
 	cm.mu.Unlock()
 
 	if removed > 0 {
-		cm.logger.Infof("Cleaned up %d stale counters (total remaining: %d)", removed, len(cm.counters)-removed)
+		cm.logger.Infof("Cleaned up %d stale counters (total remaining: %d)", removed, remaining)
 	}
 }
 

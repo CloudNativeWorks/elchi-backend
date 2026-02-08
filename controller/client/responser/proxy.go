@@ -89,7 +89,7 @@ func (p *ProxyResponser) ValidateAndTransform(op models.OperationClass, response
 	path, _ := op.GetCommandPath()
 	isYAML := path == "/logging" || path == "/envoy"
 
-	// CRITICAL FIX: Don't return pooled map directly - it gets reused and causes duplicate responses!
+	// Don't return pooled map directly - it gets reused and causes duplicate responses!
 	// Use pool for temporary processing, then create a new map for return value
 	tempMap := jsonPool.Get().(map[string]any)
 	defer func() {

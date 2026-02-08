@@ -96,7 +96,7 @@ func (eg *EndpointGenerator) Generate(instance models.ComponentInstance) (any, e
 		var portInt32 int32
 		switch p := port.(type) {
 		case int:
-			// G115 fix: Check for overflow when converting int to int32
+			// Check for overflow when converting int to int32
 			if p < math.MinInt32 || p > math.MaxInt32 {
 				return nil, fmt.Errorf("port value %d exceeds int32 range", p)
 			}
@@ -104,7 +104,7 @@ func (eg *EndpointGenerator) Generate(instance models.ComponentInstance) (any, e
 		case int32:
 			portInt32 = p
 		case int64:
-			// G115 fix: Check for overflow when converting int64 to int32
+			// Check for overflow when converting int64 to int32
 			if p < math.MinInt32 || p > math.MaxInt32 {
 				return nil, fmt.Errorf("port value %d exceeds int32 range", p)
 			}

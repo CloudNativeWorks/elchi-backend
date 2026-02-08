@@ -232,7 +232,7 @@ func (h *Client) processClientsInParallel(ctx context.Context, clients []models.
 			if collectedClientIDs[result.ClientID] {
 				h.logger.Warnf("DUPLICATE RESPONSE detected from client %s (index %d) - ignoring and incrementing counter to prevent timeout",
 					result.ClientID, result.Index)
-				// CRITICAL FIX: Increment collectedResults even for duplicates to prevent timeout
+				// Increment collectedResults even for duplicates to prevent timeout
 				// Otherwise the loop waits forever for len(clients) results
 				collectedResults++
 				continue // Ignore duplicate response
@@ -526,7 +526,7 @@ func (h *Client) HandleSendCommand(ctx context.Context, op models.OperationClass
 		return h.executeDirectCommand(ctx, op, requestDetails)
 	}
 
-	// P1-3 FIX: Check command authorization based on user role and command type
+	// Check command authorization based on user role and command type
 	commandType := op.GetType()
 	subType := op.GetSubType()
 

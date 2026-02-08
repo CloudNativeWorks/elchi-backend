@@ -17,6 +17,9 @@ import (
 // DNS zone validation regex
 var dnsZoneRegex = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*$`)
 
+// Region name validation regex (lowercase alphanumeric with hyphens, 1-50 chars)
+var regionNameRegex = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
+
 // GetGSLBConfig retrieves GSLB configuration for a project
 func (handler *AppHandler) GetGSLBConfig(c *gin.Context) {
 	project := c.Query("project")
@@ -213,8 +216,8 @@ func (handler *AppHandler) DeleteGSLBConfig(c *gin.Context) {
 	})
 }
 
-// GetGSLBFailoverZones retrieves failover zones from GSLB configuration
-func (handler *AppHandler) GetGSLBFailoverZones(c *gin.Context) {
+// GetGSLBOptions retrieves failover zones and regions from GSLB configuration
+func (handler *AppHandler) GetGSLBOptions(c *gin.Context) {
 	project := c.Query("project")
 	if project == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"message": "project parameter is required"})
@@ -226,6 +229,7 @@ func (handler *AppHandler) GetGSLBFailoverZones(c *gin.Context) {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			c.JSON(http.StatusOK, gin.H{
 				"failover_zones": []string{},
+				"regions":        []string{},
 				"project":        project,
 				"message":        "No GSLB configuration found for this project",
 			})
@@ -235,14 +239,19 @@ func (handler *AppHandler) GetGSLBFailoverZones(c *gin.Context) {
 		return
 	}
 
-	// Return failover zones array
 	failoverZones := gslbConfig.FailoverZones
 	if failoverZones == nil {
 		failoverZones = []string{}
 	}
 
+	regions := gslbConfig.Regions
+	if regions == nil {
+		regions = []string{}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"failover_zones": failoverZones,
+		"regions":        regions,
 		"project":        project,
 	})
 }
@@ -295,6 +304,26 @@ func validateGSLBConfig(config *models.GSLBConfig) error {
 	// Validate DefaultTTL range using global constants
 	if config.DefaultTTL > 0 && (config.DefaultTTL < models.MinTTL || config.DefaultTTL > models.MaxTTL) {
 		return fmt.Errorf("default_ttl must be between %d and %d seconds", models.MinTTL, models.MaxTTL)
+	}
+
+	// Validate regions if provided
+	if len(config.Regions) > 0 {
+		seen := make(map[string]bool, len(config.Regions))
+		for i, region := range config.Regions {
+			if region == "" {
+				return fmt.Errorf("regions[%d] cannot be empty", i)
+			}
+			if len(region) > 50 {
+				return fmt.Errorf("regions[%d] '%s' exceeds maximum length of 50 characters", i, region)
+			}
+			if !regionNameRegex.MatchString(region) {
+				return fmt.Errorf("regions[%d] '%s' is invalid: must be lowercase alphanumeric with hyphens (e.g., 'us-east', 'avrupa')", i, region)
+			}
+			if seen[region] {
+				return fmt.Errorf("duplicate region '%s' at index %d", region, i)
+			}
+			seen[region] = true
+		}
 	}
 
 	return nil

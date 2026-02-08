@@ -67,4 +67,5 @@ type GSLBConfig struct {
 	FailoverZones []string `bson:"failover_zones,omitempty" json:"failover_zones,omitempty"` // Optional failover zones array (e.g., ["asya-gslb.elchi", "us-gslb.elchi"]) - first one is default
 	DNSSecret     string   `bson:"dns_secret" json:"dns_secret"`                             // CoreDNS plugin authentication secret
 	DefaultTTL    uint32   `bson:"default_ttl" json:"default_ttl"`                           // Default TTL for auto-created records (e.g., 60 seconds)
+	Regions       []string `bson:"regions,omitempty" json:"regions,omitempty"`                // Predefined region names for geographic filtering (e.g., ["asya", "avrupa", "us-east"])
 }

@@ -63,7 +63,7 @@ type aggregatedRecord struct {
 
 // GetDNSSnapshot returns complete DNS snapshot for a zone
 // Authentication: X-Elchi-Secret header must match GSLBConfig.DNSSecret
-// GET /api/v3/dns/snapshot?zone=X&node_ip=Y
+// GET /api/v3/dns/snapshot?zone=X&node_ip=Y&regions=asia,europe
 func (h *DNSHandler) GetDNSSnapshot(c *gin.Context) {
 	zone := c.Query("zone")
 	nodeIP := c.Query("node_ip")
@@ -82,8 +82,11 @@ func (h *DNSHandler) GetDNSSnapshot(c *gin.Context) {
 		return
 	}
 
+	// Parse regions query parameter (comma-separated)
+	regions := parseRegionsParam(c.Query("regions"))
+
 	// Build DNS records from database
-	records, err := h.buildDNSRecords(zone)
+	records, err := h.buildDNSRecords(zone, regions)
 	if err != nil {
 		h.logger.Errorf("Failed to build DNS records: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -92,8 +95,8 @@ func (h *DNSHandler) GetDNSSnapshot(c *gin.Context) {
 		return
 	}
 
-	// Calculate version hash (SHA256 of sorted records)
-	versionHash := h.calculateVersion(records)
+	// Calculate version hash (SHA256 of sorted records + regions for uniqueness)
+	versionHash := h.calculateVersionWithRegions(records, regions)
 
 	snapshot := DNSSnapshot{
 		Zone:        zone,
@@ -130,15 +133,18 @@ func (h *DNSHandler) GetDNSChanges(c *gin.Context) {
 		return
 	}
 
+	// Parse regions query parameter (comma-separated)
+	regions := parseRegionsParam(c.Query("regions"))
+
 	// If "since" parameter is provided, check if data has changed
 	if since != "" {
 		// Build records and calculate current hash
-		records, err := h.buildDNSRecords(zone)
+		records, err := h.buildDNSRecords(zone, regions)
 		if err != nil {
 			h.logger.Errorf("Failed to build DNS records for 304 check: %v", err)
 			// Fall through to full snapshot on error
 		} else {
-			currentHash := h.calculateVersion(records)
+			currentHash := h.calculateVersionWithRegions(records, regions)
 
 			// Track GSLB node regardless of 304 or 200
 			go h.trackGSLBNode(nodeIP, zone, currentHash)
@@ -170,13 +176,37 @@ func (h *DNSHandler) GetDNSChanges(c *gin.Context) {
 }
 
 // buildDNSRecords queries MongoDB and builds sorted DNS records for a zone
-func (h *DNSHandler) buildDNSRecords(zone string) ([]DNSRecord, error) {
+// regions parameter filters IPs by geographic region (empty = all IPs, ["all"] = all IPs)
+func (h *DNSHandler) buildDNSRecords(zone string, regions []string) ([]DNSRecord, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	collection := h.db.Collection("gslb_records")
 	filter := bson.M{
 		"zone": zone,
+	}
+
+	// Build IP health match conditions for the $lookup sub-pipeline
+	// Base conditions: match record_id and exclude critical health state
+	ipMatchConditions := bson.A{
+		bson.D{{Key: "$eq", Value: bson.A{"$record_id", "$$record_id"}}},
+		bson.D{{Key: "$ne", Value: bson.A{"$health_state", "critical"}}},
+	}
+
+	// Add region filter if specific regions are requested (strict mode)
+	// IPs without regions are EXCLUDED from regional queries
+	if len(regions) > 0 {
+		ipMatchConditions = append(ipMatchConditions,
+			bson.D{{Key: "$gt", Value: bson.A{
+				bson.D{{Key: "$size", Value: bson.D{
+					{Key: "$setIntersection", Value: bson.A{
+						bson.D{{Key: "$ifNull", Value: bson.A{"$regions", bson.A{}}}},
+						regions,
+					}},
+				}}},
+				0,
+			}}},
+		)
 	}
 
 	// Use aggregation pipeline to join GSLB records with IP health in a single query
@@ -191,10 +221,7 @@ func (h *DNSHandler) buildDNSRecords(zone string) ([]DNSRecord, error) {
 			{Key: "pipeline", Value: bson.A{
 				bson.D{{Key: "$match", Value: bson.D{
 					{Key: "$expr", Value: bson.D{
-						{Key: "$and", Value: bson.A{
-							bson.D{{Key: "$eq", Value: bson.A{"$record_id", "$$record_id"}}},
-							bson.D{{Key: "$ne", Value: bson.A{"$health_state", "critical"}}},
-						}},
+						{Key: "$and", Value: ipMatchConditions},
 					}},
 				}}},
 				bson.D{{Key: "$project", Value: bson.D{
@@ -319,8 +346,32 @@ func (h *DNSHandler) trackGSLBNode(nodeIP, zone, versionHash string) {
 	}
 }
 
-// calculateVersion calculates SHA256 hash of sorted DNS records
-func (h *DNSHandler) calculateVersion(records []DNSRecord) string {
+// parseRegionsParam parses the comma-separated regions query parameter
+// Returns nil if empty or "all" (meaning: return all IPs without region filtering)
+func parseRegionsParam(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || strings.EqualFold(raw, "all") {
+		return nil
+	}
+
+	parts := strings.Split(raw, ",")
+	regions := make([]string, 0, len(parts))
+	for _, p := range parts {
+		trimmed := strings.TrimSpace(p)
+		if trimmed != "" {
+			regions = append(regions, trimmed)
+		}
+	}
+
+	if len(regions) == 0 {
+		return nil
+	}
+	return regions
+}
+
+// calculateVersionWithRegions calculates SHA256 hash of sorted DNS records
+// Includes regions in hash input so different region queries produce different version hashes
+func (h *DNSHandler) calculateVersionWithRegions(records []DNSRecord, regions []string) string {
 	// Serialize records to JSON
 	data, err := json.Marshal(records)
 	if err != nil {
@@ -328,7 +379,15 @@ func (h *DNSHandler) calculateVersion(records []DNSRecord) string {
 		return ""
 	}
 
+	// Include regions in hash to differentiate per-region snapshots
+	hashInput := data
+	if len(regions) > 0 {
+		sort.Strings(regions)
+		regionKey := "regions:" + strings.Join(regions, ",")
+		hashInput = append(hashInput, []byte(regionKey)...)
+	}
+
 	// Calculate SHA256
-	hash := sha256.Sum256(data)
+	hash := sha256.Sum256(hashInput)
 	return hex.EncodeToString(hash[:])
 }

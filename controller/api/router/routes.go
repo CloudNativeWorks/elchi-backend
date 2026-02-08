@@ -118,7 +118,7 @@ func initSettingRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		{"PUT", "/gslb", h.SetGSLBConfigWithAudit},
 		{"POST", "/gslb", h.UpdateGSLBConfigWithAudit},
 		{"DELETE", "/gslb", h.DeleteGSLBConfigWithAudit},
-		{"GET", "/gslb/failover-zones", h.Settings.GetGSLBFailoverZones},
+		{"GET", "/gslb/options", h.Settings.GetGSLBOptions},
 
 		// OTP configuration endpoints (Admin/Owner only)
 		{"GET", "/otp-config", h.Settings.GetOTPConfig()},
@@ -584,8 +584,9 @@ func initGSLBRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		// IP Management (NEW)
 		{"GET", "/:id/ips", h.GSLB.ListIPsForRecord},          // GET /api/v3/gslb/:id/ips - List all IPs for a GSLB record
 		{"POST", "/:id/ips", h.GSLB.AddIPToRecord},            // POST /api/v3/gslb/:id/ips (Admin/Owner only)
-		{"PUT", "/:id/ips/:ip", h.GSLB.UpdateIPHealthState},   // PUT /api/v3/gslb/:id/ips/:ip (Admin/Owner only) - Manual health state control
-		{"DELETE", "/:id/ips/:ip", h.GSLB.RemoveIPFromRecord}, // DELETE /api/v3/gslb/:id/ips/:ip (Admin/Owner only)
+		{"PUT", "/:id/ips/:ip", h.GSLB.UpdateIPHealthState},           // PUT /api/v3/gslb/:id/ips/:ip (Admin/Owner only) - Manual health state control
+		{"PUT", "/:id/ips/:ip/regions", h.GSLB.UpdateIPRegions},     // PUT /api/v3/gslb/:id/ips/:ip/regions (Admin/Owner only) - Assign regions to IP
+		{"DELETE", "/:id/ips/:ip", h.GSLB.RemoveIPFromRecord},       // DELETE /api/v3/gslb/:id/ips/:ip (Admin/Owner only)
 		{"DELETE", "/ip/:id/history", h.GSLB.ClearIPHistory},  // DELETE /api/v3/gslb/ip/:id/history (Admin/Owner only) - Clear status history for specific IP health document
 
 		// GSLB Node Tracking (elchi-gslb instances)

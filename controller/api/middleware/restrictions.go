@@ -174,12 +174,13 @@ var AllowedEndpoints = []string{
 	"/api/v3/acme/ca-providers/:provider/validate-eab",
 	// GSLB (Global Server Load Balancing) endpoints
 	"/api/v3/setting/gslb",                // GSLB configuration (GET, PUT, DELETE)
-	"/api/v3/setting/gslb/failover-zones", // GSLB failover zones list (GET)
+	"/api/v3/setting/gslb/options",        // GSLB options: failover zones + regions (GET)
 	"/api/v3/gslb",                        // GSLB records list (GET) and create (POST)
 	"/api/v3/gslb/batch",                  // GSLB bulk update (PATCH) - enable/disable multiple records
 	"/api/v3/gslb/:id",                    // GSLB record detail (GET, PUT, DELETE)
 	"/api/v3/gslb/:id/ips",                // GSLB record IP management (POST, DELETE)
 	"/api/v3/gslb/:id/ips/:ip",            // GSLB record IP detail (GET, DELETE)
+	"/api/v3/gslb/:id/ips/:ip/regions",    // GSLB IP region assignment (PUT) - Admin/Owner only
 	"/api/v3/gslb/ip/:id/history",         // Clear IP status history (DELETE) - Admin/Owner only
 	"/api/v3/gslb/nodes",                  // GSLB node tracking list (GET)
 	"/api/v3/gslb/nodes/:id",              // GSLB node delete (DELETE) - Admin/Owner only

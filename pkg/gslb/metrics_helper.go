@@ -17,8 +17,10 @@ func (hc *HealthChecker) startMetricsPusher() {
 		return
 	}
 
+	hc.wg.Add(1)
 	ticker := time.NewTicker(30 * time.Second)
 	go func() {
+		defer hc.wg.Done()
 		defer ticker.Stop()
 		hc.logger.Info("System metrics pusher started (30s interval)")
 
@@ -304,20 +306,14 @@ func (hc *HealthChecker) calculateAvgProbeLatency() float64 {
 
 // getMinProbeLatency returns minimum probe latency in seconds
 func (hc *HealthChecker) getMinProbeLatency() float64 {
-	hc.probeLatencyMu.Lock()
-	minMicros := hc.probeLatencyMin
-	hc.probeLatencyMu.Unlock()
-
+	minMicros := atomic.LoadInt64(&hc.probeLatencyMin)
 	// Convert microseconds to seconds
 	return float64(minMicros) / 1_000_000.0
 }
 
 // getMaxProbeLatency returns maximum probe latency in seconds
 func (hc *HealthChecker) getMaxProbeLatency() float64 {
-	hc.probeLatencyMu.Lock()
-	maxMicros := hc.probeLatencyMax
-	hc.probeLatencyMu.Unlock()
-
+	maxMicros := atomic.LoadInt64(&hc.probeLatencyMax)
 	// Convert microseconds to seconds
 	return float64(maxMicros) / 1_000_000.0
 }

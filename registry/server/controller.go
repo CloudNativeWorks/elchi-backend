@@ -175,11 +175,9 @@ func (s *ControllerGRPCServer) UpdateClientList(ctx context.Context, req *bridge
 
 	s.logger.Infof("Client list updated for controller %s: %d clients", req.ControllerId, len(clients))
 
-	// G115 fix: Safe conversion from int to int32 with overflow check
 	clientCount := len(clients)
 	var updatedCount int32
 	if clientCount > math.MaxInt32 {
-		// This is extremely unlikely (would need > 2 billion clients)
 		s.logger.Warnf("Client count %d exceeds int32 max, capping at MaxInt32", clientCount)
 		updatedCount = math.MaxInt32
 	} else {

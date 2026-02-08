@@ -98,7 +98,8 @@ func (sm *ShardManager) Start() {
 func (sm *ShardManager) Stop() {
 	sm.logger.Infof("Stopping shard manager...")
 	sm.cancel()
-	<-sm.done
+	<-sm.done // Wait for Start() goroutine to finish (no more writes to shardAcquired)
+	close(sm.shardAcquired) // Unblock listenForShardAcquisition's for-range loop
 	sm.logger.Infof("Shard manager stopped")
 }
 

@@ -1409,6 +1409,147 @@ func (h *GSLBHandler) UpdateIPHealthState(c *gin.Context) {
 	})
 }
 
+// UpdateIPRegions assigns regions to a specific IP in a GSLB record
+// PUT /api/v3/gslb/:id/ips/:ip/regions
+// Access: Admin/Owner only
+// Input: { "regions": ["eu-west-1", "us-east-1"] } - empty array clears all region assignments
+func (h *GSLBHandler) UpdateIPRegions(c *gin.Context) {
+	id := c.Param("id")
+	ipToUpdate := c.Param("ip")
+
+	// Get user details from context
+	user, err := GetUserDetails(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": "User not authenticated",
+		})
+		return
+	}
+
+	// Check if user is Admin or Owner
+	if !user.IsOwner && user.Role != models.RoleAdmin {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": "Only Admin and Owner can update IP regions",
+		})
+		return
+	}
+
+	objectID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid record ID",
+		})
+		return
+	}
+
+	var input struct {
+		Regions []string `json:"regions" binding:"required"` // Region names to assign (empty array to clear)
+	}
+
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": fmt.Sprintf("Invalid input: %v", err),
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Get GSLB record to find its project
+	collection := h.db.Collection("gslb_records")
+	var record models.GSLBRecord
+	if err := collection.FindOne(ctx, bson.M{"_id": objectID}).Decode(&record); err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": "GSLB record not found",
+			})
+			return
+		}
+		h.logger.Errorf("Failed to get GSLB record: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to get GSLB record",
+		})
+		return
+	}
+
+	// Validate regions against project's GSLB settings (only if assigning regions)
+	if len(input.Regions) > 0 {
+		var settings models.Settings
+		settingsCollection := h.db.Collection("settings")
+		if err := settingsCollection.FindOne(ctx, bson.M{"project": record.Project}).Decode(&settings); err != nil {
+			h.logger.Errorf("Failed to get settings: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to get project settings",
+			})
+			return
+		}
+
+		if settings.GSLBConfig == nil || len(settings.GSLBConfig.Regions) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "No regions defined in GSLB settings. Define regions first via GSLB configuration.",
+			})
+			return
+		}
+
+		// Build allowed regions set for fast lookup
+		allowedRegions := make(map[string]bool, len(settings.GSLBConfig.Regions))
+		for _, r := range settings.GSLBConfig.Regions {
+			allowedRegions[r] = true
+		}
+
+		// Validate each requested region exists in settings
+		for _, region := range input.Regions {
+			if !allowedRegions[region] {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error": fmt.Sprintf("Region '%s' is not defined in GSLB settings. Available regions: %v", region, settings.GSLBConfig.Regions),
+				})
+				return
+			}
+		}
+	}
+
+	// Update regions on the IP health document
+	ipHealthCollection := h.db.Collection("gslb_ip_health")
+
+	filter := bson.M{
+		"record_id": objectID,
+		"ip":        ipToUpdate,
+	}
+
+	update := bson.M{
+		"$set": bson.M{
+			"regions":    input.Regions,
+			"updated_at": time.Now(),
+		},
+	}
+
+	result, err := ipHealthCollection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		h.logger.Errorf("Failed to update IP regions: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to update IP regions",
+		})
+		return
+	}
+
+	if result.MatchedCount == 0 {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": fmt.Sprintf("IP %s not found in this GSLB record", ipToUpdate),
+		})
+		return
+	}
+
+	h.logger.Infof("User %s updated regions for IP %s in GSLB record %s (FQDN: %s, regions: %v)",
+		user.UserName, ipToUpdate, id, record.FQDN, input.Regions)
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": fmt.Sprintf("IP %s regions updated successfully", ipToUpdate),
+		"ip":      ipToUpdate,
+		"regions": input.Regions,
+	})
+}
+
 // ListIPsForRecord lists all IP health records for a GSLB record
 // GET /api/v3/gslb/:id/ips
 // Access: All authenticated users

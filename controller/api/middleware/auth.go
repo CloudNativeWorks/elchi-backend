@@ -93,7 +93,7 @@ func Authentication(appContext *db.AppContext) gin.HandlerFunc {
 		c.Set("username", claims.Username)
 		c.Set("user_id", claims.UserID)
 
-		// P0-2 FIX: Fetch fresh groups from database instead of using stale JWT token groups
+		// Fetch fresh groups from database instead of using stale JWT token groups
 		// JWT token groups are set at login and become stale when user is added to new groups
 		freshGroups := getFreshUserGroups(ctx, appContext, claims.UserID)
 		if freshGroups != nil {

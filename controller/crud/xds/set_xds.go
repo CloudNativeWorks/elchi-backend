@@ -301,7 +301,7 @@ func (xds *AppHandler) processListenerSpecificResources(ctx context.Context, res
 	if general.Managed {
 		xds.Logger.Debugf("Creating service for managed listener %s", general.Name)
 
-		// P0-3 FIX: Pass requestDetails to properly set service permissions from user's base_group/user_id
+		// Pass requestDetails to properly set service permissions from user's base_group/user_id
 		serviceID, err = xds.createService(ctx, general.Name, general.Project, general.Version, adminPort, requestDetails)
 		if err != nil {
 			if rollbackErr := rollback.rollbackWithBootstrap(bootstrapID); rollbackErr != nil {
@@ -386,7 +386,7 @@ func (xds *AppHandler) createService(ctx context.Context, serviceName string, pr
 
 	xds.Logger.Debugf("Service document prepared: %+v", service)
 
-	// P0-3 FIX: Set service permissions from user's base_group or user_id
+	// Set service permissions from user's base_group or user_id
 	// If user has base_group -> add to permissions.groups[]
 	// If no base_group -> add user_id to permissions.users[]
 	switch {
@@ -573,7 +573,7 @@ func calculateShardID(fqdn string) int {
 }
 
 // deleteGSLBRecordWithCleanup deletes GSLB record and all associated IP health records
-// CRITICAL FIX: Prevents orphaned IP health records and memory leaks
+// Prevents orphaned IP health records and memory leaks
 func (xds *AppHandler) deleteGSLBRecordWithCleanup(ctx context.Context, serviceID, project, version string) error {
 	gslbCollection := xds.Context.Client.Collection("gslb_records")
 

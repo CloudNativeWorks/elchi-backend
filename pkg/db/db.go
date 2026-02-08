@@ -288,7 +288,7 @@ var GSLBIndices = map[string][]mongo.IndexModel{
 			Keys:    bson.M{"controller_id": 1},
 			Options: options.Index().SetName("controller_id_1"),
 		},
-		// CRITICAL FIX: Compound index for shard acquisition query optimization
+
 		// Query: Find shards with (lease_expiry < now OR controller_id = "")
 		// This index covers both conditions efficiently
 		{
@@ -307,7 +307,6 @@ var GSLBIndices = map[string][]mongo.IndexModel{
 			Keys:    bson.D{{Key: "shard_id", Value: 1}, {Key: "sub_shard_id", Value: 1}},
 			Options: options.Index().SetName("shard_id_sub_shard_id_1"),
 		},
-		// PERFORMANCE FIX: Compound index for backoff filtering (GetReadyIPsByShard query)
 		// Query: shard_id + sub_shard_id + backoff_until check (filters out IPs in circuit breaker)
 		// This optimizes the $or condition for backoff expiry checks (2-3x faster)
 		{

@@ -192,8 +192,6 @@ func (s *InMemoryStorage) UpdateClientList(ctx context.Context, controllerID str
 	}
 	controller.LastSeen = time.Now()
 
-	// CRITICAL FIX: First, remove all existing mappings for this controller
-	// This ensures that disconnected clients are properly cleaned up
 	keysToDelete := make([]string, 0)
 	for key, mapping := range s.clientMappings {
 		if mapping.ControllerID == controllerID {

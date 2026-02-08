@@ -101,7 +101,7 @@ func (s *ClientService) syncSingleClient(ctx context.Context, dbClient *client.C
 	registryFound := err == nil && location.ControllerId != ""
 
 	if registryFound {
-		// CRITICAL FIX: Only sync if this is the responsible controller OR client is locally connected
+		// Only sync if this is the responsible controller OR client is locally connected
 		currentControllerID := s.registryClient.GetControllerID()
 		isResponsibleController := location.ControllerId == currentControllerID
 

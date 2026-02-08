@@ -456,6 +456,47 @@ func (ihm *IPHealthManager) GetIPsByRecordIDs(ctx context.Context, recordIDs []p
 	return result, nil
 }
 
+// GetRecordsByIDs fetches GSLB records by their IDs and returns them as a map
+// Used by executeCurrentSlot to get fresh probe config from DB on every tick
+// This ensures probe config changes from other controllers are picked up immediately
+// without requiring inter-controller notification
+func (ihm *IPHealthManager) GetRecordsByIDs(ctx context.Context, recordIDs []primitive.ObjectID) (map[primitive.ObjectID]*models.GSLBRecord, error) {
+	if len(recordIDs) == 0 {
+		return make(map[primitive.ObjectID]*models.GSLBRecord), nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	collection := ihm.db.Collection("gslb_records")
+
+	filter := bson.M{
+		"_id": bson.M{"$in": recordIDs},
+	}
+
+	cursor, err := collection.Find(ctx, filter)
+	if err != nil {
+		return nil, fmt.Errorf("batch record query failed: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	result := make(map[primitive.ObjectID]*models.GSLBRecord, len(recordIDs))
+	for cursor.Next(ctx) {
+		var record models.GSLBRecord
+		if err := cursor.Decode(&record); err != nil {
+			ihm.logger.Warnf("Failed to decode GSLB record: %v", err)
+			continue
+		}
+		result[record.ID] = &record
+	}
+
+	if err := cursor.Err(); err != nil {
+		return nil, fmt.Errorf("cursor error during batch record query: %w", err)
+	}
+
+	return result, nil
+}
+
 // UpdateHealthState updates the health state and related fields for an IP
 // Called by health checker after probing
 //

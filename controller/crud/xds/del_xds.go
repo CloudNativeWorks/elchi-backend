@@ -29,7 +29,7 @@ func (xds *AppHandler) DelResource(ctx context.Context, _ models.ResourceClass, 
 		}
 	}
 
-	// P1-2 FIX: Check delete permissions based on role
+	// Check delete permissions based on role
 	// Viewer cannot delete anything
 	if requestDetails.User.Role == models.RoleViewer {
 		return nil, fmt.Errorf("insufficient privileges: viewers cannot delete resources")
@@ -67,7 +67,7 @@ func (xds *AppHandler) DelResource(ctx context.Context, _ models.ResourceClass, 
 			return nil, errors.New("this resource is a default resource and cannot be deleted")
 		}
 
-		// P1-2 FIX: Editor can only delete resources they have permission for
+		// Editor can only delete resources they have permission for
 		if requestDetails.User.Role == models.RoleEditor {
 			if err := checkResourcePermission(requestDetails.User, &resourceDoc); err != nil {
 				return nil, fmt.Errorf("insufficient privileges: you don't have permission to delete this resource")
@@ -272,7 +272,7 @@ func deleteDocument(ctx context.Context, collection *mongo.Collection, filter bs
 }
 
 // checkResourcePermission checks if user has permission to access the resource
-// P1-2 FIX: Helper function for Editor permission check
+// Helper function for Editor permission check
 func checkResourcePermission(user models.UserDetails, resource *models.DBResource) error {
 	// If no permissions set at all, deny access
 	if len(resource.General.Permissions.Users) == 0 && len(resource.General.Permissions.Groups) == 0 {

@@ -406,7 +406,6 @@ func (m *ControlPlaneManager) nodeListUpdateLoop() {
 			nodes := m.GetConnectedNodes()
 			m.logger.Infof("Periodic node list update: %d connected nodes", len(nodes))
 
-			// CRITICAL FIX: Always send node list (even if empty) to keep control-plane alive in registry
 			if err := m.client.UpdateNodeList(m.Config.ControlPlaneID, nodes, m.Config.Version); err != nil {
 				m.logger.Errorf("Failed to update node list: %v", err)
 				m.handleConnectionFailure("node list update")

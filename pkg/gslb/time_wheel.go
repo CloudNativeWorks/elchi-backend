@@ -27,7 +27,7 @@ const (
 type TimeWheel struct {
 	// Ring buffer of slots
 	slots       [NumSlots]*list.List
-	currentSlot int
+	currentSlot atomic.Int32 // Atomic to prevent data race between tick() writer and Schedule/Stats readers
 	ticker      *time.Ticker
 
 	// Task tracking
@@ -84,7 +84,6 @@ func NewTimeWheel(ctx context.Context, ipHealthManager *IPHealthManager,
 	workerPool *WorkerPool, logger *logger.Logger,
 ) *TimeWheel {
 	tw := &TimeWheel{
-		currentSlot:     0,
 		tasks:           make(map[string]*ScheduledTask),
 		inFlight:        make(map[string]bool),
 		ipHealthManager: ipHealthManager,
@@ -128,7 +127,8 @@ func (tw *TimeWheel) Start() {
 // tick advances the time wheel and executes tasks in current slot
 func (tw *TimeWheel) tick() {
 	// Log every 10 seconds for visibility
-	if tw.currentSlot%10 == 0 {
+	slot := tw.currentSlot.Load()
+	if slot%10 == 0 {
 		stats := tw.Stats()
 		tw.logger.Infof("Time Wheel tick: slot=%d, load=%d, scheduled=%d, executed=%d, rescheduled=%d",
 			stats.CurrentSlot, stats.CurrentLoad, stats.Scheduled, stats.Executed, stats.Rescheduled)
@@ -139,8 +139,7 @@ func (tw *TimeWheel) tick() {
 		tw.logger.Errorf("Time wheel tick failed: %v", err)
 	}
 
-	// Advance to next slot
-	tw.currentSlot = (tw.currentSlot + 1) % NumSlots
+	tw.currentSlot.Store((slot + 1) % int32(NumSlots))
 }
 
 // Stop gracefully stops the time wheel
@@ -162,7 +161,7 @@ func (tw *TimeWheel) makeKey(recordID primitive.ObjectID, ip string) string {
 // Stats returns current time wheel metrics
 func (tw *TimeWheel) Stats() TimeWheelStats {
 	return TimeWheelStats{
-		CurrentSlot: tw.currentSlot,
+		CurrentSlot: int(tw.currentSlot.Load()),
 		Scheduled:   atomic.LoadInt64(&tw.scheduled),
 		Executed:    atomic.LoadInt64(&tw.executed),
 		Rescheduled: atomic.LoadInt64(&tw.rescheduled),
@@ -200,7 +199,7 @@ func (tw *TimeWheel) Schedule(task *ScheduledTask, delaySeconds int) error {
 	}
 
 	// Calculate target slot
-	targetSlot := (tw.currentSlot + delaySeconds) % NumSlots
+	targetSlot := (int(tw.currentSlot.Load()) + delaySeconds) % NumSlots
 	task.SlotIndex = targetSlot
 	task.NextProbeAt = time.Now().Add(time.Duration(delaySeconds) * time.Second)
 	task.ScheduledAt = time.Now()
@@ -219,19 +218,41 @@ func (tw *TimeWheel) Schedule(task *ScheduledTask, delaySeconds int) error {
 
 // Reschedule moves an existing task to a new slot
 // O(1) operation - removes from old slot and adds to new slot
+// Uses single write lock to prevent race with ClearAll/Remove between read and schedule
 func (tw *TimeWheel) Reschedule(recordID primitive.ObjectID, ip string, delaySeconds int) error {
+	if delaySeconds < 0 {
+		delaySeconds = 0
+	}
+	if delaySeconds >= NumSlots {
+		delaySeconds = NumSlots - 1
+	}
+
 	key := tw.makeKey(recordID, ip)
 
-	tw.tasksMu.RLock()
-	task, exists := tw.tasks[key]
-	tw.tasksMu.RUnlock()
+	tw.tasksMu.Lock()
+	defer tw.tasksMu.Unlock()
 
+	task, exists := tw.tasks[key]
 	if !exists {
 		return fmt.Errorf("task not found: %s", key)
 	}
 
-	// Schedule creates new task, removing old one
-	return tw.Schedule(task, delaySeconds)
+	// Remove from old slot
+	tw.removeTaskLocked(task)
+
+	// Add to new slot
+	targetSlot := (int(tw.currentSlot.Load()) + delaySeconds) % NumSlots
+	task.SlotIndex = targetSlot
+	task.NextProbeAt = time.Now().Add(time.Duration(delaySeconds) * time.Second)
+	task.ScheduledAt = time.Now()
+	task.ListElement = tw.slots[targetSlot].PushBack(task)
+	tw.tasks[key] = task
+
+	atomic.AddInt64(&tw.scheduled, 1)
+	atomic.AddInt64(&tw.currentLoad, 1)
+	atomic.AddInt64(&tw.rescheduled, 1)
+
+	return nil
 }
 
 // RescheduleImmediate moves a task to the current slot (executes within 1 second)
@@ -287,13 +308,19 @@ func (tw *TimeWheel) ClearAll() {
 	// Reset current load
 	atomic.StoreInt64(&tw.currentLoad, 0)
 
+	// Clear in-flight map to prevent stale entries after full reload
+	tw.inFlightMu.Lock()
+	tw.inFlight = make(map[string]bool)
+	tw.inFlightMu.Unlock()
+
 	tw.logger.Infof("Cleared %d tasks from time wheel", taskCount)
 }
 
 // executeCurrentSlot executes all tasks in the current slot
 // This is called every second by the ticker
 func (tw *TimeWheel) executeCurrentSlot() error {
-	slot := tw.slots[tw.currentSlot]
+	currentSlot := int(tw.currentSlot.Load())
+	slot := tw.slots[currentSlot]
 
 	// Get tasks from current slot under lock
 	// Lock ordering: tasksMu first, then inFlightMu (consistent ordering prevents deadlocks)
@@ -340,13 +367,41 @@ func (tw *TimeWheel) executeCurrentSlot() error {
 		recordIDs = append(recordIDs, recordID)
 	}
 
-	// Batch fetch IPs from MongoDB
-	ctx, cancel := context.WithTimeout(tw.ctx, 5*time.Second)
-	ipsByRecord, err := tw.ipHealthManager.GetIPsByRecordIDs(ctx, recordIDs)
-	cancel()
+	// Parallel batch fetch: IPs and fresh records from MongoDB
+	// Both queries are independent and use the same recordIDs
+	var ipsByRecord map[primitive.ObjectID][]models.GSLBIPHealth
+	var freshRecords map[primitive.ObjectID]*models.GSLBRecord
+	var ipFetchErr, recordFetchErr error
 
-	if err != nil {
-		tw.logger.Errorf("Failed to fetch IPs for slot %d: %v", tw.currentSlot, err)
+	var fetchWg sync.WaitGroup
+	fetchWg.Add(2)
+
+	go func() {
+		defer fetchWg.Done()
+		ctx, cancel := context.WithTimeout(tw.ctx, 5*time.Second)
+		defer cancel()
+		ipsByRecord, ipFetchErr = tw.ipHealthManager.GetIPsByRecordIDs(ctx, recordIDs)
+	}()
+
+	go func() {
+		defer fetchWg.Done()
+		// Batch fetch records to get fresh probe config from DB
+		// This ensures probe config changes from other controllers are picked up immediately
+		ctx2, cancel2 := context.WithTimeout(tw.ctx, 5*time.Second)
+		defer cancel2()
+		freshRecords, recordFetchErr = tw.ipHealthManager.GetRecordsByIDs(ctx2, recordIDs)
+	}()
+
+	fetchWg.Wait()
+
+	if ipFetchErr != nil {
+		tw.logger.Errorf("Failed to fetch IPs for slot %d: %v", currentSlot, ipFetchErr)
+		// Clear all in-flight entries for these tasks (they won't get HandleProbeResult)
+		tw.inFlightMu.Lock()
+		for _, key := range keysToProcess {
+			delete(tw.inFlight, key)
+		}
+		tw.inFlightMu.Unlock()
 		// Reschedule tasks with jitter to prevent thundering herd
 		// Each task gets random delay between 1-5 seconds
 		for _, task := range tasksToExecute {
@@ -355,33 +410,68 @@ func (tw *TimeWheel) executeCurrentSlot() error {
 				tw.logger.Warnf("Failed to reschedule task for %s/%s: %v", task.RecordID.Hex(), task.IP, schedErr)
 			}
 		}
-		return err
+		return ipFetchErr
+	}
+
+	if recordFetchErr != nil {
+		// Non-fatal: continue with cached probe config if record fetch fails
+		tw.logger.Warnf("Failed to fetch fresh records for slot %d (using cached probe config): %v", currentSlot, recordFetchErr)
+	}
+
+	// Update probe config from DB for each task (detect config changes)
+	configChangedTasks := make(map[string]bool) // key: recordID::ip
+	if freshRecords != nil {
+		for _, task := range tasksToExecute {
+			if record, found := freshRecords[task.RecordID]; found && record.Probe != nil {
+				if probeConfigChanged(task.Probe, record.Probe) {
+					key := tw.makeKey(task.RecordID, task.IP)
+					configChangedTasks[key] = true
+					tw.logger.Infof("Probe config changed for %s (record: %s) - using fresh config from DB",
+						task.IP, task.RecordID.Hex()[:8])
+					task.Probe = record.Probe // Use fresh config from DB
+				}
+			}
+		}
+	}
+
+	// Build secondary IP index for O(1) lookup (instead of O(n) linear search per task)
+	ipIndex := make(map[primitive.ObjectID]map[string]*models.GSLBIPHealth, len(ipsByRecord))
+	for recordID, ips := range ipsByRecord {
+		ipMap := make(map[string]*models.GSLBIPHealth, len(ips))
+		for i := range ips {
+			ipMap[ips[i].IP] = &ips[i]
+		}
+		ipIndex[recordID] = ipMap
 	}
 
 	// Submit probe tasks to worker pool
 	for _, task := range tasksToExecute {
-		ips, found := ipsByRecord[task.RecordID]
+		taskKey := tw.makeKey(task.RecordID, task.IP)
+
+		ipMap, found := ipIndex[task.RecordID]
 		if !found {
 			tw.logger.Warnf("Record %s not found in batch fetch", task.RecordID.Hex())
+			// Clean up in-flight entry for skipped task (prevents leak)
+			tw.inFlightMu.Lock()
+			delete(tw.inFlight, taskKey)
+			tw.inFlightMu.Unlock()
 			continue
 		}
 
-		// Find the specific IP
-		var ipHealth *models.GSLBIPHealth
-		for i := range ips {
-			if ips[i].IP == task.IP {
-				ipHealth = &ips[i]
-				break
-			}
-		}
-
-		if ipHealth == nil {
+		// O(1) IP lookup via index
+		ipHealth, ipFound := ipMap[task.IP]
+		if !ipFound {
 			tw.logger.Warnf("IP %s not found in record %s", task.IP, task.RecordID.Hex())
+			// Clean up in-flight entry for skipped task (prevents leak)
+			tw.inFlightMu.Lock()
+			delete(tw.inFlight, taskKey)
+			tw.inFlightMu.Unlock()
 			continue
 		}
 
 		// Build probe task context
-		probeCtx := context.Background()
+		// Cache IP health in context to avoid N+1 DB query in evaluateStatusChangeForRecord
+		probeCtx := context.WithValue(context.Background(), cachedIPHealthKey, ipHealth)
 		if task.IsReprobe {
 			probeCtx = context.WithValue(probeCtx, isReprobeKey, true)
 		}
@@ -391,6 +481,11 @@ func (tw *TimeWheel) executeCurrentSlot() error {
 		if task.ManualRecordID != nil {
 			probeCtx = context.WithValue(probeCtx, manualRecordIDKey, *task.ManualRecordID)
 			probeCtx = context.WithValue(probeCtx, manualHealthStateKey, *task.ManualState)
+		}
+
+		// Signal probe config change to HealthChecker for counter reset
+		if configChangedTasks[taskKey] {
+			probeCtx = context.WithValue(probeCtx, probeConfigChangedKey, true)
 		}
 
 		// Create probe task
@@ -408,6 +503,10 @@ func (tw *TimeWheel) executeCurrentSlot() error {
 		if !tw.workerPool.Submit(probeTask) {
 			tw.logger.Errorf("Failed to submit probe for %s (record: %s) - worker pool queue full or closed",
 				task.IP, task.RecordID.Hex()[:8])
+			// Clean up in-flight entry (task won't get HandleProbeResult)
+			tw.inFlightMu.Lock()
+			delete(tw.inFlight, taskKey)
+			tw.inFlightMu.Unlock()
 
 			// Reschedule task to retry in 1 second
 			retryTask := &ScheduledTask{
@@ -558,4 +657,35 @@ func (tw *TimeWheel) LoadRecords(ctx context.Context, records []*models.GSLBReco
 
 	tw.logger.Infof("Loaded %d tasks into time wheel", totalScheduled)
 	return nil
+}
+
+// probeConfigChanged compares two probe configs to detect if the probe configuration
+// was updated in MongoDB (e.g., port, path, interval changed from another controller)
+func probeConfigChanged(old, current *models.GSLBProbe) bool {
+	if old == nil || current == nil {
+		return old != current
+	}
+	return old.Type != current.Type ||
+		old.Port != current.Port ||
+		old.Path != current.Path ||
+		old.HostHeader != current.HostHeader ||
+		old.Interval != current.Interval ||
+		old.Timeout != current.Timeout ||
+		old.WarningThreshold != current.WarningThreshold ||
+		old.CriticalThreshold != current.CriticalThreshold ||
+		old.PassingThreshold != current.PassingThreshold ||
+		!boolPtrEqual(old.Enabled, current.Enabled) ||
+		!boolPtrEqual(old.SkipSSLVerify, current.SkipSSLVerify) ||
+		!boolPtrEqual(old.FollowRedirects, current.FollowRedirects)
+}
+
+// boolPtrEqual compares two *bool pointers for equality
+func boolPtrEqual(a, b *bool) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
 }

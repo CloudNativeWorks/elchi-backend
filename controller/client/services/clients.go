@@ -635,7 +635,7 @@ func (s *ClientService) MarkClientDisconnectedInDBWithReason(ctx context.Context
 
 // DisconnectClient marks client as disconnected and removes from memory
 func (s *ClientService) DisconnectClient(clientID string) {
-	// CRITICAL FIX: Minimize write lock time to prevent deadlock
+	// Minimize write lock time to prevent deadlock
 	// Only hold lock for memory operations, do slow operations (DB, registry, callback) outside lock
 
 	var clientToCleanup *client.ClientInfo

@@ -31,7 +31,7 @@ func (s *AppHandler) ListServices(ctx context.Context, _ models.OperationClass, 
 		{Key: "project", Value: requestDetails.Project},
 	}
 
-	// P0-4 FIX: Add permission checks for non-Owner/non-Admin users
+	// Add permission checks for non-Owner/non-Admin users
 	// Services have permissions but they were never checked - security vulnerability!
 	if !requestDetails.User.IsOwner && requestDetails.User.Role != models.RoleAdmin {
 		// Build complete group list including base_group
@@ -250,7 +250,6 @@ func (s *AppHandler) GetSingleService(ctx context.Context, _ models.OperationCla
 	}
 	filter := bson.M{"_id": objectID, "project": requestDetails.Project}
 
-	// P0-4 FIX: Add permission check for non-Owner/non-Admin users
 	if !requestDetails.User.IsOwner && requestDetails.User.Role != models.RoleAdmin {
 		allGroups := append([]string{}, requestDetails.User.Groups...)
 		if requestDetails.User.BaseGroup != "" {
@@ -595,4 +594,3 @@ func toLower(s string) string {
 	}
 	return string(result)
 }
-

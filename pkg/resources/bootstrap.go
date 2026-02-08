@@ -55,8 +55,6 @@ func GetAdminPortFromService(db *mongo.Database, op models.OperationClass, reque
 		return 0, err
 	}
 
-	// G115 fix: Validate port number range before converting int64 to uint32
-	// Valid port range: 1-65535
 	if service.AdminPort < 1 || service.AdminPort > 65535 {
 		return 0, fmt.Errorf("invalid admin port %d: must be between 1 and 65535", service.AdminPort)
 	}

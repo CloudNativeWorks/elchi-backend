@@ -50,11 +50,10 @@ type HealthChecker struct {
 	probeErrorCounts  sync.Map // Map[string]int64 - error type -> count
 
 	// Latency tracking (for P50, P95, P99 calculation)
-	probeLatencySum   int64      // Sum of all probe latencies in microseconds (for average)
-	probeLatencyCount int64      // Total probe count (for average calculation)
-	probeLatencyMin   int64      // Minimum latency in microseconds (atomic)
-	probeLatencyMax   int64      // Maximum latency in microseconds (atomic)
-	probeLatencyMu    sync.Mutex // Protects min/max updates
+	probeLatencySum   int64 // Sum of all probe latencies in microseconds (for average)
+	probeLatencyCount int64 // Total probe count (for average calculation)
+	probeLatencyMin   int64 // Minimum latency in microseconds (atomic CAS)
+	probeLatencyMax   int64 // Maximum latency in microseconds (atomic CAS)
 
 	// Shutdown and goroutine tracking
 	done chan struct{}
@@ -83,7 +82,6 @@ func NewHealthChecker(
 	// Create probe executor
 	executor := NewDefaultProbeExecutor(logger)
 
-	// CRITICAL FIX: Create per-processor result queues for IP-based sharding
 	// This prevents Go channel round-robin distribution from breaking sharding
 	numProcessors := 8
 	resultQueues := make([]chan ProbeResult, numProcessors)
@@ -244,17 +242,14 @@ func (hc *HealthChecker) IsRunning() bool {
 
 // ReloadAllRecords forces immediate reload of all records from database into Time Wheel
 // This should be called after GSLB record create/update/delete operations or shard rebalancing
-// CRITICAL: Clears Time Wheel completely before reload to prevent memory leaks from lost shards
+// Fetches all records BEFORE clearing to prevent availability gap on DB errors
 func (hc *HealthChecker) ReloadAllRecords() error {
 	if hc.timeWheel == nil {
 		return fmt.Errorf("time wheel not initialized")
 	}
 
-	// CRITICAL: Clear all existing tasks first to prevent memory leaks
-	// When shards are lost (rebalancing), old IPs from lost shards would stay in memory
-	hc.timeWheel.ClearAll()
-
-	// Fetch all GSLB records from all intervals
+	// Fetch all GSLB records from all intervals BEFORE clearing
+	// This prevents availability gap: if DB fails, time wheel keeps running with old data
 	ctx, cancel := context.WithTimeout(hc.ctx, 30*time.Second)
 	defer cancel()
 
@@ -272,12 +267,15 @@ func (hc *HealthChecker) ReloadAllRecords() error {
 		}
 	}
 
+	// Only clear AFTER successful fetch - prevents empty time wheel on DB errors
+	hc.timeWheel.ClearAll()
+
 	// Reload into Time Wheel
 	return hc.timeWheel.LoadRecords(ctx, allRecords)
 }
 
 // processResults processes probe results from a dedicated queue
-// CRITICAL FIX: No sharding check needed - workers already routed to correct queue
+// No sharding check needed - workers already routed to correct queue
 // Each processor reads from its own pre-sharded queue
 func (hc *HealthChecker) processResults(processorID int) {
 	hc.logger.Infof("Result processor #%d started (dedicated queue)", processorID)
@@ -285,17 +283,13 @@ func (hc *HealthChecker) processResults(processorID int) {
 	processed := 0
 
 	// Read from this processor's dedicated queue
+	// Do NOT check ctx.Done() inside the loop.
+	// Rely on channel close for termination. This ensures all queued results
+	// are processed before exit. Stop() sequence guarantees:
+	// 1. cancel() stops Time Wheel and workers (no new sends)
+	// 2. workerPool.Stop() waits for all workers to finish
+	// 3. close(resultQueues[i]) terminates this for-range loop
 	for result := range hc.resultQueues[processorID] {
-		// Check if shutdown is requested
-		select {
-		case <-hc.ctx.Done():
-			// Shutdown requested - log stats and exit
-			hc.logger.Infof("Result processor #%d stopping (processed: %d)", processorID, processed)
-			return
-		default:
-			// Continue normal processing
-		}
-
 		// Extract task from context (contains RecordIDs for fan-out)
 		if result.Context == nil {
 			hc.logger.Errorf("ProbeResult has nil Context for IP %s - skipping (worker bug)", result.IP)
@@ -324,14 +318,22 @@ func (hc *HealthChecker) processResults(processorID int) {
 	hc.logger.Infof("Result processor #%d stopped (processed: %d)", processorID, processed)
 }
 
-// hashIP returns a consistent hash for an IP address
-// Simple hash: sum all bytes of IP string
+// hashIP returns a consistent non-negative hash for an IP address using FNV-1a
+// FNV-1a provides much better distribution than simple byte sum,
+// especially for IPs in the same subnet (e.g., 10.0.1.1 vs 10.0.1.2)
 func hashIP(ip string) int {
-	hash := 0
+	// FNV-1a inline (avoids hash.Hash allocation)
+	const (
+		offset64 = 14695981039346656037
+		prime64  = 1099511628211
+	)
+	h := uint64(offset64)
 	for i := 0; i < len(ip); i++ {
-		hash += int(ip[i])
+		h ^= uint64(ip[i])
+		h *= prime64
 	}
-	return hash
+	// Mask sign bit to ensure non-negative result (negative modulo panics on slice index)
+	return int(h & 0x7fffffffffffffff)
 }
 
 // evaluateStatusChangeForRecord evaluates probe result for a specific record and updates health state
@@ -339,11 +341,18 @@ func hashIP(ip string) int {
 // Implements tri-state health model with circuit breaker
 // Returns: (newState, consecutiveFailures, isWarningMonitor)
 func (hc *HealthChecker) evaluateStatusChangeForRecord(result ProbeResult, recordID primitive.ObjectID, probe *models.GSLBProbe) (models.HealthState, int, bool) {
-	// Step 1: Get current IP health from database
-	ipHealth, err := hc.getIPHealthFromDB(recordID, result.IP)
-	if err != nil {
-		hc.logger.Errorf("Failed to get IP health for %s: %v", result.IP, err)
-		return models.HealthStateCritical, 0, false
+	// Step 1: Get current IP health - prefer cached from batch fetch (avoids N+1 DB query)
+	var ipHealth *models.GSLBIPHealth
+	if cached, ok := result.Context.Value(cachedIPHealthKey).(*models.GSLBIPHealth); ok && cached != nil && cached.RecordID == recordID {
+		ipHealth = cached
+	} else {
+		// Fallback to DB query (manual re-probe or different record in fan-out)
+		var err error
+		ipHealth, err = hc.getIPHealthFromDB(recordID, result.IP)
+		if err != nil {
+			hc.logger.Errorf("Failed to get IP health for %s: %v", result.IP, err)
+			return models.HealthStateCritical, 0, false
+		}
 	}
 
 	// Step 2: Validate probe configuration (prevents crashes from invalid config)
@@ -353,6 +362,14 @@ func (hc *HealthChecker) evaluateStatusChangeForRecord(result ProbeResult, recor
 
 	// Step 2.5: Track probe metrics (success/failure, error types, latency)
 	hc.trackProbeMetrics(result)
+
+	// If probe config changed (detected by executeCurrentSlot reading fresh config from DB),
+	// reset the in-memory counter to start fresh. Without this, stale ConsecutiveFailures from the old
+	// probe config would immediately trigger backoff even though the config was just changed.
+	if configChanged, ok := result.Context.Value(probeConfigChangedKey).(bool); ok && configChanged {
+		hc.counterManager.Reset(recordID, result.IP)
+		hc.logger.Infof("Probe config changed, counter reset for %s (record: %s)", result.IP, recordID.Hex()[:8])
+	}
 
 	var oldState models.HealthState
 	manualRecordID, hasManualRecord := result.Context.Value(manualRecordIDKey).(primitive.ObjectID)
@@ -388,7 +405,7 @@ func (hc *HealthChecker) evaluateStatusChangeForRecord(result ProbeResult, recor
 	// 3. This allows the system to transition from manual state based on actual probe results
 	if wasManualReset {
 		// Clear manual_reset_at AND backoff fields to prevent repeated detection and enable immediate probing
-		// CRITICAL FIX: Also clear BackoffUntil so IP isn't stuck in backoff from previous critical state
+		// Also clear BackoffUntil so IP isn't stuck in backoff from previous critical state
 		// IMPORTANT: Use IMMEDIATE flush, not batched write
 		// Reason: If we use batched write, immediate re-probe will see stale manual_reset_at
 		update := HealthStateUpdate{
@@ -427,7 +444,7 @@ func (hc *HealthChecker) evaluateStatusChangeForRecord(result ProbeResult, recor
 	if stateChanged {
 		hc.handleNonCriticalStateTransition(ipHealth, result, oldState, newState, consecutiveFailures, consecutiveSuccesses)
 	} else if (newState == models.HealthStateWarning && !result.Success) || wasManualReset {
-		// CRITICAL FIX: Even if state didn't change, we need to update in these cases:
+		// Even if state didn't change, we need to update in these cases:
 		// 1. WARNING state with probe failure - triggers continuous re-probe
 		// 2. Manual reset - probe result must be recorded even if state unchanged
 		// 3. PASSING state with probe failure after manual reset - counter incremented
@@ -867,12 +884,19 @@ func (hc *HealthChecker) getCurrentStateFromCounter(
 		return ipHealth.HealthState // Fallback to DB
 	}
 
+	// Read counter fields under per-counter lock
+	// Without this, concurrent Update() calls can modify these fields mid-read
+	counter.mu.Lock()
+	failures := counter.ConsecutiveFailures
+	successes := counter.ConsecutiveSuccesses
+	counter.mu.Unlock()
+
 	// Use DetermineHealthStateWithRecovery for consistent state calculation
 	// This ensures RECOVERY state is properly tracked when passing_threshold > 1
 	// Without this, we'd always return PASSING when failures=0, missing RECOVERY state
 	return models.DetermineHealthStateWithRecovery(
-		counter.ConsecutiveFailures,
-		counter.ConsecutiveSuccesses,
+		failures,
+		successes,
 		probe,
 		ipHealth.HealthState, // Current DB state for context (needed for RECOVERY logic)
 	)
@@ -927,15 +951,25 @@ func (hc *HealthChecker) trackProbeMetrics(result ProbeResult) {
 		atomic.AddInt64(&hc.probeLatencyCount, 1)
 	}
 
-	// Update min/max latency (thread-safe with mutex)
-	hc.probeLatencyMu.Lock()
-	if hc.probeLatencyMin == 0 || latencyMicros < hc.probeLatencyMin {
-		hc.probeLatencyMin = latencyMicros
+	// Update min/max latency (lock-free CAS loop - avoids mutex on hot path)
+	for {
+		currentMin := atomic.LoadInt64(&hc.probeLatencyMin)
+		if currentMin != 0 && latencyMicros >= currentMin {
+			break
+		}
+		if atomic.CompareAndSwapInt64(&hc.probeLatencyMin, currentMin, latencyMicros) {
+			break
+		}
 	}
-	if latencyMicros > hc.probeLatencyMax {
-		hc.probeLatencyMax = latencyMicros
+	for {
+		currentMax := atomic.LoadInt64(&hc.probeLatencyMax)
+		if latencyMicros <= currentMax {
+			break
+		}
+		if atomic.CompareAndSwapInt64(&hc.probeLatencyMax, currentMax, latencyMicros) {
+			break
+		}
 	}
-	hc.probeLatencyMu.Unlock()
 }
 
 // categorizeProbeError categorizes probe errors for metrics using Go standard patterns

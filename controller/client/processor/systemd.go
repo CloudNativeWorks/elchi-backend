@@ -22,7 +22,7 @@ func (p *ServiceProcessor) ValidateAndTransform(op models.OperationClass, reques
 		return nil, err
 	}
 
-	// G115 fix: Check for overflow when converting uint32 to int32
+	// Check for overflow when converting uint32 to int32
 	logType := op.GetCommandLogType()
 	if logType > uint32(math.MaxInt32) {
 		return nil, fmt.Errorf("log type value %d exceeds int32 max value", logType)

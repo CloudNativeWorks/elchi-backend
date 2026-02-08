@@ -65,10 +65,8 @@ func NewDefaultProbeExecutor(logger *logger.Logger) *DefaultProbeExecutor {
 			MaxIdleConnsPerHost: 10,
 			IdleConnTimeout:     90 * time.Second,
 			DisableKeepAlives:   false,
-			// DialContext will be configured per-request in executeHTTPProbe
-			// to use probe timeout + 100ms (prevents hanging on unreachable IPs)
+			ForceAttemptHTTP2:   true,
 		},
-		// Timeout will be set per-request based on probe config
 		Timeout: 0,
 	}
 
@@ -167,7 +165,7 @@ func (pe *DefaultProbeExecutor) executeHTTPProbe(ctx context.Context, ipHealth *
 	// ALWAYS use custom client to get proper DialContext timeout (probe timeout + 100ms)
 	// This prevents TCP connections from hanging on unreachable IPs
 	// Build pool key for this client configuration
-	// FIX: Round timeout to 500ms buckets to prevent unbounded client pool growth
+	// Round timeout to 500ms buckets to prevent unbounded client pool growth
 	// e.g., 1000ms, 1001ms, 1002ms all become "timeout_1000ms" bucket
 	timeoutBucket := (int(probeTimeout.Milliseconds()) / 500) * 500
 	if timeoutBucket == 0 {
@@ -182,7 +180,6 @@ func (pe *DefaultProbeExecutor) executeHTTPProbe(ctx context.Context, ipHealth *
 	}
 
 	// Get or create pooled HTTP client with dynamic DialContext timeout
-	// (PERFORMANCE FIX: prevents connection leak + CRITICAL FIX: prevents hanging connections)
 	client := pe.getOrCreateClient(poolKey, needsCustomTransport, needsCustomRedirect, probeTimeout)
 
 	// Execute request using appropriate client
@@ -285,7 +282,11 @@ func (pe *DefaultProbeExecutor) getOrCreateClient(poolKey string, skipSSLVerify,
 
 	transport := baseTransport.Clone()
 
-	// CRITICAL FIX: Configure DialContext with probe timeout + 100ms
+	// Enable HTTP/2 auto-negotiation even with custom DialContext
+	// Without this, custom DialContext disables Go's automatic HTTP/2 support,
+	// causing TLS ALPN to negotiate h2 but transport can't parse HTTP/2 frames
+	transport.ForceAttemptHTTP2 = true
+
 	// This prevents TCP connections from hanging on unreachable IPs
 	// User requirement: Use probe timeout + 100ms, not fixed timeout
 	dialTimeout := probeTimeout + (100 * time.Millisecond)

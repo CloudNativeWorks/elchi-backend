@@ -39,6 +39,9 @@ type GSLBIPHealth struct {
 	// IP creation source
 	IsManual bool `bson:"is_manual" json:"is_manual"` // true = manually added by admin, false = auto-generated from service deployment
 
+	// Geographic region assignment (for region-based DNS filtering)
+	Regions []string `bson:"regions,omitempty" json:"regions,omitempty"` // Assigned regions (empty = no region, excluded from regional queries)
+
 	// Metadata
 	CreatedAt time.Time `bson:"created_at" json:"created_at"`
 	UpdatedAt time.Time `bson:"updated_at" json:"updated_at"`

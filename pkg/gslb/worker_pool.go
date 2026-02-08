@@ -14,11 +14,13 @@ type contextKey string
 
 // Context keys for storing values in ProbeResult.Context
 const (
-	taskContextKey       contextKey = "task"                // ProbeTask
-	manualRecordIDKey    contextKey = "manual_record_id"    // primitive.ObjectID
-	manualHealthStateKey contextKey = "manual_health_state" // models.HealthState
-	isReprobeKey         contextKey = "is_reprobe"          // bool
-	isWarningMonitorKey  contextKey = "is_warning_monitor"  // bool
+	taskContextKey        contextKey = "task"                 // ProbeTask
+	manualRecordIDKey     contextKey = "manual_record_id"    // primitive.ObjectID
+	manualHealthStateKey  contextKey = "manual_health_state" // models.HealthState
+	isReprobeKey          contextKey = "is_reprobe"          // bool
+	isWarningMonitorKey   contextKey = "is_warning_monitor"  // bool
+	probeConfigChangedKey contextKey = "probe_config_changed" // bool - probe config changed since last load (triggers counter reset)
+	cachedIPHealthKey     contextKey = "cached_ip_health"     // *models.GSLBIPHealth - batch-fetched IP health to avoid N+1 DB query
 )
 
 // WorkerPool manages a dedicated worker pool for Time Wheel scheduling
@@ -56,9 +58,9 @@ type WorkerPool struct {
 
 	// Stats (atomic counters for concurrent access)
 	totalProbes    int64
-	peakQueueDepth int
-	scaleUpCount   int64
-	scaleDownCount int64
+	peakQueueDepth atomic.Int64
+	scaleUpCount   atomic.Int64
+	scaleDownCount atomic.Int64
 }
 
 // AutoScaler manages automatic worker scaling for the worker pool
@@ -180,10 +182,16 @@ func (bwp *WorkerPool) worker() {
 		// Check for shutdown signals (non-blocking)
 		select {
 		case <-bwp.workerControl:
-			// Worker kill signal
+			// Worker kill signal - re-enqueue task to prevent loss
+			if enqErr := bwp.probeQueue.Enqueue(task); enqErr != nil {
+				bwp.logger.Warnf("Interval %ds: failed to re-enqueue task during scale-down (queue closed): %v", bwp.interval, enqErr)
+			}
 			return
 		case <-bwp.stopCh:
-			// Pool shutdown signal
+			// Pool shutdown signal - re-enqueue task so remaining workers can process
+			if enqErr := bwp.probeQueue.Enqueue(task); enqErr != nil {
+				bwp.logger.Debugf("Interval %ds: failed to re-enqueue task during shutdown (queue closed): %v", bwp.interval, enqErr)
+			}
 			return
 		default:
 			// Continue with task processing
@@ -276,9 +284,9 @@ func (bwp *WorkerPool) checkAndScale(queueFullSince *time.Time) {
 	currentWorkers := bwp.currentWorkers
 	bwp.mu.RUnlock()
 
-	// Update peak queue depth
-	if queueDepth > bwp.peakQueueDepth {
-		bwp.peakQueueDepth = queueDepth
+	// Update peak queue depth (atomic - accessed from autoScaleMonitor and GetStats)
+	if int64(queueDepth) > bwp.peakQueueDepth.Load() {
+		bwp.peakQueueDepth.Store(int64(queueDepth))
 	}
 
 	// Calculate queue pressure (guard against division by zero)
@@ -331,7 +339,7 @@ func (bwp *WorkerPool) checkAndScale(queueFullSince *time.Time) {
 		scaleAmount := bwp.calculateScaleUpAmount(queueDepth, currentWorkers)
 		if scaleAmount > 0 {
 			bwp.spawnWorkers(scaleAmount)
-			bwp.scaleUpCount++
+			bwp.scaleUpCount.Add(1)
 			bwp.autoScaler.lastScaleAction = time.Now()
 		}
 		return
@@ -375,7 +383,7 @@ func (bwp *WorkerPool) checkAndScale(queueFullSince *time.Time) {
 				if actualKilled > 0 {
 					bwp.mu.Lock()
 					bwp.currentWorkers -= actualKilled
-					bwp.scaleDownCount++
+					bwp.scaleDownCount.Add(1)
 					bwp.logger.Debugf("Interval %ds killed %d workers (attempted: %d, total: %d)",
 						bwp.interval, actualKilled, workersToKill, bwp.currentWorkers)
 					bwp.mu.Unlock()
@@ -433,9 +441,9 @@ func (bwp *WorkerPool) GetStats() WorkerPoolStats {
 		QueueDepth:     queueStats.CurrentSize,
 		QueueCapacity:  queueStats.CurrentCapacity,
 		TotalProbes:    atomic.LoadInt64(&bwp.totalProbes),
-		PeakQueueDepth: bwp.peakQueueDepth,
-		ScaleUpCount:   bwp.scaleUpCount,
-		ScaleDownCount: bwp.scaleDownCount,
+		PeakQueueDepth: int(bwp.peakQueueDepth.Load()),
+		ScaleUpCount:   bwp.scaleUpCount.Load(),
+		ScaleDownCount: bwp.scaleDownCount.Load(),
 	}
 }
 

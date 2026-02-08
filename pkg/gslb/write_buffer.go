@@ -156,7 +156,6 @@ func (wb *WriteBuffer) flush() {
 // Extracted common logic to avoid duplication between flush and immediate write
 func (wb *WriteBuffer) buildUpdateDocument(update HealthStateUpdate) bson.M {
 	// Special case: Clear manual_reset_at field AND backoff fields (used after manual reset detection)
-	// CRITICAL FIX: Must also write BackoffUntil=0 and CurrentBackoff=0 to clear backoff state
 	if update.ClearManualReset {
 		return bson.M{
 			"$set": bson.M{
@@ -292,37 +291,15 @@ func (wb *WriteBuffer) flushUpdates(updates []HealthStateUpdate) {
 }
 
 // FlushImmediate queues an update for immediate (batched) write
-// PERFORMANCE FIX: Non-blocking async operation (was synchronous before)
 // Updates are batched together in dedicated processor goroutine (50ms window)
 // This prevents blocking the result processor while maintaining fast writes
 func (wb *WriteBuffer) FlushImmediate(ctx context.Context, update HealthStateUpdate) error {
-	// CRITICAL FIX: Remove pending buffered writes for this IP BEFORE immediate write
-	// Problem: Batch buffer may contain old state (e.g., PASSING->WARNING)
-	// Timeline:
-	//   1. PASSING->WARNING added to batch buffer (5s delay)
-	//   2. WARNING monitoring executes immediate probes
-	//   3. WARNING->CRITICAL immediate write succeeds
-	//   4. 5s timer fires -> old WARNING entry flushes -> overrides CRITICAL!
-	// Solution: Clear pending entries for this IP before immediate write
 	wb.RemovePending(update.RecordID, update.IP)
-
-	// CRITICAL FIX: Always use synchronous write for FlushImmediate
-	// Problem: Queue-based approach has 0-50ms delay (ticker-based flush)
-	// This causes race conditions in WARNING monitoring:
-	//   1. CRITICAL state transition calls FlushImmediate()
-	//   2. Update goes to queue (not written yet)
-	//   3. monitorWarningState() checks DB -> sees stale WARNING state
-	//   4. Loop continues (should have stopped)
-	//   5. 50ms later, update is flushed -> history shows CRITICAL but state field shows WARNING
-	//
-	// Solution: Use synchronous write to ensure DB is updated BEFORE returning
-	// This ensures subsequent DB checks see the fresh CRITICAL state
 	return wb.flushImmediateSync(ctx, update)
 }
 
 // RemovePending removes all pending buffered updates for a specific IP
 // This prevents old buffered writes from overriding newer immediate writes
-// CRITICAL for manual reset and WARNING monitoring scenarios
 func (wb *WriteBuffer) RemovePending(recordID primitive.ObjectID, ip string) int {
 	wb.mu.Lock()
 	defer wb.mu.Unlock()
@@ -331,7 +308,6 @@ func (wb *WriteBuffer) RemovePending(recordID primitive.ObjectID, ip string) int
 	newUpdates := make([]HealthStateUpdate, 0, len(wb.updates))
 
 	for _, update := range wb.updates {
-		// Keep updates for different IPs or records
 		if update.RecordID != recordID || update.IP != ip {
 			newUpdates = append(newUpdates, update)
 		} else {

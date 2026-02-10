@@ -23,6 +23,7 @@ import (
 
 type UserWithGroups struct {
 	models.User
+	Password    *string            `json:"password,omitempty"` // Shadows models.User.Password (json:"-") to allow JSON binding for updates
 	Groups      []string           `json:"groups"`
 	Projects    []string           `json:"projects"`
 	IsCreate    bool               `json:"is_create"`

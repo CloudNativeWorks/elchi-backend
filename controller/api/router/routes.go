@@ -592,6 +592,12 @@ func initGSLBRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		// GSLB Node Tracking (elchi-gslb instances)
 		{"GET", "/nodes", h.GSLB.ListGSLBNodes},        // GET /api/v3/gslb/nodes?zone=X - List tracked GSLB nodes
 		{"DELETE", "/nodes/:id", h.GSLB.DeleteGSLBNode}, // DELETE /api/v3/gslb/nodes/:id - Remove stale node entry
+
+		// GSLB Node Proxy (forward requests to elchi-gslb instances)
+		{"POST", "/nodes/notify-all", h.GSLB.ProxyNotifyAll},       // POST /api/v3/gslb/nodes/notify-all - Broadcast notify to all nodes in zone
+		{"GET", "/nodes/:id/health", h.GSLB.ProxyNodeHealth},       // GET /api/v3/gslb/nodes/:id/health - Proxy health check
+		{"GET", "/nodes/:id/records", h.GSLB.ProxyNodeRecords},     // GET /api/v3/gslb/nodes/:id/records - Proxy records query
+		{"POST", "/nodes/:id/notify", h.GSLB.ProxyNodeNotify},      // POST /api/v3/gslb/nodes/:id/notify - Notify specific node
 	}
 
 	initRoutes(rg, routes)

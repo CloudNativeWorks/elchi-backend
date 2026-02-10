@@ -184,6 +184,10 @@ var AllowedEndpoints = []string{
 	"/api/v3/gslb/ip/:id/history",         // Clear IP status history (DELETE) - Admin/Owner only
 	"/api/v3/gslb/nodes",                  // GSLB node tracking list (GET)
 	"/api/v3/gslb/nodes/:id",              // GSLB node delete (DELETE) - Admin/Owner only
+	"/api/v3/gslb/nodes/notify-all",       // GSLB node proxy: broadcast notify to all nodes (POST)
+	"/api/v3/gslb/nodes/:id/health",       // GSLB node proxy: health check (GET)
+	"/api/v3/gslb/nodes/:id/records",      // GSLB node proxy: records query (GET)
+	"/api/v3/gslb/nodes/:id/notify",       // GSLB node proxy: notify specific node (POST)
 	// DNS API endpoints (CoreDNS plugin authentication via DNS secret)
 	"/dns/snapshot", // DNS snapshot for CoreDNS plugin
 	"/dns/changes",  // Incremental DNS changes (if implemented)

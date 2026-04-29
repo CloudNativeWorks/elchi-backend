@@ -28,7 +28,7 @@ var registryCmd = &cobra.Command{
 	Use:   "elchi-registry",
 	Short: "Start Elchi Registry Service",
 	Long:  `Start Elchi Registry Service`,
-	Run: func(_ *cobra.Command, _ []string) {
+	Run: func(cmd *cobra.Command, _ []string) {
 		appConfig := config.Read(cfgFile)
 
 		// Initialize logger with default config
@@ -41,14 +41,17 @@ var registryCmd = &cobra.Command{
 			log.Fatalf("Fatal: Logger could not be initialized: %v", err)
 		}
 
-		registryPort = appConfig.RegistryPort
+		// Port resolution: --port flag > REGISTRY_PORT in config > default 9090
+		if !cmd.Flags().Changed("port") && appConfig.RegistryPort > 0 {
+			registryPort = appConfig.RegistryPort
+		}
 
 		rootLogger := logger.NewLogger("registry")
-		rootLogger.Infof("Starting Elchi Registry Service")
+		rootLogger.Infof("Starting Elchi Registry Service on port %d", registryPort)
 
 		// Combine RegistryAddress and RegistryPort
 		registryAddress := "0.0.0.0"
-		fullAddress := fmt.Sprintf("%s:%d", registryAddress, appConfig.RegistryPort)
+		fullAddress := fmt.Sprintf("%s:%d", registryAddress, registryPort)
 
 		// Initialize in-memory storage
 		rootLogger.Info("Initializing in-memory storage...")
@@ -107,6 +110,7 @@ var registryCmd = &cobra.Command{
 		}
 	},
 }
+
 
 func init() {
 	rootCmd.AddCommand(registryCmd)

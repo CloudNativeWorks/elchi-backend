@@ -35,9 +35,16 @@ type AppConfig struct {
 	// CORS configuration
 	ElchiCORSAllowedOrigins string `mapstructure:"ELCHI_CORS_ALLOWED_ORIGINS" yaml:"ELCHI_CORS_ALLOWED_ORIGINS"`
 
-	// Routing configuration
-	RegistryAddress string `mapstructure:"REGISTRY_ADDRESS" yaml:"REGISTRY_ADDRESS"`
-	RegistryPort    uint   `mapstructure:"REGISTRY_PORT" yaml:"REGISTRY_PORT"`
+	// Routing configuration.
+	// REGISTRY_PORT is dual-purpose: the port the registry server listens on
+	// AND the port controllers/control-planes use to dial the registry.
+	// CONTROL_PLANE_PORT is the gRPC xDS port the control-plane listens on.
+	// Any of these can be overridden at runtime with the `--port` CLI flag.
+	// If unset (or 0) the binaries fall back to their built-in defaults
+	// (registry: 9090, control-plane: 18000) — startup never fails on a missing port.
+	RegistryAddress  string `mapstructure:"REGISTRY_ADDRESS" yaml:"REGISTRY_ADDRESS"`
+	RegistryPort     uint   `mapstructure:"REGISTRY_PORT" yaml:"REGISTRY_PORT"`
+	ControlPlanePort uint   `mapstructure:"CONTROL_PLANE_PORT" yaml:"CONTROL_PLANE_PORT"`
 
 	// ACME certificate management configuration
 	ACME ACMEConfig `mapstructure:"ACME" yaml:"ACME"`

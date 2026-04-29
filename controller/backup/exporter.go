@@ -12,6 +12,7 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/version"
 	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -53,7 +54,7 @@ func (e *Exporter) Export(ctx context.Context, req ExportRequest, username strin
 			CreatedBy:    username,
 			CreatedAt:    time.Now(),
 			Description:  req.Description,
-			ElchiVersion: "1.1.0", // TODO: Get from version package
+			ElchiVersion: version.GetProjectVersion(),
 			Filters: BackupFilters{
 				IncludeDefaults: req.IncludeDefaults,
 			},

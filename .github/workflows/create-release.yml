@@ -82,12 +82,14 @@ jobs:
             go mod edit -require="${GO_CONTROL_PLANE_RATELIMIT_PACKAGE}@v${ENVOY_VERSION}"
             go mod tidy
 
+            BIN_NAME="elchi-v${VERSION}-${CP_VERSION}"
+
             CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
               -a -installsuffix cgo \
-              -ldflags "-X github.com/CloudNativeWorks/elchi-backend/pkg/version.Version=v${ENVOY_VERSION} -X github.com/CloudNativeWorks/elchi-backend/pkg/version.ControlPlaneVersion=elchi-backend-${VERSION}-${CP_VERSION}" \
-              -o "binaries/elchi-backend-linux-amd64-${CP_VERSION}" .
+              -ldflags "-X github.com/CloudNativeWorks/elchi-backend/pkg/version.Version=v${ENVOY_VERSION} -X github.com/CloudNativeWorks/elchi-backend/pkg/version.ControlPlaneVersion=elchi-backend-${VERSION}-${CP_VERSION} -X github.com/CloudNativeWorks/elchi-backend/pkg/version.ProjectVersion=${VERSION}" \
+              -o "binaries/${BIN_NAME}" .
 
-            (cd binaries && sha256sum "elchi-backend-linux-amd64-${CP_VERSION}" > "elchi-backend-linux-amd64-${CP_VERSION}.sha256")
+            (cd binaries && sha256sum "${BIN_NAME}" > "${BIN_NAME}.sha256")
 
             # Restore go.mod for next iteration
             git checkout -- go.mod go.sum
@@ -125,7 +127,7 @@ jobs:
           IFS=',' read -ra CP_VERSIONS <<< "${ENVOY_VERSIONS}"
           for CP_VERSION in "${CP_VERSIONS[@]}"; do
             CP_VERSION=$(echo "$CP_VERSION" | xargs)
-            BINARIES_MD+="- \`elchi-backend-linux-amd64-${CP_VERSION}\` — control-plane \`${CP_VERSION}\`"$'\n'
+            BINARIES_MD+="- \`elchi-v${VERSION}-${CP_VERSION}\` — control-plane \`${CP_VERSION}\`"$'\n'
           done
 
           # First version is used as the example throughout the notes
@@ -144,14 +146,14 @@ jobs:
           ```bash
           CP_VERSION=${FIRST_CP}   # change to match your Envoy fleet
           curl -L -o elchi-backend \
-            https://github.com/${REPO}/releases/download/v${VERSION}/elchi-backend-linux-amd64-${CP_VERSION}
+            https://github.com/${REPO}/releases/download/v${VERSION}/elchi-v${VERSION}-${CP_VERSION}
           chmod +x elchi-backend
           ```
 
           Verify checksum (optional):
           ```bash
-          curl -L -O https://github.com/${REPO}/releases/download/v${VERSION}/elchi-backend-linux-amd64-${CP_VERSION}.sha256
-          sha256sum -c elchi-backend-linux-amd64-${CP_VERSION}.sha256
+          curl -L -O https://github.com/${REPO}/releases/download/v${VERSION}/elchi-v${VERSION}-${CP_VERSION}.sha256
+          sha256sum -c elchi-v${VERSION}-${CP_VERSION}.sha256
           ```
 
           ## Usage

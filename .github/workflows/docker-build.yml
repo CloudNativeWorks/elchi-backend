@@ -39,14 +39,17 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
-          # List every elchi-backend-linux-amd64-<CP_VERSION> asset (excluding .sha256 files)
+          # List every elchi-v<PROJECT_VERSION>-<CP_VERSION> asset (excluding .sha256 files).
+          # Naming convention is set in create-release.yml's "Build AMD64 binaries" step.
           mapfile -t BINARIES < <(gh release view "v${PROJECT_VERSION}" \
             --repo "${{ github.repository }}" \
             --json assets \
-            --jq '.assets[].name | select(startswith("elchi-backend-linux-amd64-") and (endswith(".sha256") | not))')
+            --jq '.assets[].name' \
+            | grep "^elchi-v${PROJECT_VERSION}-" \
+            | grep -v '\.sha256$' || true)
 
           if [ ${#BINARIES[@]} -eq 0 ]; then
-            echo "::error::No AMD64 binaries found on release v${PROJECT_VERSION}. Run 'Create Release' workflow first."
+            echo "::error::No AMD64 binaries found on release v${PROJECT_VERSION} (looking for elchi-v${PROJECT_VERSION}-*). Run 'Create Release' workflow first."
             exit 1
           fi
 
@@ -83,8 +86,8 @@ jobs:
           IMAGE_NAME="${DOCKER_USERNAME}/${DOCKER_IMAGE}"
 
           while IFS= read -r BIN; do
-            # Strip prefix to get CP_VERSION: elchi-backend-linux-amd64-<CP_VERSION>
-            CONTROL_PLANE_VERSION="${BIN#elchi-backend-linux-amd64-}"
+            # Strip prefix to get CP_VERSION: elchi-v<PROJECT_VERSION>-<CP_VERSION>
+            CONTROL_PLANE_VERSION="${BIN#elchi-v${PROJECT_VERSION}-}"
             ENVOY_VERSION=$(echo "$CONTROL_PLANE_VERSION" | sed -n 's/.*envoy\([0-9.]*\)/\1/p')
 
             # Dockerfile-release-binary defaults BINARY_PATH=elchi-backend-linux-amd64

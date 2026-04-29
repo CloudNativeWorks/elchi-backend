@@ -34,7 +34,7 @@ var grpcCmd = &cobra.Command{
 	Use:   "elchi-control-plane",
 	Short: "Start Elchi Control Plane",
 	Long:  `Start Elchi Control Plane`,
-	Run: func(_ *cobra.Command, _ []string) {
+	Run: func(cmd *cobra.Command, _ []string) {
 		appConfig := config.Read(cfgFile)
 		// Initialize logger with default config
 		if err := logger.Init(logger.Config{
@@ -44,6 +44,11 @@ var grpcCmd = &cobra.Command{
 			Module:     "root",
 		}); err != nil {
 			log.Fatalf("Fatal: Logger could not be initialized: %v", err)
+		}
+
+		// Port resolution: --port flag > CONTROL_PLANE_PORT in config > default 18000
+		if !cmd.Flags().Changed("port") && appConfig.ControlPlanePort > 0 {
+			port = appConfig.ControlPlanePort
 		}
 
 		appContext := db.NewMongoDB(appConfig, true)

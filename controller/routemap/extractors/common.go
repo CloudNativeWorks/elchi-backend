@@ -69,7 +69,7 @@ type DirectResponse struct {
 	Body   string `json:"body,omitempty"`
 }
 
-// ExtractString safely extracts a string value from interface{}
+// ExtractString safely extracts a string value from any
 func ExtractString(data any, path string) string {
 	jsonBytes, err := json.Marshal(data)
 	if err != nil {
@@ -79,7 +79,7 @@ func ExtractString(data any, path string) string {
 	return result.String()
 }
 
-// ExtractStringArray safely extracts a string array from interface{}
+// ExtractStringArray safely extracts a string array from any
 func ExtractStringArray(data any, path string) []string {
 	jsonBytes, err := json.Marshal(data)
 	if err != nil {
@@ -101,7 +101,7 @@ func ExtractStringArray(data any, path string) []string {
 	return strings
 }
 
-// ExtractMap safely extracts a map from interface{}
+// ExtractMap safely extracts a map from any
 func ExtractMap(data any, path string) map[string]any {
 	jsonBytes, err := json.Marshal(data)
 	if err != nil {
@@ -121,7 +121,7 @@ func ExtractMap(data any, path string) map[string]any {
 	return m
 }
 
-// ExtractArray safely extracts an array from interface{}
+// ExtractArray safely extracts an array from any
 func ExtractArray(data any, path string) []any {
 	jsonBytes, err := json.Marshal(data)
 	if err != nil {

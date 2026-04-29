@@ -52,7 +52,7 @@ type AuditEntry struct {
 	Duration       int64 `json:"duration_ms" bson:"duration_ms"`
 
 	// Changes for PUT requests - populated in handlers
-	Changes map[string]interface{} `json:"changes,omitempty" bson:"changes,omitempty"`
+	Changes map[string]any `json:"changes,omitempty" bson:"changes,omitempty"`
 
 	// Result tracking
 	Success      bool   `json:"success" bson:"success"`

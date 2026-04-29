@@ -632,7 +632,7 @@ func (a *UpgradeAnalyzer) checkClientVersionAvailability(ctx context.Context, cl
 }
 
 // parseVersionCheckResponse parses the version check response
-func (a *UpgradeAnalyzer) parseVersionCheckResponse(response interface{}, targetVersion string) bool {
+func (a *UpgradeAnalyzer) parseVersionCheckResponse(response any, targetVersion string) bool {
 	if response == nil {
 		a.logger.Warn("Version check response is nil")
 		return false
@@ -640,13 +640,13 @@ func (a *UpgradeAnalyzer) parseVersionCheckResponse(response interface{}, target
 
 	// HandleSendCommand returns []any when using executeDirectCommand
 	// Extract first element if it's an array
-	if arr, ok := response.([]interface{}); ok && len(arr) > 0 {
+	if arr, ok := response.([]any); ok && len(arr) > 0 {
 		response = arr[0]
 	}
 
 	// Response can be a map from HandleSendCommand
 	switch v := response.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		// Check if it's a successful response
 		if success, ok := v["success"].(bool); ok && !success {
 			a.logger.Warnf("Version check returned unsuccessful response")
@@ -654,11 +654,11 @@ func (a *UpgradeAnalyzer) parseVersionCheckResponse(response interface{}, target
 		}
 
 		// Check for envoy_version nested structure from responser
-		if envoyVersionData, ok := v["envoy_version"].(map[string]interface{}); ok {
+		if envoyVersionData, ok := v["envoy_version"].(map[string]any); ok {
 			// Try different type assertions for downloaded_versions
 			if dv, exists := envoyVersionData["downloaded_versions"]; exists {
 				switch versions := dv.(type) {
-				case []interface{}:
+				case []any:
 					for _, ver := range versions {
 						if verStr, ok := ver.(string); ok && verStr == targetVersion {
 							return true

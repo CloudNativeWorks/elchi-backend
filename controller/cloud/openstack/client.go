@@ -189,11 +189,11 @@ func (c *OpenStackClient) authenticate(ctx context.Context) error {
 	}
 
 	// Prepare authentication request using application credentials
-	authPayload := map[string]interface{}{
-		"auth": map[string]interface{}{
-			"identity": map[string]interface{}{
+	authPayload := map[string]any{
+		"auth": map[string]any{
+			"identity": map[string]any{
 				"methods": []string{"application_credential"},
-				"application_credential": map[string]interface{}{
+				"application_credential": map[string]any{
 					"id":     c.Username, // Application Credential ID
 					"secret": c.Password, // Application Credential Secret
 				},
@@ -837,8 +837,8 @@ func (c *OpenStackClient) AddFixedIP(ctx context.Context, portID, ipAddress, sub
 	port.FixedIPs = append(port.FixedIPs, newFixedIP)
 
 	// Update the port
-	updatePayload := map[string]interface{}{
-		"port": map[string]interface{}{
+	updatePayload := map[string]any{
+		"port": map[string]any{
 			"fixed_ips": port.FixedIPs,
 		},
 	}
@@ -898,8 +898,8 @@ func (c *OpenStackClient) RemoveFixedIP(ctx context.Context, portID, ipAddress s
 	c.Logger.Debugf("OpenStack Fixed IP - Updated fixed_ips array: %+v (length: %d)", updatedFixedIPs, len(updatedFixedIPs))
 
 	// Update the port
-	updatePayload := map[string]interface{}{
-		"port": map[string]interface{}{
+	updatePayload := map[string]any{
+		"port": map[string]any{
 			"fixed_ips": updatedFixedIPs,
 		},
 	}

@@ -225,7 +225,7 @@ func (m *Manager) GetJobByHumanID(ctx context.Context, humanID string) (*Job, er
 }
 
 // UpdateJob updates a job with the provided update document
-func (m *Manager) UpdateJob(ctx context.Context, jobID string, update interface{}) error {
+func (m *Manager) UpdateJob(ctx context.Context, jobID string, update any) error {
 	objID, err := primitive.ObjectIDFromHex(jobID)
 	if err != nil {
 		return fmt.Errorf("invalid job ID: %w", err)

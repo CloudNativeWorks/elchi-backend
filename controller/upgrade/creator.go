@@ -139,7 +139,7 @@ func (c *ResourceCreator) cloneForUpgrade(source models.DBResource, toVersion st
 	target.General.UpdatedAt = now
 
 	// 4. Clear metadata that shouldn't be copied
-	target.General.Metadata = make(map[string]interface{})
+	target.General.Metadata = make(map[string]any)
 
 	// 5. NO TypedConfig modification needed
 	// - Base64 encoded values in resource.resource have NO version field

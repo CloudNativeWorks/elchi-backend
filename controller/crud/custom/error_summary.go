@@ -88,7 +88,7 @@ func (custom *AppHandler) GetErrorSummary(ctx context.Context, _ models.Resource
 						"branches": []bson.M{
 							{
 								"case": bson.M{
-									"$gt": []interface{}{
+									"$gt": []any{
 										bson.M{
 											"$size": bson.M{
 												"$filter": bson.M{
@@ -109,7 +109,7 @@ func (custom *AppHandler) GetErrorSummary(ctx context.Context, _ models.Resource
 							},
 							{
 								"case": bson.M{
-									"$gt": []interface{}{
+									"$gt": []any{
 										bson.M{
 											"$size": bson.M{
 												"$filter": bson.M{
@@ -147,7 +147,7 @@ func (custom *AppHandler) GetErrorSummary(ctx context.Context, _ models.Resource
 			"$project": bson.M{
 				"service_id": bson.M{
 					"$toString": bson.M{
-						"$arrayElemAt": []interface{}{"$service_info._id", 0},
+						"$arrayElemAt": []any{"$service_info._id", 0},
 					},
 				},
 				"name":               1,

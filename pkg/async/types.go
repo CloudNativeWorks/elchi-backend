@@ -36,7 +36,7 @@ type JobManagerInterface interface {
 	CreateJob(ctx context.Context, req *CreateJobRequest) (*Job, error)
 	GetJob(ctx context.Context, jobID string) (*Job, error)
 	GetJobByHumanID(ctx context.Context, humanID string) (*Job, error)
-	UpdateJob(ctx context.Context, jobID string, update interface{}) error
+	UpdateJob(ctx context.Context, jobID string, update any) error
 	CancelJob(ctx context.Context, jobID string) error
 	ListJobs(ctx context.Context, filter *JobFilter) ([]*Job, error)
 	CountJobs(ctx context.Context, filter *JobFilter) (int64, error)
@@ -64,9 +64,9 @@ type DependencyAnalyzer interface {
 
 // WorkerConfig holds configuration for workers
 type WorkerConfig struct {
-	PokeService        interface{} // Will be *bridge.PokeServiceClient
+	PokeService        any // Will be *bridge.PokeServiceClient
 	JobManager         JobManagerInterface
-	DBContext          interface{} // Will be *db.AppContext
+	DBContext          any // Will be *db.AppContext
 	WAFProcessor       WAFProcessor
 	MaxConcurrentPokes int
 }

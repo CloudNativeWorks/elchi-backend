@@ -344,7 +344,7 @@ func (h *Handler) setAuditChanges(c *gin.Context) {
 					if db != nil {
 						diff := h.setWAFAuditChanges(c.Request.Context(), db, bodyBytes, configID)
 						if diff != "" {
-							audit.SetAuditChanges(c, map[string]interface{}{
+							audit.SetAuditChanges(c, map[string]any{
 								"diff": diff,
 							})
 						}
@@ -366,7 +366,7 @@ func (h *Handler) setAuditChanges(c *gin.Context) {
 			// Compare with existing resource from database
 			diff := h.compareWithExistingResource(c.Request.Context(), &newResource, requestDetails)
 			if diff != "" {
-				audit.SetAuditChanges(c, map[string]interface{}{
+				audit.SetAuditChanges(c, map[string]any{
 					"diff": diff,
 				})
 			}

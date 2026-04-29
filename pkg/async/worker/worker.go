@@ -110,8 +110,8 @@ func (w *Worker) processNextJob(ctx context.Context) {
 
 	// Mark job as running
 	now := time.Now()
-	err = w.jobManager.UpdateJob(ctx, claimedJob.ID.Hex(), map[string]interface{}{
-		"$set": map[string]interface{}{
+	err = w.jobManager.UpdateJob(ctx, claimedJob.ID.Hex(), map[string]any{
+		"$set": map[string]any{
 			"status":     job.JobStatusRunning,
 			"started_at": now,
 		},
@@ -266,7 +266,7 @@ func (w *Worker) verifyParentJobCompleted(ctx context.Context, childJob *job.Job
 			} `bson:"general"`
 		}
 
-		err := collection.FindOne(ctx, map[string]interface{}{
+		err := collection.FindOne(ctx, map[string]any{
 			"general.name":    secretName,
 			"general.version": version,
 			"general.project": project,

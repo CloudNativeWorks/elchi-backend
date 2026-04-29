@@ -43,7 +43,7 @@ type AsyncJobSystem interface {
 
 	// Fast response methods
 	CreatePreliminaryJob(ctx context.Context, req *CreateJobRequest) (*Job, error)
-	PerformBackgroundAnalysis(jobID string, resource interface{}, requestDetails interface{}, project string)
+	PerformBackgroundAnalysis(jobID string, resource any, requestDetails any, project string)
 
 	// Let's Encrypt specific methods
 	CreateACMEVerificationJob(ctx context.Context, req *CreateACMEJobRequest) (*Job, error)
@@ -340,7 +340,7 @@ func (s *asyncJobSystem) CreatePreliminaryJob(ctx context.Context, req *CreateJo
 }
 
 // PerformBackgroundAnalysis performs dependency analysis in background and updates job
-func (s *asyncJobSystem) PerformBackgroundAnalysis(jobID string, resource interface{}, requestDetails interface{}, project string) {
+func (s *asyncJobSystem) PerformBackgroundAnalysis(jobID string, resource any, requestDetails any, project string) {
 	go func() {
 		ctx := context.Background()
 		startTime := time.Now()
@@ -356,7 +356,7 @@ func (s *asyncJobSystem) PerformBackgroundAnalysis(jobID string, resource interf
 		var gtype models.GType
 		var resourceName, version string
 
-		// Extract resource information from interface{}
+		// Extract resource information from any
 		if resourceClass, ok := resource.(models.ResourceClass); ok {
 			gtype = resourceClass.GetGeneral().GType
 			resourceName = resourceClass.GetGeneral().Name

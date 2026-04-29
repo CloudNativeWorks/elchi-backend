@@ -268,7 +268,7 @@ func (handler *AppHandler) UpdateCloud(c *gin.Context) {
 		}
 	}
 
-	var partialUpdate map[string]interface{}
+	var partialUpdate map[string]any
 	if err := c.ShouldBindJSON(&partialUpdate); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": "invalid request body", "error": err.Error()})
 		return
@@ -305,7 +305,7 @@ func (handler *AppHandler) UpdateCloud(c *gin.Context) {
 	for key, value := range partialUpdate {
 		switch key {
 		case "auth":
-			if auth, ok := value.(map[string]interface{}); ok {
+			if auth, ok := value.(map[string]any); ok {
 				for authKey, authValue := range auth {
 					// Skip masked credentials - don't update them
 					if authStr, ok := authValue.(string); ok {

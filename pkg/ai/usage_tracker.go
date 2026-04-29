@@ -154,7 +154,7 @@ func (ut *UsageTracker) GetUsageStats(ctx context.Context, project string) (*AIU
 				"analyze_requests": bson.M{
 					"$sum": bson.M{
 						"$cond": bson.M{
-							"if":   bson.M{"$eq": []interface{}{"$request_type", "analyze"}},
+							"if":   bson.M{"$eq": []any{"$request_type", "analyze"}},
 							"then": 1,
 							"else": 0,
 						},
@@ -163,7 +163,7 @@ func (ut *UsageTracker) GetUsageStats(ctx context.Context, project string) (*AIU
 				"log_analyze_requests": bson.M{
 					"$sum": bson.M{
 						"$cond": bson.M{
-							"if":   bson.M{"$eq": []interface{}{"$request_type", "analyze-logs"}},
+							"if":   bson.M{"$eq": []any{"$request_type", "analyze-logs"}},
 							"then": 1,
 							"else": 0,
 						},
@@ -176,7 +176,7 @@ func (ut *UsageTracker) GetUsageStats(ctx context.Context, project string) (*AIU
 					"$sum": bson.M{
 						"$cond": bson.M{
 							"if": bson.M{
-								"$gte": []interface{}{"$timestamp", startOfDay},
+								"$gte": []any{"$timestamp", startOfDay},
 							},
 							"then": "$total_tokens",
 							"else": 0,
@@ -187,7 +187,7 @@ func (ut *UsageTracker) GetUsageStats(ctx context.Context, project string) (*AIU
 					"$sum": bson.M{
 						"$cond": bson.M{
 							"if": bson.M{
-								"$gte": []interface{}{"$timestamp", startOfWeek},
+								"$gte": []any{"$timestamp", startOfWeek},
 							},
 							"then": "$total_tokens",
 							"else": 0,
@@ -198,7 +198,7 @@ func (ut *UsageTracker) GetUsageStats(ctx context.Context, project string) (*AIU
 					"$sum": bson.M{
 						"$cond": bson.M{
 							"if": bson.M{
-								"$gte": []interface{}{"$timestamp", startOfMonth},
+								"$gte": []any{"$timestamp", startOfMonth},
 							},
 							"then": "$total_tokens",
 							"else": 0,
@@ -209,7 +209,7 @@ func (ut *UsageTracker) GetUsageStats(ctx context.Context, project string) (*AIU
 					"$sum": bson.M{
 						"$cond": bson.M{
 							"if": bson.M{
-								"$gte": []interface{}{"$timestamp", startOfDay},
+								"$gte": []any{"$timestamp", startOfDay},
 							},
 							"then": 1,
 							"else": 0,
@@ -220,7 +220,7 @@ func (ut *UsageTracker) GetUsageStats(ctx context.Context, project string) (*AIU
 					"$sum": bson.M{
 						"$cond": bson.M{
 							"if": bson.M{
-								"$gte": []interface{}{"$timestamp", startOfWeek},
+								"$gte": []any{"$timestamp", startOfWeek},
 							},
 							"then": 1,
 							"else": 0,
@@ -231,7 +231,7 @@ func (ut *UsageTracker) GetUsageStats(ctx context.Context, project string) (*AIU
 					"$sum": bson.M{
 						"$cond": bson.M{
 							"if": bson.M{
-								"$gte": []interface{}{"$timestamp", startOfDay},
+								"$gte": []any{"$timestamp", startOfDay},
 							},
 							"then": "$cost_usd",
 							"else": 0,
@@ -242,7 +242,7 @@ func (ut *UsageTracker) GetUsageStats(ctx context.Context, project string) (*AIU
 					"$sum": bson.M{
 						"$cond": bson.M{
 							"if": bson.M{
-								"$gte": []interface{}{"$timestamp", startOfWeek},
+								"$gte": []any{"$timestamp", startOfWeek},
 							},
 							"then": "$cost_usd",
 							"else": 0,
@@ -253,7 +253,7 @@ func (ut *UsageTracker) GetUsageStats(ctx context.Context, project string) (*AIU
 					"$sum": bson.M{
 						"$cond": bson.M{
 							"if": bson.M{
-								"$gte": []interface{}{"$timestamp", startOfMonth},
+								"$gte": []any{"$timestamp", startOfMonth},
 							},
 							"then": "$cost_usd",
 							"else": 0,
@@ -264,7 +264,7 @@ func (ut *UsageTracker) GetUsageStats(ctx context.Context, project string) (*AIU
 					"$sum": bson.M{
 						"$cond": bson.M{
 							"if": bson.M{
-								"$gte": []interface{}{"$timestamp", startOfMonth},
+								"$gte": []any{"$timestamp", startOfMonth},
 							},
 							"then": 1,
 							"else": 0,

@@ -55,7 +55,7 @@ type AvailableField struct {
 	Type                 FieldType          `json:"type"`                       // Field type
 	RequiredForCreation  bool               `json:"required_for_creation"`      // Must be selected when creating scenario
 	RequiredForExecution bool               `json:"required_for_execution"`     // Must have value when executing scenario (if selected)
-	DefaultValue         interface{}        `json:"default_value"`              // Default value (can be nil)
+	DefaultValue         any                `json:"default_value"`              // Default value (can be nil)
 	UseComponentName     bool               `json:"use_component_name"`         // If true, field value syncs with component name automatically
 	Options              []FieldOption      `json:"options,omitempty"`          // For select type fields
 	Connected            *ConnectedField    `json:"connected,omitempty"`        // Connected to other scenario component
@@ -82,7 +82,7 @@ type FieldDef struct {
 	Description     string              `json:"description,omitempty"`
 	Required        bool                `json:"required"`
 	Options         []FieldOption       `json:"options,omitempty"`
-	DefaultValue    interface{}         `json:"default_value,omitempty"`
+	DefaultValue    any                 `json:"default_value,omitempty"`
 	Properties      map[string]FieldDef `json:"properties,omitempty"`       // For nested objects
 	Connected       *ConnectedField     `json:"connected,omitempty"`        // For connected fields
 	ValidationRules []string            `json:"validation_rules,omitempty"` // Validation rules for the field
@@ -137,7 +137,7 @@ type NestedFieldSelection struct {
 type SelectedField struct {
 	FieldName       string                `json:"field_name"`
 	Required        bool                  `json:"required"`                   // User-defined requirement for execution
-	Value           interface{}           `json:"value,omitempty"`            // Can be null during scenario creation, must be filled for execution
+	Value           any                   `json:"value,omitempty"`            // Can be null during scenario creation, must be filled for execution
 	NestedSelection *NestedFieldSelection `json:"nested_selection,omitempty"` // For nested/conditional fields
 }
 
@@ -206,9 +206,9 @@ type ComponentCatalogResponse struct {
 
 // ExecuteScenarioResponse represents the response from scenario execution
 type ExecuteScenarioResponse struct {
-	Resources []map[string]interface{} `json:"resources"`
-	Success   bool                     `json:"success"`
-	Message   string                   `json:"message,omitempty"`
+	Resources []map[string]any `json:"resources"`
+	Success   bool             `json:"success"`
+	Message   string           `json:"message,omitempty"`
 }
 
 // ExportScenarioRequest represents request to export scenarios

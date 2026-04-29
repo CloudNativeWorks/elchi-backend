@@ -138,7 +138,7 @@ func getFreshUserGroups(ctx context.Context, appContext *db.AppContext, userID s
 	userCollection := appContext.Client.Collection("users")
 
 	// Get all groups where user is a member
-	cursor, err := groupCollection.Find(ctx, map[string]interface{}{"members": userID})
+	cursor, err := groupCollection.Find(ctx, map[string]any{"members": userID})
 	if err != nil {
 		return nil
 	}
@@ -159,7 +159,7 @@ func getFreshUserGroups(ctx context.Context, appContext *db.AppContext, userID s
 	var user struct {
 		BaseGroup *string `bson:"base_group"`
 	}
-	err = userCollection.FindOne(ctx, map[string]interface{}{"user_id": userID}).Decode(&user)
+	err = userCollection.FindOne(ctx, map[string]any{"user_id": userID}).Decode(&user)
 	if err == nil && user.BaseGroup != nil && *user.BaseGroup != "" {
 		// Add base_group if not already in list
 		found := false

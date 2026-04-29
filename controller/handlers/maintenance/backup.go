@@ -183,7 +183,7 @@ func (h *BackupHandler) ValidateBackup(c *gin.Context) {
 	result := validator.Validate(&backupData)
 
 	// Prepare response
-	response := map[string]interface{}{
+	response := map[string]any{
 		"valid":              result.Valid,
 		"version_compatible": result.VersionCompatible,
 		"warnings":           result.Warnings,
@@ -201,7 +201,7 @@ func (h *BackupHandler) ValidateBackup(c *gin.Context) {
 // GetBackupMetadata returns metadata from a backup file
 // POST /api/v3/setting/maintenance/backup/metadata
 func (h *BackupHandler) GetBackupMetadata(c *gin.Context) {
-	var data map[string]interface{}
+	var data map[string]any
 	if err := c.ShouldBindJSON(&data); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid data: %v", err)})
 		return

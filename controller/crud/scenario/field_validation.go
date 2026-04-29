@@ -356,7 +356,7 @@ func (fve *FieldValidationEngine) isFieldValueUnique(comp models.ComponentInstan
 	return true
 }
 
-func (fve *FieldValidationEngine) isValidIPv4(value interface{}) bool {
+func (fve *FieldValidationEngine) isValidIPv4(value any) bool {
 	if value == nil {
 		return true // nil is valid (optional field)
 	}
@@ -365,7 +365,7 @@ func (fve *FieldValidationEngine) isValidIPv4(value interface{}) bool {
 	return net.ParseIP(ip) != nil && strings.Contains(ip, ".")
 }
 
-func (fve *FieldValidationEngine) isValidPort(value interface{}) bool {
+func (fve *FieldValidationEngine) isValidPort(value any) bool {
 	if value == nil {
 		return true
 	}
@@ -389,7 +389,7 @@ func (fve *FieldValidationEngine) isValidPort(value interface{}) bool {
 	return port >= 1 && port <= 65535
 }
 
-func (fve *FieldValidationEngine) isValidDuration(value interface{}) bool {
+func (fve *FieldValidationEngine) isValidDuration(value any) bool {
 	if value == nil {
 		return true
 	}
@@ -414,7 +414,7 @@ func (fve *FieldValidationEngine) extractMinLength(rule string) int {
 	return minLength
 }
 
-func (fve *FieldValidationEngine) hasMinLength(value interface{}, minLength int) bool {
+func (fve *FieldValidationEngine) hasMinLength(value any, minLength int) bool {
 	if value == nil {
 		return false
 	}
@@ -437,7 +437,7 @@ func (fve *FieldValidationEngine) isEDSCluster(comp models.ComponentInstance) bo
 	return false
 }
 
-func (fve *FieldValidationEngine) clusterExists(clusterName interface{}) bool {
+func (fve *FieldValidationEngine) clusterExists(clusterName any) bool {
 	if clusterName == nil {
 		return true
 	}
@@ -459,14 +459,14 @@ func (fve *FieldValidationEngine) clusterExists(clusterName interface{}) bool {
 	return false
 }
 
-func (fve *FieldValidationEngine) isValidEndpointsArray(value interface{}) bool {
+func (fve *FieldValidationEngine) isValidEndpointsArray(value any) bool {
 	if value == nil {
 		return true
 	}
 
 	// Check if it's an array
 	switch v := value.(type) {
-	case []interface{}:
+	case []any:
 		// Valid array format
 		return len(v) > 0
 	case string:
@@ -477,13 +477,13 @@ func (fve *FieldValidationEngine) isValidEndpointsArray(value interface{}) bool 
 	}
 }
 
-func (fve *FieldValidationEngine) isValidDomainsArray(value interface{}) bool {
+func (fve *FieldValidationEngine) isValidDomainsArray(value any) bool {
 	if value == nil {
 		return true
 	}
 
 	switch v := value.(type) {
-	case []interface{}:
+	case []any:
 		return len(v) > 0
 	case []string:
 		return len(v) > 0
@@ -494,13 +494,13 @@ func (fve *FieldValidationEngine) isValidDomainsArray(value interface{}) bool {
 	}
 }
 
-func (fve *FieldValidationEngine) isValidRoutesArray(value interface{}) bool {
+func (fve *FieldValidationEngine) isValidRoutesArray(value any) bool {
 	if value == nil {
 		return true
 	}
 
 	switch v := value.(type) {
-	case []interface{}:
+	case []any:
 		return len(v) > 0
 	case string:
 		return strings.HasPrefix(v, "[") && strings.HasSuffix(v, "]")
@@ -509,11 +509,11 @@ func (fve *FieldValidationEngine) isValidRoutesArray(value interface{}) bool {
 	}
 }
 
-func (fve *FieldValidationEngine) isValidVirtualHostsArray(value interface{}) bool {
+func (fve *FieldValidationEngine) isValidVirtualHostsArray(value any) bool {
 	return fve.isValidRoutesArray(value) // Same logic
 }
 
-func (fve *FieldValidationEngine) isValidVHDSConfig(value interface{}) bool {
+func (fve *FieldValidationEngine) isValidVHDSConfig(value any) bool {
 	if value == nil {
 		return true
 	}
@@ -531,7 +531,7 @@ func (fve *FieldValidationEngine) listenerHasNetworkFilter(comp models.Component
 	for _, field := range comp.SelectedFields {
 		if field.FieldName == "network_filters" && field.Value != nil {
 			switch v := field.Value.(type) {
-			case []interface{}:
+			case []any:
 				return len(v) > 0
 			case string:
 				return v != "" && v != "[]"
@@ -569,16 +569,16 @@ func (fve *FieldValidationEngine) scenarioHasNetworkFilterComponents() bool {
 // }
 
 // httpFiltersIncludeRouter checks if http_filters array contains a router_filter
-func (fve *FieldValidationEngine) httpFiltersIncludeRouter(value interface{}) bool {
+func (fve *FieldValidationEngine) httpFiltersIncludeRouter(value any) bool {
 	if value == nil {
 		return false
 	}
 
 	switch v := value.(type) {
-	case []interface{}:
+	case []any:
 		// Check each filter in the array
 		for _, filter := range v {
-			if filterMap, ok := filter.(map[string]interface{}); ok {
+			if filterMap, ok := filter.(map[string]any); ok {
 				// Check if it's a router filter - must be http_filter type with router gtype
 				if filterType, exists := filterMap["type"]; exists && filterType == "http_filter" {
 					// Check gtype field for router filter identification
@@ -601,7 +601,7 @@ func (fve *FieldValidationEngine) httpFiltersIncludeRouter(value interface{}) bo
 }
 
 // routeExists checks if a route component exists in the scenario
-func (fve *FieldValidationEngine) routeExists(routeName interface{}) bool {
+func (fve *FieldValidationEngine) routeExists(routeName any) bool {
 	if routeName == nil {
 		return false
 	}

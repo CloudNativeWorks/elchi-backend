@@ -725,8 +725,8 @@ func (w *Worker) getConnectedClientsForListenerAnyVersion(ctx context.Context, l
 }
 
 // sendUpgradeCommandsToClients sends upgrade command to each client
-func (w *Worker) sendUpgradeCommandsToClients(ctx context.Context, clients []ClientRecord, meta *job.JobMetadata, project, listenerName, fromVersion, toVersion string) ([]interface{}, int, int) {
-	var clientResponses []interface{}
+func (w *Worker) sendUpgradeCommandsToClients(ctx context.Context, clients []ClientRecord, meta *job.JobMetadata, project, listenerName, fromVersion, toVersion string) ([]any, int, int) {
+	var clientResponses []any
 	successCount := 0
 	failureCount := 0
 
@@ -743,7 +743,7 @@ func (w *Worker) sendUpgradeCommandsToClients(ctx context.Context, clients []Cli
 		if err != nil {
 			w.logger.Errorf("Failed to send UPGRADE_LISTENER to client %s: %v", client.ClientID, err)
 			failureCount++
-			clientResponses = append(clientResponses, map[string]interface{}{
+			clientResponses = append(clientResponses, map[string]any{
 				"client_id": client.ClientID,
 				"error":     err.Error(),
 				"success":   false,
@@ -797,14 +797,14 @@ func (w *Worker) buildRequestDetails(meta *job.JobMetadata, toVersion string) mo
 }
 
 // storeClientResponses stores client responses in job metadata
-func (w *Worker) storeClientResponses(ctx context.Context, j *job.Job, clientResponses []interface{}) {
+func (w *Worker) storeClientResponses(ctx context.Context, j *job.Job, clientResponses []any) {
 	if len(clientResponses) == 0 {
 		return
 	}
 
 	// APPEND to existing responses instead of overwriting
 	existingResponses := j.Metadata.UpgradeConfig.ClientResponses
-	allResponses := make([]interface{}, 0, len(existingResponses)+len(clientResponses))
+	allResponses := make([]any, 0, len(existingResponses)+len(clientResponses))
 	allResponses = append(allResponses, existingResponses...)
 	allResponses = append(allResponses, clientResponses...)
 

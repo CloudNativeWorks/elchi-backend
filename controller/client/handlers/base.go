@@ -44,7 +44,7 @@ func (h *Client) ClearActiveRequestsForClient(clientID string) {
 	h.logger.Debugf("Clearing active requests for disconnected client: %s", clientID)
 
 	// Iterate through all active requests and close channels for this client
-	h.activeRequests.Range(func(key, value interface{}) bool {
+	h.activeRequests.Range(func(key, value any) bool {
 		requestHash := key.(string)
 		completionChan := value.(chan struct{})
 

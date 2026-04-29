@@ -245,13 +245,13 @@ func (t *AppHandler) DeleteScenario(scenarioID string, reqDetails models.Request
 
 // CreatedResource tracks created resources for rollback
 type CreatedResource struct {
-	ID         interface{} // ObjectID or resource identifier
-	Collection string      // MongoDB collection name
-	Name       string      // Resource name for logging
+	ID         any    // ObjectID or resource identifier
+	Collection string // MongoDB collection name
+	Name       string // Resource name for logging
 }
 
 // ExecuteScenario executes a scenario and generates resources
-func (t *AppHandler) ExecuteScenario(request models.ExecuteScenarioRequest, reqDetails models.RequestDetails) ([]map[string]interface{}, error) {
+func (t *AppHandler) ExecuteScenario(request models.ExecuteScenarioRequest, reqDetails models.RequestDetails) ([]map[string]any, error) {
 	scenario, err := t.GetScenarioByID(request.ScenarioID, reqDetails)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get scenario: %w", err)
@@ -263,7 +263,7 @@ func (t *AppHandler) ExecuteScenario(request models.ExecuteScenarioRequest, reqD
 		componentsToProcess = request.Components
 	}
 
-	var generatedResources []map[string]interface{}
+	var generatedResources []map[string]any
 	var createdResources []CreatedResource // Track created resources for rollback
 	version := request.Version             // Use version from request
 
@@ -308,7 +308,7 @@ func (t *AppHandler) ExecuteScenario(request models.ExecuteScenarioRequest, reqD
 		}
 
 		// All generators now return single document (even listeners with multiple resources)
-		document, ok := result.(map[string]interface{})
+		document, ok := result.(map[string]any)
 		if !ok {
 			return nil, fmt.Errorf("unexpected result type from generator for component %s: %T", componentInstance.Name, result)
 		}
@@ -349,8 +349,8 @@ func (t *AppHandler) ExecuteScenario(request models.ExecuteScenarioRequest, reqD
 	return generatedResources, nil
 }
 
-// convertDocumentToResourceClass converts map[string]interface{} document to models.ResourceClass
-func convertDocumentToResourceClass(document map[string]interface{}) (models.ResourceClass, error) {
+// convertDocumentToResourceClass converts map[string]any document to models.ResourceClass
+func convertDocumentToResourceClass(document map[string]any) (models.ResourceClass, error) {
 	// Convert map to JSON bytes
 	jsonData, err := json.Marshal(document)
 	if err != nil {
@@ -367,7 +367,7 @@ func convertDocumentToResourceClass(document map[string]interface{}) (models.Res
 }
 
 // saveResourceToDatabaseWithID saves resource and returns the created ID
-func (t *AppHandler) saveResourceToDatabaseWithID(document map[string]interface{}, reqDetails models.RequestDetails) (interface{}, error) {
+func (t *AppHandler) saveResourceToDatabaseWithID(document map[string]any, reqDetails models.RequestDetails) (any, error) {
 	// Use normal DBResource conversion for all resource types
 	resource, err := convertDocumentToResourceClass(document)
 	if err != nil {
@@ -392,7 +392,7 @@ func (t *AppHandler) saveResourceToDatabaseWithID(document map[string]interface{
 	// Extract ID from result
 	if resultMap, ok := result.(map[string]any); ok {
 		// Check for resource_id in nested data
-		if data, exists := resultMap["data"].(map[string]interface{}); exists {
+		if data, exists := resultMap["data"].(map[string]any); exists {
 			if resourceID, exists := data["resource_id"]; exists {
 				return resourceID, nil
 			}
@@ -404,7 +404,7 @@ func (t *AppHandler) saveResourceToDatabaseWithID(document map[string]interface{
 		}
 
 		// Try to get from general section
-		if general, ok := resultMap["general"].(map[string]interface{}); ok {
+		if general, ok := resultMap["general"].(map[string]any); ok {
 			if id, exists := general["_id"]; exists {
 				return id, nil
 			}
@@ -415,7 +415,7 @@ func (t *AppHandler) saveResourceToDatabaseWithID(document map[string]interface{
 }
 
 // fetchListenerDetailsForRollback fetches listener document details needed for XDS deletion
-func (t *AppHandler) fetchListenerDetailsForRollback(resourceID interface{}) (*models.DBResource, error) {
+func (t *AppHandler) fetchListenerDetailsForRollback(resourceID any) (*models.DBResource, error) {
 	collection := t.Context.Client.Collection("listeners")
 
 	// Convert resource ID to ObjectID filter
@@ -435,7 +435,7 @@ func (t *AppHandler) fetchListenerDetailsForRollback(resourceID interface{}) (*m
 
 // deleteListenerWithDependencies deletes a listener using XDS logic to ensure proper cleanup
 // This automatically removes associated bootstrap, service, and admin_port records
-func (t *AppHandler) deleteListenerWithDependencies(resourceID interface{}, resourceName string, reqDetails models.RequestDetails) error {
+func (t *AppHandler) deleteListenerWithDependencies(resourceID any, resourceName string, reqDetails models.RequestDetails) error {
 	// Fetch listener details
 	listenerDoc, err := t.fetchListenerDetailsForRollback(resourceID)
 	if err != nil {

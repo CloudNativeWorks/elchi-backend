@@ -217,7 +217,7 @@ func (s *Service) flushBatch(entries []*models.AuditEntry) {
 	defer cancel()
 
 	// Convert to interface slice for InsertMany
-	docs := make([]interface{}, len(entries))
+	docs := make([]any, len(entries))
 	for i, entry := range entries {
 		docs[i] = entry
 	}
@@ -332,7 +332,7 @@ func SetAuditCommand(c *gin.Context, command map[string]any) {
 
 // mutexPool reuses mutexes to prevent memory leaks
 var mutexPool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		return &sync.Mutex{}
 	},
 }

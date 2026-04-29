@@ -125,7 +125,7 @@ func (s *Server) registerServer(grpcServer *grpc.Server, db *db.AppContext) {
 }
 
 // logInterceptor logs unary RPC calls for debugging
-func (s *Server) logInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+func (s *Server) logInterceptor(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 	start := time.Now()
 
 	// Get peer info
@@ -149,7 +149,7 @@ func (s *Server) logInterceptor(ctx context.Context, req interface{}, info *grpc
 }
 
 // logStreamInterceptor logs streaming RPC calls for debugging
-func (s *Server) logStreamInterceptor(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+func (s *Server) logStreamInterceptor(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 	start := time.Now()
 
 	// Get peer info

@@ -179,8 +179,8 @@ func (w *Worker) processACMEVerificationJob(ctx context.Context, j *job.Job) {
 
 		// Store execution details even on failure
 		objID, _ := primitive.ObjectIDFromHex(j.ID.Hex())
-		if err := w.jobManager.UpdateJob(ctx, objID.Hex(), map[string]interface{}{
-			"$set": map[string]interface{}{
+		if err := w.jobManager.UpdateJob(ctx, objID.Hex(), map[string]any{
+			"$set": map[string]any{
 				"execution_details": executionDetails,
 			},
 		}); err != nil {

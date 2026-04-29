@@ -189,7 +189,7 @@ func (s *RenewalScheduler) getActiveProjects(ctx context.Context) ([]string, err
 		return nil, fmt.Errorf("failed to get distinct projects: %w", err)
 	}
 
-	// Convert []interface{} to []string
+	// Convert []any to []string
 	projectList := make([]string, 0, len(projects))
 	for _, p := range projects {
 		if projectStr, ok := p.(string); ok {

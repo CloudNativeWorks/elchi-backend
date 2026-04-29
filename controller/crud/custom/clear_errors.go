@@ -92,7 +92,7 @@ func (custom *AppHandler) ClearErrorsByID(ctx context.Context, _ models.Resource
 	if mode == "resolve" {
 		// Use arrayFilters for resolve mode
 		arrayFilters := options.ArrayFilters{
-			Filters: []interface{}{
+			Filters: []any{
 				bson.M{"elem._id": bson.M{"$in": errorIDs}},
 			},
 		}

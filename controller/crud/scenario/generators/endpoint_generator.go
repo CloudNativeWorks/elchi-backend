@@ -156,7 +156,7 @@ func (eg *EndpointGenerator) Generate(instance models.ComponentInstance) (any, e
 			},
 		}
 
-		// Add discovery configuration to general section (general is already map[string]interface{})
+		// Add discovery configuration to general section (general is already map[string]any)
 		general["elchi_discovery"] = elchiDiscovery
 
 		// Return basic resource with discovery configuration in general section

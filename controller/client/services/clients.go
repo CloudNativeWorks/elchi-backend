@@ -132,7 +132,7 @@ func (s *ClientService) getProjectName(ctx context.Context, projectID string) st
 // validateCloudKeyExists checks if cloud configuration exists in project settings
 func (s *ClientService) validateCloudKeyExists(ctx context.Context, projectID string, cloudKey string) error {
 	var settings struct {
-		Clouds map[string]interface{} `bson:"clouds"`
+		Clouds map[string]any `bson:"clouds"`
 	}
 
 	err := s.Context.Client.Collection("settings").FindOne(

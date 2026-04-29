@@ -281,9 +281,9 @@ func AutoResolveAllErrors(ctx context.Context, dbClient *mongo.Database, nodeID 
 						"as":    "error",
 						"in": bson.M{
 							"$cond": bson.M{
-								"if": bson.M{"$eq": []interface{}{"$$error.status", string(StatusActive)}},
+								"if": bson.M{"$eq": []any{"$$error.status", string(StatusActive)}},
 								"then": bson.M{
-									"$mergeObjects": []interface{}{
+									"$mergeObjects": []any{
 										"$$error",
 										bson.M{
 											"status":      string(StatusResolved),

@@ -322,7 +322,7 @@ func (r *RegistryClient) GetClientLocation(clientID string) (*bridge.GetControll
 }
 
 // GetRegistryData returns all registry data via gRPC
-func (r *RegistryClient) GetRegistryData(ctx context.Context) (map[string]interface{}, error) {
+func (r *RegistryClient) GetRegistryData(ctx context.Context) (map[string]any, error) {
 	if r.conn == nil {
 		return nil, fmt.Errorf("registry connection not available")
 	}
@@ -350,18 +350,18 @@ func (r *RegistryClient) GetRegistryData(ctx context.Context) (map[string]interf
 	}
 
 	// Combine all data
-	registryData := map[string]interface{}{
+	registryData := map[string]any{
 		"message": "Full registry data retrieved successfully",
 		"status":  "connected",
-		"controller_data": map[string]interface{}{
+		"controller_data": map[string]any{
 			"controllers":           controllerResp.Data.Controllers,
 			"clients_by_controller": controllerResp.Data.ClientsByController,
 		},
-		"control_plane_data": map[string]interface{}{
+		"control_plane_data": map[string]any{
 			"control_planes":         controlPlaneResp.Data.ControlPlanes,
 			"nodes_by_control_plane": controlPlaneResp.Data.NodesByControlPlane,
 		},
-		"client_info": map[string]interface{}{
+		"client_info": map[string]any{
 			"controller_id": r.controllerID,
 			"version":       r.version,
 			"grpc_address":  r.grpcAddress,

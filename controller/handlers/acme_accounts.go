@@ -428,7 +428,7 @@ func (h *ACMEHandler) hasPermission(user models.UserDetails, permissions acme.Pe
 // getCertificatesUsingAccount retrieves the list of certificate IDs using a specific account
 func (h *ACMEHandler) getCertificatesUsingAccount(ctx context.Context, accountID primitive.ObjectID, project string) ([]string, error) {
 	collection := h.manager.GetDB().Collection("acme_certificates")
-	cursor, err := collection.Find(ctx, map[string]interface{}{
+	cursor, err := collection.Find(ctx, map[string]any{
 		"project":         project,
 		"acme.account_id": accountID,
 	})

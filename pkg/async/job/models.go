@@ -208,7 +208,7 @@ type UpgradeMetadata struct {
 	UpdateBootstrap   bool                   `bson:"update_bootstrap" json:"update_bootstrap"`
 	DryRun            bool                   `bson:"dry_run" json:"dry_run"`
 	Analysis          *UpgradeAnalysisResult `bson:"analysis,omitempty" json:"analysis,omitempty"`
-	ClientResponses   []interface{}          `bson:"client_responses,omitempty" json:"client_responses,omitempty"`   // Raw responses from each client
+	ClientResponses   []any                  `bson:"client_responses,omitempty" json:"client_responses,omitempty"`   // Raw responses from each client
 	CreatedResources  []ResourceRef          `bson:"created_resources,omitempty" json:"created_resources,omitempty"` // Resources created during upgrade
 	BootstrapUpdates  []BootstrapUpdate      `bson:"bootstrap_updates,omitempty" json:"bootstrap_updates,omitempty"` // Bootstrap updates performed
 }

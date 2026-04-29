@@ -436,7 +436,7 @@ func (s *ClientService) CleanupStaleEnvoysFromDB(ctx context.Context) error {
 
 	// ArrayFilters: Apply update only to envoys with lastSync < threshold
 	arrayFilters := options.ArrayFilters{
-		Filters: []interface{}{
+		Filters: []any{
 			bson.M{
 				"elem.connected": true,
 				"elem.lastSync":  bson.M{"$lt": staleThreshold},

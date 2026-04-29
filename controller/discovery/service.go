@@ -279,25 +279,25 @@ func (ds *DiscoveryService) updateEndpointFromNodes(_ context.Context, endpoint 
 func (ds *DiscoveryService) extractCurrentIPsForCluster(endpoint models.DBResource, clusterName string) []string {
 	ips := []string{}
 
-	// Parse the resource structure - handle both primitive.M and map[string]interface{}
-	var resourceData map[string]interface{}
+	// Parse the resource structure - handle both primitive.M and map[string]any
+	var resourceData map[string]any
 	switch v := endpoint.Resource.Resource.(type) {
 	case primitive.M:
-		resourceData = map[string]interface{}(v)
-	case map[string]interface{}:
+		resourceData = map[string]any(v)
+	case map[string]any:
 		resourceData = v
 	default:
 		return ips
 	}
 
 	// Try multiple types for endpoints field
-	var endpoints []interface{}
+	var endpoints []any
 	if endpointsField, exists := resourceData["endpoints"]; exists {
 		switch v := endpointsField.(type) {
-		case []interface{}:
+		case []any:
 			endpoints = v
 		case primitive.A:
-			endpoints = []interface{}(v)
+			endpoints = []any(v)
 		default:
 			return ips
 		}
@@ -306,26 +306,26 @@ func (ds *DiscoveryService) extractCurrentIPsForCluster(endpoint models.DBResour
 	}
 
 	for _, ep := range endpoints {
-		var epMap map[string]interface{}
+		var epMap map[string]any
 		switch v := ep.(type) {
 		case primitive.M:
-			epMap = map[string]interface{}(v)
-		case map[string]interface{}:
+			epMap = map[string]any(v)
+		case map[string]any:
 			epMap = v
 		default:
 			continue
 		}
 
 		// Check if this endpoint belongs to the specific cluster via locality.region
-		var locality map[string]interface{}
+		var locality map[string]any
 		hasLocality := false
 
 		if localityField, exists := epMap["locality"]; exists {
 			switch v := localityField.(type) {
 			case primitive.M:
-				locality = map[string]interface{}(v)
+				locality = map[string]any(v)
 				hasLocality = true
-			case map[string]interface{}:
+			case map[string]any:
 				locality = v
 				hasLocality = true
 			}
@@ -341,13 +341,13 @@ func (ds *DiscoveryService) extractCurrentIPsForCluster(endpoint models.DBResour
 		}
 
 		// Handle lb_endpoints with multiple types
-		var lbEndpoints []interface{}
+		var lbEndpoints []any
 		if lbEndpointsField, exists := epMap["lb_endpoints"]; exists {
 			switch v := lbEndpointsField.(type) {
-			case []interface{}:
+			case []any:
 				lbEndpoints = v
 			case primitive.A:
-				lbEndpoints = []interface{}(v)
+				lbEndpoints = []any(v)
 			default:
 				continue
 			}
@@ -356,22 +356,22 @@ func (ds *DiscoveryService) extractCurrentIPsForCluster(endpoint models.DBResour
 		}
 
 		for _, lbEp := range lbEndpoints {
-			var lbEpMap map[string]interface{}
+			var lbEpMap map[string]any
 			switch v := lbEp.(type) {
 			case primitive.M:
-				lbEpMap = map[string]interface{}(v)
-			case map[string]interface{}:
+				lbEpMap = map[string]any(v)
+			case map[string]any:
 				lbEpMap = v
 			default:
 				continue
 			}
 
-			var endpointMap map[string]interface{}
+			var endpointMap map[string]any
 			if endpointField, exists := lbEpMap["endpoint"]; exists {
 				switch v := endpointField.(type) {
 				case primitive.M:
-					endpointMap = map[string]interface{}(v)
-				case map[string]interface{}:
+					endpointMap = map[string]any(v)
+				case map[string]any:
 					endpointMap = v
 				default:
 					continue
@@ -380,12 +380,12 @@ func (ds *DiscoveryService) extractCurrentIPsForCluster(endpoint models.DBResour
 				continue
 			}
 
-			var address map[string]interface{}
+			var address map[string]any
 			if addressField, exists := endpointMap["address"]; exists {
 				switch v := addressField.(type) {
 				case primitive.M:
-					address = map[string]interface{}(v)
-				case map[string]interface{}:
+					address = map[string]any(v)
+				case map[string]any:
 					address = v
 				default:
 					continue
@@ -394,12 +394,12 @@ func (ds *DiscoveryService) extractCurrentIPsForCluster(endpoint models.DBResour
 				continue
 			}
 
-			var socketAddress map[string]interface{}
+			var socketAddress map[string]any
 			if socketField, exists := address["socket_address"]; exists {
 				switch v := socketField.(type) {
 				case primitive.M:
-					socketAddress = map[string]interface{}(v)
-				case map[string]interface{}:
+					socketAddress = map[string]any(v)
+				case map[string]any:
 					socketAddress = v
 				default:
 					continue
@@ -441,29 +441,29 @@ func (ds *DiscoveryService) compareIPLists(current, new []string) bool {
 
 // updateEndpointResourceForCluster updates only the specific cluster's endpoints
 func (ds *DiscoveryService) updateEndpointResourceForCluster(endpoint models.DBResource, newIPs []string, discoveryConfig *models.ElchiDiscovery, clusterName string) {
-	// Handle both primitive.M (from MongoDB) and map[string]interface{} types
-	var resourceData map[string]interface{}
+	// Handle both primitive.M (from MongoDB) and map[string]any types
+	var resourceData map[string]any
 	switch v := endpoint.Resource.Resource.(type) {
 	case primitive.M:
-		resourceData = map[string]interface{}(v)
-	case map[string]interface{}:
+		resourceData = map[string]any(v)
+	case map[string]any:
 		resourceData = v
 	default:
 		// If unexpected type, create empty resource
-		resourceData = make(map[string]interface{})
+		resourceData = make(map[string]any)
 	}
-	endpoints, ok := resourceData["endpoints"].([]interface{})
+	endpoints, ok := resourceData["endpoints"].([]any)
 	if !ok {
-		endpoints = []interface{}{}
+		endpoints = []any{}
 	}
 
 	// Create new lb_endpoints for this cluster
-	newLbEndpoints := []map[string]interface{}{}
+	newLbEndpoints := []map[string]any{}
 	for _, ip := range newIPs {
-		lbEndpoint := map[string]interface{}{
-			"endpoint": map[string]interface{}{
-				"address": map[string]interface{}{
-					"socket_address": map[string]interface{}{
+		lbEndpoint := map[string]any{
+			"endpoint": map[string]any{
+				"address": map[string]any{
+					"socket_address": map[string]any{
 						"protocol":   discoveryConfig.Protocol,
 						"address":    ip,
 						"port_value": discoveryConfig.Port,
@@ -475,26 +475,26 @@ func (ds *DiscoveryService) updateEndpointResourceForCluster(endpoint models.DBR
 	}
 
 	// Create/update the endpoint for this cluster with locality
-	clusterEndpoint := map[string]interface{}{
-		"locality": map[string]interface{}{
+	clusterEndpoint := map[string]any{
+		"locality": map[string]any{
 			"region": clusterName, // Use cluster name as region for identification
 		},
 		"lb_endpoints": newLbEndpoints,
 	}
 
 	// Find and update the existing cluster endpoint, or add new one
-	var updatedEndpoints []interface{}
+	var updatedEndpoints []any
 	clusterFound := false
 
 	for _, ep := range endpoints {
-		epMap, ok := ep.(map[string]interface{})
+		epMap, ok := ep.(map[string]any)
 		if !ok {
 			updatedEndpoints = append(updatedEndpoints, ep)
 			continue
 		}
 
 		// Check if this endpoint belongs to our cluster
-		locality, hasLocality := epMap["locality"].(map[string]interface{})
+		locality, hasLocality := epMap["locality"].(map[string]any)
 		if hasLocality {
 			if region, ok := locality["region"].(string); ok && region == clusterName {
 				// Replace this cluster's endpoint
@@ -1093,7 +1093,7 @@ func (ds *DiscoveryService) logDiscoveryAudit(_ context.Context, c *gin.Context,
 	}
 
 	// Combine changes and details for audit
-	auditChanges := map[string]interface{}{
+	auditChanges := map[string]any{
 		"before": changes["before"],
 		"after":  changes["after"],
 		"diff":   changes["diff"],

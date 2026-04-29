@@ -21,13 +21,13 @@ func GenerateEnvoyResourceDocumentWithMapping(componentInstance models.Component
 	}
 
 	// All generators now return single document
-	document, ok := result.(map[string]interface{})
+	document, ok := result.(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("unexpected result type from generator: %T", result)
 	}
 
 	// Update general section
-	if general, ok := document["general"].(map[string]interface{}); ok {
+	if general, ok := document["general"].(map[string]any); ok {
 		updateGeneralSection(general)
 	}
 
@@ -35,15 +35,15 @@ func GenerateEnvoyResourceDocumentWithMapping(componentInstance models.Component
 }
 
 // updateGeneralSection updates the general section with standard metadata
-func updateGeneralSection(general map[string]interface{}) {
+func updateGeneralSection(general map[string]any) {
 	// Update permissions to use only empty arrays since permissions were removed
-	general["permissions"] = map[string]interface{}{
+	general["permissions"] = map[string]any{
 		"users":  []string{},
 		"groups": []string{},
 	}
 
 	// Update metadata
-	general["metadata"] = map[string]interface{}{
+	general["metadata"] = map[string]any{
 		"from_template":         true,
 		"created_from_scenario": true,
 	}

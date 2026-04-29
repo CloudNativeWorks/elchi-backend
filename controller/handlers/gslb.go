@@ -164,7 +164,7 @@ func (h *GSLBHandler) ListGSLBRecords(c *gin.Context) {
 					{Key: "$filter", Value: bson.D{
 						{Key: "input", Value: "$ips"},
 						{Key: "as", Value: "ip"},
-						{Key: "cond", Value: bson.D{{Key: "$ne", Value: []interface{}{"$$ip.health_state", "critical"}}}},
+						{Key: "cond", Value: bson.D{{Key: "$ne", Value: []any{"$$ip.health_state", "critical"}}}},
 					}},
 				}},
 			}},
@@ -173,7 +173,7 @@ func (h *GSLBHandler) ListGSLBRecords(c *gin.Context) {
 					{Key: "$filter", Value: bson.D{
 						{Key: "input", Value: "$ips"},
 						{Key: "as", Value: "ip"},
-						{Key: "cond", Value: bson.D{{Key: "$eq", Value: []interface{}{"$$ip.health_state", "critical"}}}},
+						{Key: "cond", Value: bson.D{{Key: "$eq", Value: []any{"$$ip.health_state", "critical"}}}},
 					}},
 				}},
 			}},

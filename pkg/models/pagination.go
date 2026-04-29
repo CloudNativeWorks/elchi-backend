@@ -28,15 +28,15 @@ type PaginationRequest struct {
 
 // PaginationResponse represents the response with pagination metadata
 type PaginationResponse struct {
-	Data        interface{} `json:"data"`         // The actual data items
-	Count       int         `json:"count"`        // Number of items in current page
-	TotalCount  int64       `json:"total_count"`  // Total items matching filters
-	TotalPages  int         `json:"total_pages"`  // Total number of pages
-	Limit       int         `json:"limit"`        // Items per page
-	Offset      int         `json:"offset"`       // Current offset
-	CurrentPage int         `json:"current_page"` // Current page number (1-indexed)
-	HasNext     bool        `json:"has_next"`     // Whether there's a next page
-	HasPrev     bool        `json:"has_prev"`     // Whether there's a previous page
+	Data        any   `json:"data"`         // The actual data items
+	Count       int   `json:"count"`        // Number of items in current page
+	TotalCount  int64 `json:"total_count"`  // Total items matching filters
+	TotalPages  int   `json:"total_pages"`  // Total number of pages
+	Limit       int   `json:"limit"`        // Items per page
+	Offset      int   `json:"offset"`       // Current offset
+	CurrentPage int   `json:"current_page"` // Current page number (1-indexed)
+	HasNext     bool  `json:"has_next"`     // Whether there's a next page
+	HasPrev     bool  `json:"has_prev"`     // Whether there's a previous page
 }
 
 // ParsePaginationParams parses pagination parameters from Gin context
@@ -155,7 +155,7 @@ func (p *PaginationRequest) BuildFindOptions() *options.FindOptions {
 }
 
 // BuildResponse builds the final pagination response
-func (p *PaginationRequest) BuildResponse(data interface{}, totalCount int64) *PaginationResponse {
+func (p *PaginationRequest) BuildResponse(data any, totalCount int64) *PaginationResponse {
 	// Calculate pagination metadata
 	currentPage := (p.Offset / p.Limit) + 1
 	totalPages := int(totalCount) / p.Limit
@@ -166,9 +166,9 @@ func (p *PaginationRequest) BuildResponse(data interface{}, totalCount int64) *P
 	// Get actual count from data
 	count := 0
 	switch v := data.(type) {
-	case []interface{}:
+	case []any:
 		count = len(v)
-	case []map[string]interface{}:
+	case []map[string]any:
 		count = len(v)
 	case []bson.M:
 		count = len(v)

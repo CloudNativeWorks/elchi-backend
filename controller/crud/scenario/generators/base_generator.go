@@ -60,8 +60,8 @@ func (bg *BaseGenerator) GenerateRandomString(length int) string {
 }
 
 // BuildGeneralSection creates the general section for any component
-func (bg *BaseGenerator) BuildGeneralSection(instance models.ComponentInstance, componentType, collection, canonicalName, gtype, category string) map[string]interface{} {
-	general := map[string]interface{}{
+func (bg *BaseGenerator) BuildGeneralSection(instance models.ComponentInstance, componentType, collection, canonicalName, gtype, category string) map[string]any {
+	general := map[string]any{
 		"name":           instance.Name,
 		"version":        bg.Version, // This comes from execution request, not default
 		"type":           componentType,
@@ -70,10 +70,10 @@ func (bg *BaseGenerator) BuildGeneralSection(instance models.ComponentInstance, 
 		"collection":     collection,
 		"canonical_name": canonicalName,
 		"category":       category,
-		"metadata": map[string]interface{}{
+		"metadata": map[string]any{
 			"from_template": true,
 		},
-		"permissions": map[string]interface{}{
+		"permissions": map[string]any{
 			"users":  []string{},
 			"groups": []string{},
 		},
@@ -85,14 +85,14 @@ func (bg *BaseGenerator) BuildGeneralSection(instance models.ComponentInstance, 
 }
 
 // BuildGeneralSectionWithManaged creates the general section for listener (with managed field)
-func (bg *BaseGenerator) BuildGeneralSectionWithManaged(instance models.ComponentInstance, componentType, collection, canonicalName, gtype, category string, managed bool) map[string]interface{} {
+func (bg *BaseGenerator) BuildGeneralSectionWithManaged(instance models.ComponentInstance, componentType, collection, canonicalName, gtype, category string, managed bool) map[string]any {
 	general := bg.BuildGeneralSection(instance, componentType, collection, canonicalName, gtype, category)
 	general["managed"] = managed // Only add managed for listener
 	return general
 }
 
 // GetFieldValue retrieves field value from selected fields
-func (bg *BaseGenerator) GetFieldValue(selectedFields []models.SelectedField, fieldName string, defaultValue interface{}) interface{} {
+func (bg *BaseGenerator) GetFieldValue(selectedFields []models.SelectedField, fieldName string, defaultValue any) any {
 	for _, field := range selectedFields {
 		if field.FieldName == fieldName && field.Value != nil {
 			return field.Value
@@ -112,7 +112,7 @@ func (bg *BaseGenerator) GetNestedFieldSelection(selectedFields []models.Selecte
 }
 
 // GetNestedFieldValue retrieves value from nested field path (e.g., "route_configuration.inline.name")
-func (bg *BaseGenerator) GetNestedFieldValue(selectedFields []models.SelectedField, fieldPath string, defaultValue interface{}) interface{} {
+func (bg *BaseGenerator) GetNestedFieldValue(selectedFields []models.SelectedField, fieldPath string, defaultValue any) any {
 	// Split path by dots: route_configuration.inline.name
 	parts := strings.Split(fieldPath, ".")
 	if len(parts) < 2 {
@@ -131,7 +131,7 @@ func (bg *BaseGenerator) GetNestedFieldValue(selectedFields []models.SelectedFie
 }
 
 // getValueFromNestedPath navigates through nested selection path
-func (bg *BaseGenerator) getValueFromNestedPath(selection *models.NestedFieldSelection, pathParts []string, defaultValue interface{}) interface{} {
+func (bg *BaseGenerator) getValueFromNestedPath(selection *models.NestedFieldSelection, pathParts []string, defaultValue any) any {
 	if len(pathParts) == 0 {
 		return defaultValue
 	}
@@ -160,7 +160,7 @@ func (bg *BaseGenerator) getValueFromNestedPath(selection *models.NestedFieldSel
 }
 
 // GetFieldValueWithComponentNameSupport retrieves field value with UseComponentName support
-func (bg *BaseGenerator) GetFieldValueWithComponentNameSupport(instance models.ComponentInstance, fieldName string, defaultValue interface{}) interface{} {
+func (bg *BaseGenerator) GetFieldValueWithComponentNameSupport(instance models.ComponentInstance, fieldName string, defaultValue any) any {
 	// Check if this field should use component name
 	if fieldDef := bg.getFieldDefinition(instance.Type, fieldName); fieldDef != nil && fieldDef.UseComponentName {
 		return instance.Name
@@ -171,11 +171,11 @@ func (bg *BaseGenerator) GetFieldValueWithComponentNameSupport(instance models.C
 }
 
 // BuildCompleteDocument builds the complete document with general and resource sections
-func (bg *BaseGenerator) BuildCompleteDocument(general map[string]interface{}, resource interface{}) map[string]interface{} {
-	return map[string]interface{}{
+func (bg *BaseGenerator) BuildCompleteDocument(general map[string]any, resource any) map[string]any {
+	return map[string]any{
 		"_id":     primitive.NewObjectID(),
 		"general": general,
-		"resource": map[string]interface{}{
+		"resource": map[string]any{
 			"version":  "1",
 			"resource": resource, // Direct resource, let each generator decide array vs object
 		},
@@ -183,13 +183,13 @@ func (bg *BaseGenerator) BuildCompleteDocument(general map[string]interface{}, r
 }
 
 // BuildCompleteDocumentWithArray builds the complete document with array resource format (for listener, virtualhost)
-func (bg *BaseGenerator) BuildCompleteDocumentWithArray(general map[string]interface{}, resource interface{}) map[string]interface{} {
-	return map[string]interface{}{
+func (bg *BaseGenerator) BuildCompleteDocumentWithArray(general map[string]any, resource any) map[string]any {
+	return map[string]any{
 		"_id":     primitive.NewObjectID(),
 		"general": general,
-		"resource": map[string]interface{}{
+		"resource": map[string]any{
 			"version":  "1",
-			"resource": []interface{}{resource}, // Array format
+			"resource": []any{resource}, // Array format
 		},
 	}
 }
@@ -231,10 +231,10 @@ func (bg *BaseGenerator) getFieldDefinition(componentType, fieldName string) *mo
 }
 
 // AddRouteNames adds name field to routes array if missing
-func (bg *BaseGenerator) AddRouteNames(routes interface{}, baseName string) interface{} {
-	if routesArray, ok := routes.([]interface{}); ok {
+func (bg *BaseGenerator) AddRouteNames(routes any, baseName string) any {
+	if routesArray, ok := routes.([]any); ok {
 		for i, route := range routesArray {
-			if routeMap, ok := route.(map[string]interface{}); ok {
+			if routeMap, ok := route.(map[string]any); ok {
 				// Add name if not present
 				if _, hasName := routeMap["name"]; !hasName {
 					routeMap["name"] = fmt.Sprintf("%s_route_%d", baseName, i)
@@ -242,7 +242,7 @@ func (bg *BaseGenerator) AddRouteNames(routes interface{}, baseName string) inte
 			}
 		}
 		return routesArray
-	} else if routesMapArray, ok := routes.([]map[string]interface{}); ok {
+	} else if routesMapArray, ok := routes.([]map[string]any); ok {
 		for i, routeMap := range routesMapArray {
 			// Add name if not present
 			if _, hasName := routeMap["name"]; !hasName {
@@ -265,7 +265,7 @@ func (bg *BaseGenerator) IsFieldSelected(selectedFields []models.SelectedField, 
 }
 
 // GetFieldValueIfSelected gets field value only if user selected it, otherwise returns nil
-func (bg *BaseGenerator) GetFieldValueIfSelected(selectedFields []models.SelectedField, fieldName string) interface{} {
+func (bg *BaseGenerator) GetFieldValueIfSelected(selectedFields []models.SelectedField, fieldName string) any {
 	for _, field := range selectedFields {
 		if field.FieldName == fieldName && field.Value != nil {
 			return field.Value

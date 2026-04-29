@@ -634,7 +634,7 @@ func (i *Importer) fixDateFields(doc primitive.M) {
 	}
 
 	// Fix XDS resource date fields (general.created_at and general.updated_at)
-	// Handle both primitive.M and map[string]interface{} (from JSON unmarshal)
+	// Handle both primitive.M and map[string]any (from JSON unmarshal)
 	if generalAny, exists := doc["general"]; exists {
 		// Try primitive.M first
 		if general, ok := generalAny.(primitive.M); ok {
@@ -647,8 +647,8 @@ func (i *Importer) fixDateFields(doc primitive.M) {
 					}
 				}
 			}
-		} else if general, ok := generalAny.(map[string]interface{}); ok {
-			// Handle map[string]interface{} (from JSON)
+		} else if general, ok := generalAny.(map[string]any); ok {
+			// Handle map[string]any (from JSON)
 			for _, field := range []string{"created_at", "updated_at"} {
 				if value, exists := general[field]; exists {
 					if strValue, ok := value.(string); ok {
@@ -716,7 +716,7 @@ func (i *Importer) remapProjectIDs(doc bson.M, targetProjectID string, collectio
 					general["project"] = targetProjectID
 					remapped = true
 				}
-			} else if general, ok := generalAny.(map[string]interface{}); ok {
+			} else if general, ok := generalAny.(map[string]any); ok {
 				if _, hasProject := general["project"]; hasProject {
 					general["project"] = targetProjectID
 					remapped = true
@@ -768,10 +768,10 @@ func (i *Importer) clearPermissions(doc bson.M) {
 				i.Logger.Debugf("Cleared permissions for document (security best practice)")
 				return
 			}
-		} else if general, ok := generalAny.(map[string]interface{}); ok {
+		} else if general, ok := generalAny.(map[string]any); ok {
 			if _, hasPermissions := general["permissions"]; hasPermissions {
 				// Clear permissions - set empty arrays
-				general["permissions"] = map[string]interface{}{
+				general["permissions"] = map[string]any{
 					"users":  []string{},
 					"groups": []string{},
 				}

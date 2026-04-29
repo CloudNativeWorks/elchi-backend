@@ -341,7 +341,7 @@ func SafeCloseCursor(ctx context.Context, cursor *mongo.Cursor) {
 }
 
 // HandleCursorResults safely processes cursor results
-func HandleCursorResults(ctx context.Context, cursor *mongo.Cursor, results interface{}) error {
+func HandleCursorResults(ctx context.Context, cursor *mongo.Cursor, results any) error {
 	if cursor == nil {
 		return mongo.ErrNilCursor
 	}

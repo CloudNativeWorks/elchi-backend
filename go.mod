@@ -1,6 +1,6 @@
 module github.com/CloudNativeWorks/elchi-backend
 
-go 1.24.2
+go 1.25.0
 
 require (
 	github.com/CloudNativeWorks/elchi-proto v0.0.0-20260105113801-d89349b0818e

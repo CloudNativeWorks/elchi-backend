@@ -132,6 +132,21 @@ func (xds *AppHandler) DelResource(ctx context.Context, _ models.ResourceClass, 
 		return nil, err
 	}
 
+	// Step 4: Cascade cleanup of the envoys document (best-effort)
+	// envoys collection holds {name, project, envoys[], enhanced_errors[]} 1:1 with a listener.
+	// Without this, enhanced_errors stay behind and surface as orphan rows in error_summary
+	// because the services lookup returns empty (service was deleted in Step 1).
+	if resourceType == "listeners" {
+		envoysCollection := xds.Context.Client.Collection("envoys")
+		envoysFilter := bson.M{"name": requestDetails.Name, "project": requestDetails.Project}
+		if result, err := envoysCollection.DeleteOne(ctx, envoysFilter); err != nil {
+			xds.Logger.Errorf("Failed to cleanup envoys document for listener %s: %v", requestDetails.Name, err)
+			// Do not fail listener delete — cleanup is non-critical and can be retried later.
+		} else if result.DeletedCount > 0 {
+			xds.Logger.Infof("Cleaned up envoys document for listener %s (orphan errors removed)", requestDetails.Name)
+		}
+	}
+
 	return gin.H{"message": "Success"}, nil
 }
 

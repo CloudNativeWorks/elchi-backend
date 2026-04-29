@@ -28,7 +28,6 @@ func init() {
 	timeoutOpt := dns01.AddDNSTimeout(10 * time.Second)
 	_ = timeoutOpt(nil) // Execute option to set global dnsTimeout
 
-	log.Println("Initialized ACME DNS resolvers with public nameservers [208.67.222.222:53, 1.1.1.1:53, 208.67.220.220:53, 1.0.0.1:53, 8.8.8.8:53, 8.8.4.4:53]")
 }
 
 func main() {

@@ -139,6 +139,13 @@ func (w *Worker) processACMEVerificationJob(ctx context.Context, j *job.Job) {
 			updateCtx = context.Background()
 		}
 
+		// Distinguish renewal failures from initial-verification failures so the UI
+		// and scheduler 3-strike guard see the correct state.
+		failureStatus := "verification_failed"
+		if metadata.IsRenewal {
+			failureStatus = "renewal_failed"
+		}
+
 		certObjID, parseErr := primitive.ObjectIDFromHex(metadata.CertificateID)
 		if parseErr == nil {
 			collection := w.dbContext.Client.Collection("acme_certificates")
@@ -148,15 +155,20 @@ func (w *Worker) processACMEVerificationJob(ctx context.Context, j *job.Job) {
 			}
 			update := bson.M{
 				"$set": bson.M{
-					"status":             "verification_failed",
+					"status":             failureStatus,
 					"last_renewal_error": err.Error(),
 				},
+			}
+			// Increment renewal_attempts so the scheduler's max-attempts guard works.
+			// Success paths already reset this counter to 0.
+			if metadata.IsRenewal {
+				update["$inc"] = bson.M{"renewal_attempts": 1}
 			}
 			_, dbErr := collection.UpdateOne(updateCtx, filter, update)
 			if dbErr != nil {
 				w.logger.Errorf("Failed to update certificate status in DB: %v", dbErr)
 			} else {
-				w.logger.Infof("Updated certificate %s status to verification_failed in DB", metadata.CertificateID)
+				w.logger.Infof("Updated certificate %s status to %s in DB", metadata.CertificateID, failureStatus)
 			}
 		}
 
@@ -167,7 +179,7 @@ func (w *Worker) processACMEVerificationJob(ctx context.Context, j *job.Job) {
 				CertificateID: metadata.CertificateID,
 				SecretName:    metadata.CertificateName,
 				Domains:       metadata.Domains,
-				Status:        "verification_failed",
+				Status:        failureStatus,
 				ErrorMessage:  &errMsg,
 			},
 		}

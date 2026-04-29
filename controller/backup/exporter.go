@@ -53,7 +53,7 @@ func (e *Exporter) Export(ctx context.Context, req ExportRequest, username strin
 			CreatedBy:    username,
 			CreatedAt:    time.Now(),
 			Description:  req.Description,
-			ElchiVersion: "1.0.0", // TODO: Get from version package
+			ElchiVersion: "1.1.0", // TODO: Get from version package
 			Filters: BackupFilters{
 				IncludeDefaults: req.IncludeDefaults,
 			},

@@ -8,9 +8,17 @@ on:
         required: true
         default: 'main'
         type: string
+      envoy_versions:
+        description: 'Control Plane versions (comma separated). One AMD64 binary built per version.'
+        required: true
+        default: 'v0.13.4-envoy1.35.3'
+        type: string
 
 env:
   GH_TOKEN: ${{ secrets.GH_PAT }}
+  GO_CONTROL_PLANE_PACKAGE: github.com/CloudNativeWorks/versioned-go-control-plane
+  GO_CONTROL_PLANE_ENVOY_PACKAGE: github.com/CloudNativeWorks/versioned-go-control-plane/envoy
+  GO_CONTROL_PLANE_RATELIMIT_PACKAGE: github.com/CloudNativeWorks/versioned-go-control-plane/ratelimit
 
 jobs:
   create-release:
@@ -48,15 +56,58 @@ jobs:
             echo "Release v${{ steps.get_version.outputs.version }} does not exist"
           fi
 
+      - name: Set up Go
+        if: steps.check_release.outputs.exists == 'false'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: false
+
+      - name: Build AMD64 binaries (one per envoy version)
+        if: steps.check_release.outputs.exists == 'false'
+        run: |
+          VERSION=${{ steps.get_version.outputs.version }}
+          IFS=',' read -ra CP_VERSIONS <<< "${{ github.event.inputs.envoy_versions }}"
+          mkdir -p binaries
+
+          for CP_VERSION in "${CP_VERSIONS[@]}"; do
+            CP_VERSION=$(echo "$CP_VERSION" | xargs)
+            ENVOY_VERSION=$(echo "$CP_VERSION" | sed -n 's/.*envoy\([0-9.]*\)/\1/p')
+
+            echo "::group::Build ${CP_VERSION} (envoy v${ENVOY_VERSION})"
+
+            # Pin go.mod to this control-plane / envoy version
+            go mod edit -require="${GO_CONTROL_PLANE_PACKAGE}@${CP_VERSION}"
+            go mod edit -require="${GO_CONTROL_PLANE_ENVOY_PACKAGE}@v${ENVOY_VERSION}"
+            go mod edit -require="${GO_CONTROL_PLANE_RATELIMIT_PACKAGE}@v${ENVOY_VERSION}"
+            go mod tidy
+
+            CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+              -a -installsuffix cgo \
+              -ldflags "-X github.com/CloudNativeWorks/elchi-backend/pkg/version.Version=v${ENVOY_VERSION} -X github.com/CloudNativeWorks/elchi-backend/pkg/version.ControlPlaneVersion=elchi-backend-${VERSION}-${CP_VERSION}" \
+              -o "binaries/elchi-backend-linux-amd64-${CP_VERSION}" .
+
+            (cd binaries && sha256sum "elchi-backend-linux-amd64-${CP_VERSION}" > "elchi-backend-linux-amd64-${CP_VERSION}.sha256")
+
+            # Restore go.mod for next iteration
+            git checkout -- go.mod go.sum
+
+            echo "::endgroup::"
+          done
+
+          ls -la binaries/
+
       - name: Create GitHub Release
         if: steps.check_release.outputs.exists == 'false'
         run: |
           VERSION=${{ steps.get_version.outputs.version }}
-          
-          # Create a new tag
+          REPO="${{ github.repository }}"
+          ENVOY_VERSIONS="${{ github.event.inputs.envoy_versions }}"
+
+          # Create tag
           git tag v${VERSION}
           git push origin v${VERSION}
-          
+
           # Generate changelog from commits since last tag
           PREVIOUS_TAG=$(git describe --tags --abbrev=0 v${VERSION}^ 2>/dev/null || echo "")
           if [ -n "$PREVIOUS_TAG" ]; then
@@ -64,21 +115,88 @@ jobs:
           else
             CHANGELOG=$(git log --pretty=format:"* %s")
           fi
-          
-          # Create source archive
+
+          # Source archive
           ARCHIVE_NAME="elchi-backend-v${VERSION}"
           git archive --format=tar.gz --prefix=${ARCHIVE_NAME}/ -o ${ARCHIVE_NAME}.tar.gz HEAD
-          
-          # Create release with changelog and source archive
+
+          # Build a markdown list of available binaries (one entry per envoy version)
+          BINARIES_MD=""
+          IFS=',' read -ra CP_VERSIONS <<< "${ENVOY_VERSIONS}"
+          for CP_VERSION in "${CP_VERSIONS[@]}"; do
+            CP_VERSION=$(echo "$CP_VERSION" | xargs)
+            BINARIES_MD+="- \`elchi-backend-linux-amd64-${CP_VERSION}\` — control-plane \`${CP_VERSION}\`"$'\n'
+          done
+
+          # First version is used as the example throughout the notes
+          FIRST_CP=$(echo "${CP_VERSIONS[0]}" | xargs)
+
+          export REPO VERSION CHANGELOG BINARIES_MD FIRST_CP
+          cat > release-notes.tpl <<'TEMPLATE_EOF'
+          ## Available Binaries (Linux AMD64)
+
+          One binary is built per control-plane / Envoy version. Pick the one that matches your Envoy fleet:
+
+          ${BINARIES_MD}
+
+          ## Installation
+
+          ```bash
+          CP_VERSION=${FIRST_CP}   # change to match your Envoy fleet
+          curl -L -o elchi-backend \
+            https://github.com/${REPO}/releases/download/v${VERSION}/elchi-backend-linux-amd64-${CP_VERSION}
+          chmod +x elchi-backend
+          ```
+
+          Verify checksum (optional):
+          ```bash
+          curl -L -O https://github.com/${REPO}/releases/download/v${VERSION}/elchi-backend-linux-amd64-${CP_VERSION}.sha256
+          sha256sum -c elchi-backend-linux-amd64-${CP_VERSION}.sha256
+          ```
+
+          ## Usage
+
+          One executable, three sub-processes (Cobra commands). Each needs a config file (see `.configs/config-local.yaml` in the source archive for the development reference).
+
+          ```bash
+          # Service discovery + routing (gRPC :9090)
+          ./elchi-backend elchi-registry --config config.yaml
+
+          # REST API + management (HTTP, configurable port)
+          ./elchi-backend elchi-controller --config config.yaml
+
+          # Envoy xDS control-plane (gRPC :18000)
+          ./elchi-backend elchi-control-plane --config config.yaml
+          ```
+
+          MongoDB 4.4+ is required. See README.md / DEVELOPMENT.md for the full configuration reference.
+
+          ### Docker alternative
+
+          Multi-arch (AMD64 + ARM64) images are published to Docker Hub by the *Build and Push Images* workflow. AMD64 reuses these binaries (no rebuild); ARM64 is built separately on a self-hosted runner.
+
+          ```bash
+          docker pull <docker-user>/elchi-backend:v${VERSION}-${FIRST_CP}
+          ```
+
+          ## Changelog
+
+          ${CHANGELOG}
+          TEMPLATE_EOF
+
+          envsubst '${REPO} ${VERSION} ${CHANGELOG} ${BINARIES_MD} ${FIRST_CP}' < release-notes.tpl > release-notes.md
+
+          # Upload everything: source archive + every binary + checksums
           gh release create v${VERSION} \
             --title "Release v${VERSION}" \
-            --notes "${CHANGELOG}" \
-            ${ARCHIVE_NAME}.tar.gz
+            --notes-file release-notes.md \
+            ${ARCHIVE_NAME}.tar.gz \
+            binaries/*
 
       - name: Release Status
         run: |
           if [ "${{ steps.check_release.outputs.exists }}" == "true" ]; then
             echo "Release v${{ steps.get_version.outputs.version }} already exists"
           else
-            echo "Release v${{ steps.get_version.outputs.version }} created successfully"
-          fi 
+            echo "Release v${{ steps.get_version.outputs.version }} created with binaries for: ${{ github.event.inputs.envoy_versions }}"
+          fi

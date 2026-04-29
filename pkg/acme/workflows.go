@@ -682,9 +682,17 @@ func (m *CertificateManager) VerifyCertificateWithDNSProviderAsync(
 			return nil, fmt.Errorf("certificate is not in pending_verification or verification_failed status (current: %s)", cert.Status)
 		}
 	} else {
-		// For renewal, accept both active and renewal_pending status
-		if cert.Status != "active" && cert.Status != "renewal_pending" {
-			return nil, fmt.Errorf("only active or renewal_pending certificates can be renewed (current: %s)", cert.Status)
+		// For renewal, also accept verification_failed/renewal_failed so a previously
+		// issued cert that failed a renewal attempt can be retried (manual or scheduler).
+		switch cert.Status {
+		case "active", "renewal_pending", "renewal_failed":
+			// ok
+		case "verification_failed":
+			if len(cert.SecretVersions) == 0 {
+				return nil, fmt.Errorf("cannot renew never-issued certificate in verification_failed state")
+			}
+		default:
+			return nil, fmt.Errorf("cannot renew certificate in status: %s", cert.Status)
 		}
 	}
 
@@ -885,9 +893,17 @@ func (m *CertificateManager) RenewCertificate(ctx context.Context, certID string
 		return nil, fmt.Errorf("failed to get certificate: %w", err)
 	}
 
-	// Check status
-	if cert.Status != "active" {
-		return nil, fmt.Errorf("only active certificates can be renewed (current status: %s)", cert.Status)
+	// Check status — allow retrying renewal after a failed attempt provided the cert
+	// was previously issued (SecretVersions populated).
+	switch cert.Status {
+	case "active", "renewal_pending", "renewal_failed":
+		// ok
+	case "verification_failed":
+		if len(cert.SecretVersions) == 0 {
+			return nil, fmt.Errorf("cannot renew never-issued certificate in verification_failed state")
+		}
+	default:
+		return nil, fmt.Errorf("cannot renew certificate in status: %s", cert.Status)
 	}
 
 	// For manual verification, we need to create new challenges for user to add

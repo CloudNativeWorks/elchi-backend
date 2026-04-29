@@ -56,6 +56,7 @@ func (a *acmeJobAdapter) CreateACMEVerificationJob(ctx context.Context, req *acm
 		Project:         req.Project,
 		Versions:        req.Versions,
 		TriggerUser:     req.TriggerUser,
+		IsRenewal:       req.IsRenewal,
 	}
 
 	// Create job via async system

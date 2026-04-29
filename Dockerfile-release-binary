@@ -1,0 +1,24 @@
+# Slim release image: the AMD64 binary is built on the host (create-release workflow),
+# this Dockerfile just bundles it. Used by docker-build.yml's AMD64 path to avoid rebuilding
+# from source. ARM64 still uses Dockerfile-release (Go build inside the image).
+
+FROM alpine:3.21.3
+
+ARG ENVOY_VERSION
+ARG ELCHI_CONTROL_PLANE_VERSION
+ARG BINARY_PATH=elchi-backend-linux-amd64
+
+LABEL envoy.version=$ENVOY_VERSION
+LABEL elchi.control_plane.version=$ELCHI_CONTROL_PLANE_VERSION
+
+RUN apk --no-cache update && apk --no-cache upgrade && \
+    apk add --no-cache ca-certificates openssl
+
+WORKDIR /root/
+
+COPY ${BINARY_PATH} ./elchi-backend
+RUN chmod +x elchi-backend
+
+EXPOSE 8099 18000 9090
+
+ENTRYPOINT ["./elchi-backend"]

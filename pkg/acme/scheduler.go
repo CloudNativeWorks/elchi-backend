@@ -22,6 +22,7 @@ type ACMEJobRequest struct {
 	Project         string
 	Versions        []string
 	TriggerUser     models.UserDetails
+	IsRenewal       bool
 }
 
 // ACMEJob represents a created job (minimal interface)
@@ -280,6 +281,15 @@ func (s *RenewalScheduler) renewCertificate(ctx context.Context, cert *ACMECerti
 		IsOwner:  true,
 	}
 
+	// Prepare renewal temporary key (worker fetches this in VerifyCertificateWithDNSProviderAsync)
+	privateKeyPEM, csrPEM, err := s.manager.PrepareRenewalKey(ctx, cert.Domains)
+	if err != nil {
+		return fmt.Errorf("failed to prepare renewal key: %w", err)
+	}
+	if err := s.manager.CreateOrUpdateTempKeyForRenewal(ctx, cert.ID, project, cert.SecretName, privateKeyPEM, csrPEM); err != nil {
+		return fmt.Errorf("failed to store renewal temp key: %w", err)
+	}
+
 	// Create job request
 	jobRequest := &ACMEJobRequest{
 		CertificateID:   cert.ID.Hex(),
@@ -291,6 +301,7 @@ func (s *RenewalScheduler) renewCertificate(ctx context.Context, cert *ACMECerti
 		Project:         project,
 		Versions:        cert.SecretVersions,
 		TriggerUser:     systemUser,
+		IsRenewal:       true,
 	}
 
 	// Create async job
@@ -302,11 +313,10 @@ func (s *RenewalScheduler) renewCertificate(ctx context.Context, cert *ACMECerti
 
 	s.logger.Infof("Created renewal job %s for certificate %s - renewal will run in background", job.JobID, cert.SecretName)
 
-	// Update certificate with job ID
-	err = s.manager.UpdateCertificateJobID(ctx, cert.ID.Hex(), project, job.JobID)
-	if err != nil {
-		s.logger.Warnf("Failed to update certificate %s with job ID: %v", cert.SecretName, err)
-		// Don't fail renewal, job ID is optional
+	// Move cert into renewal_pending so the worker's status guard accepts it
+	// and so the UI reflects an in-progress renewal instead of "active".
+	if err := s.manager.UpdateCertificateStatusAndJobID(ctx, cert.ID.Hex(), project, "renewal_pending", job.JobID); err != nil {
+		s.logger.Warnf("Failed to update certificate %s status to renewal_pending: %v", cert.SecretName, err)
 	}
 
 	return nil

@@ -173,10 +173,12 @@ jobs:
 
           ### Docker alternative
 
-          Multi-arch (AMD64 + ARM64) images are published to Docker Hub by the *Build and Push Images* workflow. AMD64 reuses these binaries (no rebuild); ARM64 is built separately on a self-hosted runner.
+          AMD64 images are published to Docker Hub by the *Build and Push Images* workflow, which reuses these binaries (no rebuild).
 
           ```bash
           docker pull <docker-user>/elchi-backend:v${VERSION}-${FIRST_CP}
+          # or simply
+          docker pull <docker-user>/elchi-backend:latest
           ```
 
           ## Changelog
@@ -193,10 +195,20 @@ jobs:
             ${ARCHIVE_NAME}.tar.gz \
             binaries/*
 
+      - name: Trigger Build and Push Images workflow
+        if: steps.check_release.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          echo "Triggering 'Build and Push Images' for release v${{ steps.get_version.outputs.version }}"
+          gh workflow run docker-build.yml --ref main
+          echo "Docker build workflow dispatched. Track it under Actions → Build and Push Images."
+
       - name: Release Status
         run: |
           if [ "${{ steps.check_release.outputs.exists }}" == "true" ]; then
-            echo "Release v${{ steps.get_version.outputs.version }} already exists"
+            echo "Release v${{ steps.get_version.outputs.version }} already exists — docker build NOT triggered"
           else
             echo "Release v${{ steps.get_version.outputs.version }} created with binaries for: ${{ github.event.inputs.envoy_versions }}"
+            echo "Docker build workflow has been dispatched."
           fi

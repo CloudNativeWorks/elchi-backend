@@ -2,34 +2,19 @@ name: Build and Push Images
 
 on:
   workflow_dispatch:
-    inputs:
-      envoy_versions:
-        description: 'Control Plane versions (comma separated)'
-        required: true
-        default: 'v0.13.4-envoy1.35.3'
-        type: string
-      platforms:
-        description: 'Target platforms (comma separated)'
-        required: true
-        default: 'linux/amd64,linux/arm64'
-        type: string
 
 env:
   DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
   DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
   DOCKER_IMAGE: elchi-backend
-  GO_CONTROL_PLANE_PACKAGE: github.com/CloudNativeWorks/versioned-go-control-plane
-  GO_CONTROL_PLANE_ENVOY_PACKAGE: github.com/CloudNativeWorks/versioned-go-control-plane/envoy
-  GO_CONTROL_PLANE_RATELIMIT_PACKAGE: github.com/CloudNativeWorks/versioned-go-control-plane/ratelimit
 
 jobs:
-  build-amd64:
+  build:
     runs-on: ubuntu-22.04
     timeout-minutes: 30
-    if: contains(github.event.inputs.platforms, 'linux/amd64')
-    # AMD64 path no longer compiles from source — binaries are produced once by
-    # create-release.yml and uploaded to the GitHub Release. Here we just download
-    # them and bundle into images via Dockerfile-release-binary (single COPY).
+    # No inputs: AMD64 binaries (one per envoy version) were already produced and uploaded
+    # to the GitHub Release by create-release.yml. We discover them automatically here and
+    # bundle each into an image via Dockerfile-release-binary (single COPY, no Go compile).
     steps:
       - name: Checkout main branch
         uses: actions/checkout@v4
@@ -49,43 +34,65 @@ jobs:
           username: ${{ env.DOCKER_USERNAME }}
           password: ${{ env.DOCKER_PASSWORD }}
 
+      - name: Discover AMD64 binaries from release
+        id: discover
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          # List every elchi-backend-linux-amd64-<CP_VERSION> asset (excluding .sha256 files)
+          mapfile -t BINARIES < <(gh release view "v${PROJECT_VERSION}" \
+            --repo "${{ github.repository }}" \
+            --json assets \
+            --jq '.assets[].name | select(startswith("elchi-backend-linux-amd64-") and (endswith(".sha256") | not))')
+
+          if [ ${#BINARIES[@]} -eq 0 ]; then
+            echo "::error::No AMD64 binaries found on release v${PROJECT_VERSION}. Run 'Create Release' workflow first."
+            exit 1
+          fi
+
+          echo "Found ${#BINARIES[@]} binaries:"
+          printf '  - %s\n' "${BINARIES[@]}"
+
+          # Pick the latest (highest sort -V) as :latest tag target
+          LATEST_BIN=$(printf '%s\n' "${BINARIES[@]}" | sort -V | tail -1)
+          echo "latest_bin=${LATEST_BIN}" >> $GITHUB_OUTPUT
+
+          # Persist the binary list for the next step (newline separated)
+          printf '%s\n' "${BINARIES[@]}" > /tmp/binaries.txt
+
       - name: Download AMD64 binaries from release
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           mkdir -p artifacts
-          IFS=',' read -ra CONTROL_PLANE_VERSIONS <<< "${{ github.event.inputs.envoy_versions }}"
-          for CONTROL_PLANE_VERSION in "${CONTROL_PLANE_VERSIONS[@]}"; do
-            CONTROL_PLANE_VERSION=$(echo "$CONTROL_PLANE_VERSION" | xargs)
-            BIN="elchi-backend-linux-amd64-${CONTROL_PLANE_VERSION}"
-            echo "Downloading ${BIN} from release v${PROJECT_VERSION}"
+          while IFS= read -r BIN; do
+            echo "Downloading ${BIN}"
             gh release download "v${PROJECT_VERSION}" \
               --repo "${{ github.repository }}" \
               --pattern "${BIN}" \
               --dir artifacts \
               --clobber
-          done
+          done < /tmp/binaries.txt
           ls -la artifacts/
 
-      - name: Package and push AMD64 images
+      - name: Package and push images
         env:
           DOCKER_BUILDKIT: 1
+          LATEST_BIN: ${{ steps.discover.outputs.latest_bin }}
         run: |
-          IFS=',' read -ra CONTROL_PLANE_VERSIONS <<< "${{ github.event.inputs.envoy_versions }}"
+          IMAGE_NAME="${DOCKER_USERNAME}/${DOCKER_IMAGE}"
 
-          for CONTROL_PLANE_VERSION in "${CONTROL_PLANE_VERSIONS[@]}"; do
-            CONTROL_PLANE_VERSION=$(echo "$CONTROL_PLANE_VERSION" | xargs)
+          while IFS= read -r BIN; do
+            # Strip prefix to get CP_VERSION: elchi-backend-linux-amd64-<CP_VERSION>
+            CONTROL_PLANE_VERSION="${BIN#elchi-backend-linux-amd64-}"
             ENVOY_VERSION=$(echo "$CONTROL_PLANE_VERSION" | sed -n 's/.*envoy\([0-9.]*\)/\1/p')
-
-            BIN="elchi-backend-linux-amd64-${CONTROL_PLANE_VERSION}"
 
             # Dockerfile-release-binary defaults BINARY_PATH=elchi-backend-linux-amd64
             cp "artifacts/${BIN}" elchi-backend-linux-amd64
 
-            IMAGE_NAME="${DOCKER_USERNAME}/${DOCKER_IMAGE}"
-            IMAGE_TAG="${IMAGE_NAME}:v${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}-amd64"
+            IMAGE_TAG="${IMAGE_NAME}:v${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}"
 
-            echo "::group::Package AMD64 image ${IMAGE_TAG}"
+            echo "::group::Package image ${IMAGE_TAG}"
 
             docker buildx build \
               --platform linux/amd64 \
@@ -98,161 +105,15 @@ jobs:
 
             docker push "${IMAGE_TAG}"
 
+            # Tag the highest-versioned envoy build as :latest
+            if [ "${BIN}" = "${LATEST_BIN}" ]; then
+              LATEST_TAG="${IMAGE_NAME}:latest"
+              docker tag "${IMAGE_TAG}" "${LATEST_TAG}"
+              docker push "${LATEST_TAG}"
+              echo "Tagged ${IMAGE_TAG} as ${LATEST_TAG}"
+            fi
+
             rm -f elchi-backend-linux-amd64
 
             echo "::endgroup::"
-          done
-
-  build-arm64:
-    runs-on: self-hosted
-    timeout-minutes: 120
-    if: contains(github.event.inputs.platforms, 'linux/arm64')
-    steps:
-      - name: Checkout main branch
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          token: ${{ secrets.GH_PAT }}
-
-      - name: Set Project Version
-        run: echo "PROJECT_VERSION=$(cat VERSION)" >> $GITHUB_ENV
-
-      - name: Checkout release tag
-        uses: actions/checkout@v4
-        with:
-          ref: v${{ env.PROJECT_VERSION }}
-          path: release
-          token: ${{ secrets.GH_PAT }}
-
-      - name: Clean workspace
-        run: |
-          rm -rf release/Dockerfile-release || true
-          cp Dockerfile-release release/
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.25'
-          cache: false
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ env.DOCKER_USERNAME }}
-          password: ${{ env.DOCKER_PASSWORD }}
-
-      - name: Build and push ARM64 images
-        working-directory: release
-        env:
-          DOCKER_BUILDKIT: 1
-        run: |
-          # Convert comma-separated versions to array
-          IFS=',' read -ra CONTROL_PLANE_VERSIONS <<< "${{ github.event.inputs.envoy_versions }}"
-          
-          # Process each control plane version
-          for CONTROL_PLANE_VERSION in "${CONTROL_PLANE_VERSIONS[@]}"; do
-            # Trim whitespace
-            CONTROL_PLANE_VERSION=$(echo $CONTROL_PLANE_VERSION | xargs)
-            
-            echo "Processing Control Plane version: ${CONTROL_PLANE_VERSION} (ARM64)"
-            
-            # Extract Envoy version from the full version string
-            ENVOY_VERSION=$(echo $CONTROL_PLANE_VERSION | sed -n 's/.*envoy\([0-9.]*\)/\1/p')
-            
-            # Clean module cache and go.sum
-            # go clean -modcache
-            # rm -f go.sum
-            
-            # Update go.mod for all packages
-            go mod edit -require="${GO_CONTROL_PLANE_PACKAGE}@${CONTROL_PLANE_VERSION}"
-            go mod edit -require="${GO_CONTROL_PLANE_ENVOY_PACKAGE}@v${ENVOY_VERSION}"
-            go mod edit -require="${GO_CONTROL_PLANE_RATELIMIT_PACKAGE}@v${ENVOY_VERSION}"
-            go mod tidy
-            
-            # Set image tags
-            IMAGE_NAME="${DOCKER_USERNAME}/${DOCKER_IMAGE}"
-            IMAGE_TAG="${IMAGE_NAME}:v${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}-arm64"
-            
-            # Build ARM64 platform
-            docker buildx build \
-              --no-cache \
-              --platform linux/arm64 \
-              --build-arg "ENVOY_VERSION=v${ENVOY_VERSION}" \
-              --build-arg "ELCHI_CONTROL_PLANE_VERSION=elchi-backend-${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}" \
-              -t "${IMAGE_TAG}" \
-              -f Dockerfile-release \
-              --load \
-              .
-            
-            # Push ARM64 image
-            docker push "${IMAGE_TAG}"
-            
-            echo "Control Plane version ${CONTROL_PLANE_VERSION} (ARM64) completed"
-            
-            # Reset go.mod changes for next iteration
-            git checkout -- go.mod go.sum
-          done
-
-  create-manifest:
-    runs-on: ubuntu-22.04
-    timeout-minutes: 30
-    needs: [build-amd64, build-arm64]
-    if: contains(github.event.inputs.platforms, ',')
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          token: ${{ secrets.GH_PAT }}
-
-      - name: Set Project Version
-        run: echo "PROJECT_VERSION=$(cat VERSION)" >> $GITHUB_ENV
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ env.DOCKER_USERNAME }}
-          password: ${{ env.DOCKER_PASSWORD }}
-
-      - name: Create multi-platform manifests
-        run: |
-          # Convert comma-separated versions to array
-          IFS=',' read -ra CONTROL_PLANE_VERSIONS <<< "${{ github.event.inputs.envoy_versions }}"
-          
-          # Process each control plane version
-          for CONTROL_PLANE_VERSION in "${CONTROL_PLANE_VERSIONS[@]}"; do
-            # Trim whitespace
-            CONTROL_PLANE_VERSION=$(echo $CONTROL_PLANE_VERSION | xargs)
-            
-            echo "Creating manifest for Control Plane version: ${CONTROL_PLANE_VERSION}"
-            
-            # Set image names
-            IMAGE_NAME="${DOCKER_USERNAME}/${DOCKER_IMAGE}"
-            MANIFEST_TAG="${IMAGE_NAME}:v${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}"
-            LATEST_TAG="${IMAGE_NAME}:latest"
-            
-            # Create manifest list from platform-specific images
-            docker manifest create "${MANIFEST_TAG}" \
-              "${IMAGE_NAME}:v${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}-amd64" \
-              "${IMAGE_NAME}:v${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}-arm64"
-            
-            # Push manifest
-            docker manifest push "${MANIFEST_TAG}"
-            
-            # Create latest manifest if this is the first version
-            if [ "$CONTROL_PLANE_VERSION" = "${CONTROL_PLANE_VERSIONS[0]}" ]; then
-              docker manifest create "${LATEST_TAG}" \
-                "${IMAGE_NAME}:v${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}-amd64" \
-                "${IMAGE_NAME}:v${PROJECT_VERSION}-${CONTROL_PLANE_VERSION}-arm64"
-              
-              docker manifest push "${LATEST_TAG}"
-            fi
-            
-            echo "Manifest created for ${CONTROL_PLANE_VERSION}"
-          done 
+          done < /tmp/binaries.txt

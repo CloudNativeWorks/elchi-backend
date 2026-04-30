@@ -80,13 +80,6 @@ jobs:
             go mod edit -require="${GO_CONTROL_PLANE_PACKAGE}@${CP_VERSION}"
             go mod edit -require="${GO_CONTROL_PLANE_ENVOY_PACKAGE}@v${ENVOY_VERSION}"
             go mod edit -require="${GO_CONTROL_PLANE_RATELIMIT_PACKAGE}@v${ENVOY_VERSION}"
-            # Pin protobuf-go to the runtime tested with our generated descriptors.
-            # versioned-go-control-plane/envoy@v1.38.0 transitively requires
-            # protobuf-go v1.36.11, but its embedded proto descriptors panic
-            # under that runtime ("slice bounds out of range" in unmarshalSeed).
-            # `require` only sets a minimum — MVS still picks v1.36.11 from the
-            # transitive graph. `replace` forces v1.36.10 across the whole build.
-            go mod edit -replace="google.golang.org/protobuf=google.golang.org/protobuf@v1.36.10"
             go mod tidy
 
             BIN_NAME="elchi-v${VERSION}-${CP_VERSION}"

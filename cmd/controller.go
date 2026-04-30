@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -135,12 +134,11 @@ var restCmd = &cobra.Command{
 
 		appContext := db.NewMongoDB(appConfig, false)
 
-		// Generate controller ID for GSLB shard ownership
-		// Use hostname (same as registry registration for consistency)
-		controllerID, err := os.Hostname()
-		if err != nil {
-			rootLogger.Fatalf("Failed to get hostname for controller ID: %v", err)
-		}
+		// Generate controller ID for GSLB shard ownership.
+		// Reuses the same identity the registry client publishes so a single
+		// controller instance owns the same string in both subsystems
+		// (K8s: hostname; non-K8s: "<hostname>-controller").
+		controllerID := registry.ResolveControllerID(appConfig)
 
 		// Create GSLB System (manages all GSLB components)
 		gslbSystem, err := pkgGslb.NewSystem(appContext, controllerID)

@@ -19,6 +19,7 @@ import (
 	ext "github.com/CloudNativeWorks/versioned-go-control-plane/envoy/service/ext_proc/v3"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -57,6 +58,7 @@ type ExternalProcessorServer struct {
 	controlPlaneRoutingService *service.RoutingService           // For control-plane routing
 	logger                     *logger.Logger
 	excludedPaths              map[string]bool // For O(1) lookup
+	leader                     LeaderChecker   // nil = always serve (single-node legacy)
 
 	// Mutex for atomic controller assignment
 	assignmentMutex sync.RWMutex
@@ -65,8 +67,9 @@ type ExternalProcessorServer struct {
 	pendingNodeAssignments   map[string]string // nodeID -> controlPlaneID
 }
 
-// NewExternalProcessorServer creates a new external processor server
-func NewExternalProcessorServer(controllerRoutingService *service.ControllerRoutingService, controlPlaneRoutingService *service.RoutingService, logger *logger.Logger) *ExternalProcessorServer {
+// NewExternalProcessorServer creates a new external processor server. leader
+// may be nil; when present, RPCs are rejected on standby instances.
+func NewExternalProcessorServer(controllerRoutingService *service.ControllerRoutingService, controlPlaneRoutingService *service.RoutingService, logger *logger.Logger, leader LeaderChecker) *ExternalProcessorServer {
 	// Convert excluded paths slice to map for O(1) lookup
 	excludedPaths := make(map[string]bool)
 	for _, path := range ExcludedPaths {
@@ -78,6 +81,7 @@ func NewExternalProcessorServer(controllerRoutingService *service.ControllerRout
 		controlPlaneRoutingService: controlPlaneRoutingService,
 		logger:                     logger,
 		excludedPaths:              excludedPaths,
+		leader:                     leader,
 		pendingClientAssignments:   make(map[string]string),
 		pendingNodeAssignments:     make(map[string]string),
 	}
@@ -130,6 +134,13 @@ func (s *ControlPlaneGRPCServer) GetAllRegistryData(ctx context.Context, req *br
 // Process handles Envoy's ext_proc bidirectional stream
 func (p *ExternalProcessorServer) Process(stream ext.ExternalProcessor_ProcessServer) error {
 	// Removed debug logging for ext_proc streams to reduce noise
+
+	// Reject ext_proc streams on standby instances. Envoy upstream cluster
+	// health-check (gRPC SERVING/NOT_SERVING) keeps these connections off in
+	// the first place, but enforce here defensively.
+	if p.leader != nil && !p.leader.IsLeader() {
+		return status.Error(codes.Unavailable, "registry is not the active leader")
+	}
 
 	for {
 		req, err := stream.Recv()
@@ -498,8 +509,20 @@ func (p *ExternalProcessorServer) isEnvoyADSStream(path string) bool {
 	return false
 }
 
-// StartGRPCServer starts the gRPC server
-func StartGRPCServer(address string, controllerRoutingService *service.ControllerRoutingService, controlPlaneRoutingService *service.RoutingService, metricsAggregator *metrics.Aggregator, logger *logger.Logger, appConfig *config.AppConfig) error {
+// StartGRPCServer starts the gRPC server. leader and observer are optional —
+// when both are nil the registry runs single-node (always SERVING, no guards).
+// When supplied, the registry registers a grpc.health.v1 service whose status
+// flips with leadership and rejects RPCs on standby instances.
+func StartGRPCServer(
+	address string,
+	controllerRoutingService *service.ControllerRoutingService,
+	controlPlaneRoutingService *service.RoutingService,
+	metricsAggregator *metrics.Aggregator,
+	logger *logger.Logger,
+	appConfig *config.AppConfig,
+	leader LeaderChecker,
+	observer LeadershipObserver,
+) error {
 	lis, err := net.Listen("tcp", address)
 	if err != nil {
 		return fmt.Errorf("failed to listen on address %s: %w", address, err)
@@ -517,14 +540,14 @@ func StartGRPCServer(address string, controllerRoutingService *service.Controlle
 	)
 
 	// Create external processor server first
-	extProcessorServer := NewExternalProcessorServer(controllerRoutingService, controlPlaneRoutingService, logger)
+	extProcessorServer := NewExternalProcessorServer(controllerRoutingService, controlPlaneRoutingService, logger, leader)
 
 	// Register controller routing service with access to external processor
-	controllerGRPCServer := NewControllerGRPCServer(controllerRoutingService, extProcessorServer, logger, appConfig)
+	controllerGRPCServer := NewControllerGRPCServer(controllerRoutingService, extProcessorServer, logger, appConfig, leader)
 	bridge.RegisterControllerRoutingServiceServer(grpcServer, controllerGRPCServer)
 
 	// Register control-plane routing service with access to external processor
-	controlPlaneGRPCServer := NewControlPlaneGRPCServer(controlPlaneRoutingService, extProcessorServer, logger)
+	controlPlaneGRPCServer := NewControlPlaneGRPCServer(controlPlaneRoutingService, extProcessorServer, logger, leader)
 	bridge.RegisterEnvoyRoutingServiceServer(grpcServer, controlPlaneGRPCServer)
 
 	// Register external processor service (for Envoy ext_proc)
@@ -533,7 +556,13 @@ func StartGRPCServer(address string, controllerRoutingService *service.Controlle
 	// Register metrics service
 	bridge.RegisterMetricsServiceServer(grpcServer, metricsAggregator)
 
-	logger.Infof("gRPC server starting on address %s (Controller + Control-Plane + ExternalProcessor + Metrics services)", address)
+	// gRPC health service (drives Envoy upstream cluster health-check).
+	if observer != nil {
+		hs := NewHealthServer(observer, logger)
+		grpc_health_v1.RegisterHealthServer(grpcServer, hs)
+	}
+
+	logger.Infof("gRPC server starting on address %s (Controller + Control-Plane + ExternalProcessor + Metrics + Health services)", address)
 
 	if err := grpcServer.Serve(lis); err != nil {
 		return fmt.Errorf("failed to serve gRPC: %w", err)

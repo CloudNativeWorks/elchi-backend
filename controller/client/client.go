@@ -3,6 +3,7 @@
 package client
 
 import (
+	"fmt"
 	"net"
 	"os"
 	"os/signal"
@@ -25,9 +26,7 @@ import (
 	pb "github.com/CloudNativeWorks/elchi-proto/client"
 )
 
-const (
-	grpcPort = ":50051"
-)
+const defaultControllerGRPCPort uint = 50051
 
 type AppHandler struct {
 	Service        *services.ClientService
@@ -58,7 +57,12 @@ func (h *AppHandler) Start(appConfig *config.AppConfig) {
 	// G102: Binding to all interfaces (0.0.0.0) is intentional for containerized environments
 	// In Kubernetes/Docker, the application runs in an isolated network namespace
 	// and needs to accept connections from the pod network
-	lis, err := net.Listen("tcp", grpcPort) // #nosec G102
+	port := appConfig.ControllerGRPCPort
+	if port == 0 {
+		port = defaultControllerGRPCPort
+	}
+	addr := fmt.Sprintf(":%d", port)
+	lis, err := net.Listen("tcp", addr) // #nosec G102
 	if err != nil {
 		h.Logger.Fatalf("Failed to listen on gRPC port: %v", err)
 	}
@@ -96,7 +100,7 @@ func (h *AppHandler) Start(appConfig *config.AppConfig) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		h.Logger.Infof("controller gRPC server started: %s", grpcPort)
+		h.Logger.Infof("controller gRPC server started: %s", addr)
 		if err := grpcServer.Serve(lis); err != nil {
 			h.Logger.Errorf("gRPC server error: %v", err)
 		}

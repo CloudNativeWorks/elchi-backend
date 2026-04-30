@@ -278,6 +278,45 @@ func (s *InMemoryStorage) DeleteController(ctx context.Context, controllerID str
 	return nil
 }
 
+// ExportAll returns deep copies of all controllers and client mappings.
+// Used by the snapshot writer (leader) to persist state to MongoDB.
+func (s *InMemoryStorage) ExportAll() ([]*models.ControllerInfo, []*models.ClientMapping) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	controllers := make([]*models.ControllerInfo, 0, len(s.controllers))
+	for _, c := range s.controllers {
+		cp := *c
+		controllers = append(controllers, &cp)
+	}
+	mappings := make([]*models.ClientMapping, 0, len(s.clientMappings))
+	for _, m := range s.clientMappings {
+		mp := *m
+		mappings = append(mappings, &mp)
+	}
+	return controllers, mappings
+}
+
+// ImportAll replaces the in-memory state with the supplied snapshot.
+// Used by the snapshot reader (standby) to stay warm with the leader's state.
+// Existing entries are dropped — this is a full overwrite.
+func (s *InMemoryStorage) ImportAll(controllers []*models.ControllerInfo, mappings []*models.ClientMapping) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.controllers = make(map[string]*models.ControllerInfo, len(controllers))
+	for _, c := range controllers {
+		cp := *c
+		s.controllers[cp.ID] = &cp
+	}
+	s.clientMappings = make(map[string]*models.ClientMapping, len(mappings))
+	for _, m := range mappings {
+		mp := *m
+		key := fmt.Sprintf("%s:%s", mp.ClientID, mp.Version)
+		s.clientMappings[key] = &mp
+	}
+}
+
 // CleanupStaleData removes stale controllers and client mappings
 func (s *InMemoryStorage) CleanupStaleData(ctx context.Context, maxAge time.Duration) error {
 	if ctx.Err() != nil {

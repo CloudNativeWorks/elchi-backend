@@ -30,6 +30,9 @@ func NewHTTPServer(router *gin.Engine) *Server {
 
 func (s *Server) Run(config *config.AppConfig, logger *logger.Logger) error {
 	port := 8099
+	if config != nil && config.ControllerPort > 0 {
+		port = int(config.ControllerPort)
+	}
 	addr := fmt.Sprintf(":%d", port)
 	server := &http.Server{
 		Addr:              addr,

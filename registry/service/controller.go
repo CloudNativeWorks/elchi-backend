@@ -8,8 +8,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/CloudNativeWorks/elchi-backend/pkg/helper"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
+	pkgregistry "github.com/CloudNativeWorks/elchi-backend/pkg/registry"
 	"github.com/CloudNativeWorks/elchi-backend/registry/models"
 	"github.com/CloudNativeWorks/elchi-backend/registry/storage"
 )
@@ -112,8 +112,10 @@ func (s *ControllerRoutingService) findClientInAnyVersion(ctx context.Context, c
 	return nil, fmt.Errorf("client %s not found in any version", clientID)
 }
 
-// NotifyClientConnected updates client mapping after client connection
-func (s *ControllerRoutingService) NotifyClientConnected(ctx context.Context, controllerID, clientID, version, namespace string) error {
+// NotifyClientConnected updates client mapping after client connection.
+// httpPort is the controller's REST port advertised in the auto-register
+// fallback path; pass appConfig.ControllerPort (0 falls back to 8099).
+func (s *ControllerRoutingService) NotifyClientConnected(ctx context.Context, controllerID, clientID, version, namespace string, httpPort uint) error {
 	s.logger.Infof("Client connected notification: %s -> %s (version: %s)", controllerID, clientID, version)
 
 	if controllerID == "" {
@@ -134,12 +136,11 @@ func (s *ControllerRoutingService) NotifyClientConnected(ctx context.Context, co
 		// Controller not found, try to register it
 		s.logger.Warnf("Controller %s not found during client notification, attempting to register it", controllerID)
 
-		serviceName := helper.ToK8sServiceName(controllerID, namespace)
 		// Create and register controller
 		controller := &models.ControllerInfo{
 			ID:          controllerID,
 			Version:     version,
-			HTTPAddress: fmt.Sprintf("%s:8099", serviceName), // Default GRPC address
+			HTTPAddress: pkgregistry.ResolveControllerHTTPAddress(controllerID, httpPort, namespace),
 			LastSeen:    time.Now(),
 		}
 
@@ -187,8 +188,9 @@ func (s *ControllerRoutingService) NotifyClientDisconnected(ctx context.Context,
 	return nil
 }
 
-// UpdateClientList updates the list of clients for a controller
-func (s *ControllerRoutingService) UpdateClientList(ctx context.Context, controllerID string, clients []*models.ClientInfo, namespace string) error {
+// UpdateClientList updates the list of clients for a controller. See
+// NotifyClientConnected for the meaning of httpPort.
+func (s *ControllerRoutingService) UpdateClientList(ctx context.Context, controllerID string, clients []*models.ClientInfo, namespace string, httpPort uint) error {
 	s.logger.Debugf("Updating client list for controller %s: %d clients", controllerID, len(clients))
 
 	if controllerID == "" {
@@ -209,13 +211,11 @@ func (s *ControllerRoutingService) UpdateClientList(ctx context.Context, control
 			return fmt.Errorf("cannot register controller without version information")
 		}
 
-		serviceName := helper.ToK8sServiceName(controllerID, namespace)
-
 		// Create and register controller
 		controller := &models.ControllerInfo{
 			ID:          controllerID,
 			Version:     version,
-			HTTPAddress: fmt.Sprintf("%s:8099", serviceName),
+			HTTPAddress: pkgregistry.ResolveControllerHTTPAddress(controllerID, httpPort, namespace),
 			LastSeen:    time.Now(),
 		}
 

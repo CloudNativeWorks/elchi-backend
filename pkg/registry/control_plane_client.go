@@ -3,14 +3,13 @@ package registry
 import (
 	"context"
 	"fmt"
-	"os"
-	"strings"
 	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/bridge"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/config"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 )
 
@@ -27,19 +26,14 @@ type ControlPlaneConfig struct {
 	Version         string
 }
 
-// NewControlPlaneConfig creates a new registry config with auto-detected values
-func NewControlPlaneConfig(registryAddress, envoyVersion string) *ControlPlaneConfig {
-	hostname, _ := os.Hostname()
-	if hostname == "" {
-		hostname = "unknown"
-	}
-
-	// Clean hostname (remove domain parts)
-	hostname = strings.Split(hostname, ".")[0]
-
+// NewControlPlaneConfig creates a new registry config with the control-plane
+// identity resolved according to ResolveControlPlaneID rules (K8s hostname
+// or "<host>-controlplane-<version>" outside Kubernetes; cfg.ControlPlaneID
+// takes precedence when set).
+func NewControlPlaneConfig(registryAddress, envoyVersion string, appConfig *config.AppConfig) *ControlPlaneConfig {
 	return &ControlPlaneConfig{
 		RegistryAddress: registryAddress,
-		ControlPlaneID:  hostname,
+		ControlPlaneID:  ResolveControlPlaneID(appConfig, envoyVersion),
 		Version:         envoyVersion,
 	}
 }

@@ -64,7 +64,7 @@ var grpcCmd = &cobra.Command{
 		fullAddress := fmt.Sprintf("%s:%d", registryAddress, appConfig.RegistryPort)
 
 		// Create routing config and manager FIRST
-		routingConfig := registry.NewControlPlaneConfig(fullAddress, version.GetVersion())
+		routingConfig := registry.NewControlPlaneConfig(fullAddress, version.GetVersion(), appConfig)
 		routingManager, err := registry.NewControlPlaneManager(routingConfig, logger.NewLogger("control-plane/server"), ctxCache)
 		if err != nil {
 			log.Fatalf("Failed to create routing manager: %v", err)

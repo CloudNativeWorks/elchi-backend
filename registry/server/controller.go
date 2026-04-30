@@ -2,14 +2,13 @@ package server
 
 import (
 	"context"
-	"fmt"
 	"math"
 	"time"
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/bridge"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/config"
-	"github.com/CloudNativeWorks/elchi-backend/pkg/helper"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
+	pkgregistry "github.com/CloudNativeWorks/elchi-backend/pkg/registry"
 	"github.com/CloudNativeWorks/elchi-backend/registry/models"
 	"github.com/CloudNativeWorks/elchi-backend/registry/service"
 	"google.golang.org/grpc/codes"
@@ -24,31 +23,47 @@ type ControllerGRPCServer struct {
 	extProcessorServer       *ExternalProcessorServer
 	logger                   *logger.Logger
 	appConfig                *config.AppConfig
+	leader                   LeaderChecker
 }
 
-// NewControllerGRPCServer creates a new gRPC server instance for controller routing
-func NewControllerGRPCServer(controllerRoutingService *service.ControllerRoutingService, extProcessorServer *ExternalProcessorServer, logger *logger.Logger, appConfig *config.AppConfig) *ControllerGRPCServer {
+// NewControllerGRPCServer creates a new gRPC server instance for controller routing.
+// leader may be nil; when present, write/notify RPCs are rejected on standby instances.
+func NewControllerGRPCServer(controllerRoutingService *service.ControllerRoutingService, extProcessorServer *ExternalProcessorServer, logger *logger.Logger, appConfig *config.AppConfig, leader LeaderChecker) *ControllerGRPCServer {
 	return &ControllerGRPCServer{
 		controllerRoutingService: controllerRoutingService,
 		extProcessorServer:       extProcessorServer,
 		logger:                   logger,
 		appConfig:                appConfig,
+		leader:                   leader,
 	}
+}
+
+// rejectIfStandby returns a gRPC Unavailable error when this registry is not
+// the active leader. Returns nil when there is no leader configured (single-node).
+func (s *ControllerGRPCServer) rejectIfStandby() error {
+	if s.leader == nil || s.leader.IsLeader() {
+		return nil
+	}
+	return status.Error(codes.Unavailable, "registry is not the active leader")
 }
 
 // RegisterController handles controller registration
 func (s *ControllerGRPCServer) RegisterController(ctx context.Context, req *bridge.RegisterControllerRequest) (*bridge.RegisterControllerResponse, error) {
+	if err := s.rejectIfStandby(); err != nil {
+		return nil, err
+	}
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request cannot be nil")
 	}
 
-	serviceName := helper.ToK8sServiceName(req.ControllerId, s.appConfig.ElchiNamespace)
-
-	// Convert proto to internal model
+	// Convert proto to internal model. ResolveControllerHTTPAddress branches on
+	// IsKubernetes(): K8s deployments still get the headless StatefulSet DNS,
+	// bare-metal deployments get "<controllerID>:<port>" so /etc/hosts (or real
+	// DNS) can resolve forwarder targets.
 	controllerInfo := &models.ControllerInfo{
 		ID:          req.ControllerId,
 		Version:     req.Version,
-		HTTPAddress: fmt.Sprintf("%s:8099", serviceName),
+		HTTPAddress: pkgregistry.ResolveControllerHTTPAddress(req.ControllerId, s.appConfig.ControllerPort, s.appConfig.ElchiNamespace),
 		LastSeen:    time.Now(),
 	}
 
@@ -69,6 +84,9 @@ func (s *ControllerGRPCServer) RegisterController(ctx context.Context, req *brid
 
 // GetControllerCluster handles controller cluster routing requests
 func (s *ControllerGRPCServer) GetControllerCluster(ctx context.Context, req *bridge.GetControllerClusterRequest) (*bridge.GetControllerClusterResponse, error) {
+	if err := s.rejectIfStandby(); err != nil {
+		return nil, err
+	}
 	if req == nil || req.ClientId == "" {
 		return nil, status.Error(codes.InvalidArgument, "client ID cannot be empty")
 	}
@@ -106,11 +124,14 @@ func (s *ControllerGRPCServer) GetControllerCluster(ctx context.Context, req *br
 
 // NotifyClientConnected handles client connection notifications
 func (s *ControllerGRPCServer) NotifyClientConnected(ctx context.Context, req *bridge.NotifyClientConnectedRequest) (*bridge.NotifyClientConnectedResponse, error) {
+	if err := s.rejectIfStandby(); err != nil {
+		return nil, err
+	}
 	if req == nil || req.ControllerId == "" || req.ClientId == "" || req.Version == "" {
 		return nil, status.Error(codes.InvalidArgument, "controller ID, client ID and version cannot be empty")
 	}
 
-	if err := s.controllerRoutingService.NotifyClientConnected(ctx, req.ControllerId, req.ClientId, req.Version, s.appConfig.ElchiNamespace); err != nil {
+	if err := s.controllerRoutingService.NotifyClientConnected(ctx, req.ControllerId, req.ClientId, req.Version, s.appConfig.ElchiNamespace, s.appConfig.ControllerPort); err != nil {
 		s.logger.Errorf("Failed to notify client connected: %v", err)
 		return &bridge.NotifyClientConnectedResponse{
 			Success: false,
@@ -129,6 +150,9 @@ func (s *ControllerGRPCServer) NotifyClientConnected(ctx context.Context, req *b
 
 // NotifyClientDisconnected handles client disconnection notifications
 func (s *ControllerGRPCServer) NotifyClientDisconnected(ctx context.Context, req *bridge.NotifyClientDisconnectedRequest) (*bridge.NotifyClientDisconnectedResponse, error) {
+	if err := s.rejectIfStandby(); err != nil {
+		return nil, err
+	}
 	if req == nil || req.ControllerId == "" || req.ClientId == "" || req.Version == "" {
 		return nil, status.Error(codes.InvalidArgument, "controller ID, client ID and version cannot be empty")
 	}
@@ -150,6 +174,9 @@ func (s *ControllerGRPCServer) NotifyClientDisconnected(ctx context.Context, req
 
 // UpdateClientList handles bulk client list updates
 func (s *ControllerGRPCServer) UpdateClientList(ctx context.Context, req *bridge.UpdateClientListRequest) (*bridge.UpdateClientListResponse, error) {
+	if err := s.rejectIfStandby(); err != nil {
+		return nil, err
+	}
 	if req == nil || req.ControllerId == "" {
 		return nil, status.Error(codes.InvalidArgument, "controller ID cannot be empty")
 	}
@@ -164,7 +191,7 @@ func (s *ControllerGRPCServer) UpdateClientList(ctx context.Context, req *bridge
 		})
 	}
 
-	if err := s.controllerRoutingService.UpdateClientList(ctx, req.ControllerId, clients, s.appConfig.ElchiNamespace); err != nil {
+	if err := s.controllerRoutingService.UpdateClientList(ctx, req.ControllerId, clients, s.appConfig.ElchiNamespace, s.appConfig.ControllerPort); err != nil {
 		s.logger.Errorf("Failed to update client list for controller %s: %v", req.ControllerId, err)
 		return &bridge.UpdateClientListResponse{
 			Success:      false,
@@ -308,6 +335,9 @@ func (s *ControllerGRPCServer) GetAllRegistryData(ctx context.Context, req *brid
 
 // DeleteController handles controller deletion requests
 func (s *ControllerGRPCServer) DeleteController(ctx context.Context, req *bridge.DeleteControllerRequest) (*bridge.DeleteControllerResponse, error) {
+	if err := s.rejectIfStandby(); err != nil {
+		return nil, err
+	}
 	if req == nil || req.ControllerId == "" {
 		return nil, status.Error(codes.InvalidArgument, "controller ID cannot be empty")
 	}

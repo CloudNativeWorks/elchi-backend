@@ -9,12 +9,27 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/config"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
+	"github.com/CloudNativeWorks/elchi-backend/registry/leader"
 	"github.com/CloudNativeWorks/elchi-backend/registry/metrics"
 	"github.com/CloudNativeWorks/elchi-backend/registry/server"
 	"github.com/CloudNativeWorks/elchi-backend/registry/service"
+	"github.com/CloudNativeWorks/elchi-backend/registry/snapshot"
 	"github.com/CloudNativeWorks/elchi-backend/registry/storage"
 )
+
+// parseDurationOr parses s as a Go duration; returns d on empty/invalid input.
+func parseDurationOr(s string, d time.Duration) time.Duration {
+	if s == "" {
+		return d
+	}
+	v, err := time.ParseDuration(s)
+	if err != nil {
+		return d
+	}
+	return v
+}
 
 var registryPort uint
 
@@ -53,6 +68,12 @@ var registryCmd = &cobra.Command{
 		registryAddress := "0.0.0.0"
 		fullAddress := fmt.Sprintf("%s:%d", registryAddress, registryPort)
 
+		// MongoDB is required for HA (leader election + state snapshot).
+		// In single-node deployments this is still safe — the registry will
+		// just acquire its own lock and run as the sole leader.
+		rootLogger.Info("Connecting to MongoDB for leader election + snapshot...")
+		appContext := db.NewMongoDB(appConfig, true)
+
 		// Initialize in-memory storage
 		rootLogger.Info("Initializing in-memory storage...")
 		controllerStorage := storage.NewInMemoryStorage()          // For controller routing
@@ -70,6 +91,40 @@ var registryCmd = &cobra.Command{
 		metricsLogger := logger.NewLogger("registry/metrics")
 		metricsAggregator := metrics.NewAggregator(metricsLogger)
 
+		// Leader election + snapshot mirror.
+		leaderLogger := logger.NewLogger("registry/leader")
+		ttl := parseDurationOr(appConfig.RegistryLeaderLockTTL, leader.DefaultTTL)
+		renew := parseDurationOr(appConfig.RegistryLeaderRenewalInterval, leader.DefaultRenewInterval)
+		election := leader.New(appContext.Client, ttl, renew, leaderLogger)
+
+		snapshotLogger := logger.NewLogger("registry/snapshot")
+		snapshotter := snapshot.New(appContext.Client, controllerStorage, controlPlaneStorage, election.HolderID(), snapshotLogger)
+		writeInterval := parseDurationOr(appConfig.RegistrySnapshotInterval, snapshot.DefaultWriteInterval)
+		pollInterval := parseDurationOr(appConfig.RegistrySnapshotPollInterval, snapshot.DefaultPollInterval)
+
+		electionCtx, electionCancel := context.WithCancel(context.Background())
+		defer electionCancel()
+
+		// Wire leadership transitions: leader writes snapshots, standby reads them.
+		// Health status is flipped by registry/server.NewHealthServer (registered below).
+		election.OnLeadershipChange(func(isLeader bool) {
+			if isLeader {
+				snapshotter.StopReader()
+				// Pull the latest snapshot once before promotion so a freshly elected
+				// leader does not start with completely empty state.
+				if err := snapshotter.Load(electionCtx); err != nil {
+					snapshotLogger.Warnf("snapshot load on promotion failed: %v", err)
+				}
+				snapshotter.StartWriter(electionCtx, writeInterval)
+				return
+			}
+			snapshotter.StopWriter()
+			snapshotter.StartReader(electionCtx, pollInterval)
+		})
+
+		// Drive elections in the background.
+		go election.Run(electionCtx)
+
 		// Start HTTP metrics server (port 9091)
 		httpMetricsServer := server.NewHTTPMetricsServer(metricsAggregator, 9091, metricsLogger)
 		go func() {
@@ -78,12 +133,18 @@ var registryCmd = &cobra.Command{
 			}
 		}()
 
-		// Start cleanup goroutine for stale data (every 5 minutes)
+		// Start cleanup goroutine for stale data (every 5 minutes).
+		// Only the leader cleans up — standbys must not delete entries that
+		// the leader is still tracking.
 		go func() {
 			ticker := time.NewTicker(5 * time.Minute)
 			defer ticker.Stop()
 
 			for range ticker.C {
+				if !election.IsLeader() {
+					continue
+				}
+
 				// Clean up control-plane data that hasn't been updated for 2 minutes
 				if err := controlPlaneRoutingService.CleanupStaleData(context.Background(), 2*time.Minute); err != nil {
 					rootLogger.WithError(err).Error("Control-plane routing cleanup failed")
@@ -105,7 +166,7 @@ var registryCmd = &cobra.Command{
 
 		// Start gRPC server
 		rootLogger.WithField("address", fullAddress).Info("Starting gRPC server")
-		if err := server.StartGRPCServer(fullAddress, controllerRoutingService, controlPlaneRoutingService, metricsAggregator, rootLogger, appConfig); err != nil {
+		if err := server.StartGRPCServer(fullAddress, controllerRoutingService, controlPlaneRoutingService, metricsAggregator, rootLogger, appConfig, election, election); err != nil {
 			rootLogger.WithError(err).Fatal("gRPC server error")
 		}
 	},

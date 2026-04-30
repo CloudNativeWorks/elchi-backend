@@ -21,19 +21,34 @@ type ControlPlaneGRPCServer struct {
 	controlPlaneRoutingService *service.RoutingService
 	extProcessorServer         *ExternalProcessorServer
 	logger                     *logger.Logger
+	leader                     LeaderChecker
 }
 
-// NewControlPlaneGRPCServer creates a new gRPC routing server instance
-func NewControlPlaneGRPCServer(controlPlaneRoutingService *service.RoutingService, extProcessorServer *ExternalProcessorServer, logger *logger.Logger) *ControlPlaneGRPCServer {
+// NewControlPlaneGRPCServer creates a new gRPC routing server instance.
+// leader may be nil; when present, write/notify RPCs are rejected on standby instances.
+func NewControlPlaneGRPCServer(controlPlaneRoutingService *service.RoutingService, extProcessorServer *ExternalProcessorServer, logger *logger.Logger, leader LeaderChecker) *ControlPlaneGRPCServer {
 	return &ControlPlaneGRPCServer{
 		controlPlaneRoutingService: controlPlaneRoutingService,
 		extProcessorServer:         extProcessorServer,
 		logger:                     logger,
+		leader:                     leader,
 	}
+}
+
+// rejectIfStandby returns a gRPC Unavailable error when this registry is not
+// the active leader. Returns nil when there is no leader configured (single-node).
+func (s *ControlPlaneGRPCServer) rejectIfStandby() error {
+	if s.leader == nil || s.leader.IsLeader() {
+		return nil
+	}
+	return status.Error(codes.Unavailable, "registry is not the active leader")
 }
 
 // RegisterControlPlane handles control plane registration
 func (s *ControlPlaneGRPCServer) RegisterControlPlane(ctx context.Context, req *bridge.RegisterControlPlaneRequest) (*bridge.RegisterControlPlaneResponse, error) {
+	if err := s.rejectIfStandby(); err != nil {
+		return nil, err
+	}
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request cannot be nil")
 	}
@@ -62,6 +77,9 @@ func (s *ControlPlaneGRPCServer) RegisterControlPlane(ctx context.Context, req *
 
 // GetControlPlaneCluster handles routing requests from Envoy
 func (s *ControlPlaneGRPCServer) GetControlPlaneCluster(ctx context.Context, req *bridge.GetControlPlaneClusterRequest) (*bridge.GetControlPlaneClusterResponse, error) {
+	if err := s.rejectIfStandby(); err != nil {
+		return nil, err
+	}
 	if req == nil || req.NodeId == "" || req.Version == "" {
 		return nil, status.Error(codes.InvalidArgument, "node ID and version cannot be empty")
 	}
@@ -83,6 +101,9 @@ func (s *ControlPlaneGRPCServer) GetControlPlaneCluster(ctx context.Context, req
 
 // NotifySnapshotDelivered handles snapshot delivery notifications
 func (s *ControlPlaneGRPCServer) NotifySnapshotDelivered(ctx context.Context, req *bridge.NotifySnapshotDeliveredRequest) (*bridge.NotifySnapshotDeliveredResponse, error) {
+	if err := s.rejectIfStandby(); err != nil {
+		return nil, err
+	}
 	if req == nil || req.ControlPlaneId == "" || req.NodeId == "" || req.Version == "" {
 		return nil, status.Error(codes.InvalidArgument, "control plane ID, node ID and version cannot be empty")
 	}
@@ -107,6 +128,9 @@ func (s *ControlPlaneGRPCServer) NotifySnapshotDelivered(ctx context.Context, re
 
 // UpdateNodeList handles bulk node list updates
 func (s *ControlPlaneGRPCServer) UpdateNodeList(ctx context.Context, req *bridge.UpdateNodeListRequest) (*bridge.UpdateNodeListResponse, error) {
+	if err := s.rejectIfStandby(); err != nil {
+		return nil, err
+	}
 	if req == nil || req.ControlPlaneId == "" {
 		return nil, status.Error(codes.InvalidArgument, "control plane ID cannot be empty")
 	}
@@ -219,6 +243,9 @@ func (s *ControlPlaneGRPCServer) ListNodesByControlPlane(ctx context.Context, re
 
 // DeleteControlPlane handles control plane deletion requests
 func (s *ControlPlaneGRPCServer) DeleteControlPlane(ctx context.Context, req *bridge.DeleteControlPlaneRequest) (*bridge.DeleteControlPlaneResponse, error) {
+	if err := s.rejectIfStandby(); err != nil {
+		return nil, err
+	}
 	if req == nil || req.ControlPlaneId == "" {
 		return nil, status.Error(codes.InvalidArgument, "control plane ID cannot be empty")
 	}

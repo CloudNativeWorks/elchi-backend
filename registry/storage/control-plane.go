@@ -248,6 +248,45 @@ func (s *InMemoryRoutingStorage) DeleteControlPlane(ctx context.Context, control
 	return nil
 }
 
+// ExportAll returns deep copies of all control planes and node mappings.
+// Used by the snapshot writer (leader) to persist state to MongoDB.
+func (s *InMemoryRoutingStorage) ExportAll() ([]*models.ControlPlane, []*models.NodeMapping) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	cps := make([]*models.ControlPlane, 0, len(s.controlPlanes))
+	for _, c := range s.controlPlanes {
+		cp := *c
+		cps = append(cps, &cp)
+	}
+	mappings := make([]*models.NodeMapping, 0, len(s.nodeMappings))
+	for _, m := range s.nodeMappings {
+		mp := *m
+		mappings = append(mappings, &mp)
+	}
+	return cps, mappings
+}
+
+// ImportAll replaces the in-memory state with the supplied snapshot.
+// Used by the snapshot reader (standby) to stay warm with the leader's state.
+// Existing entries are dropped — this is a full overwrite.
+func (s *InMemoryRoutingStorage) ImportAll(controlPlanes []*models.ControlPlane, mappings []*models.NodeMapping) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.controlPlanes = make(map[string]*models.ControlPlane, len(controlPlanes))
+	for _, c := range controlPlanes {
+		cp := *c
+		s.controlPlanes[cp.ID] = &cp
+	}
+	s.nodeMappings = make(map[string]*models.NodeMapping, len(mappings))
+	for _, m := range mappings {
+		mp := *m
+		key := fmt.Sprintf("%s:%s", mp.NodeID, mp.Version)
+		s.nodeMappings[key] = &mp
+	}
+}
+
 // CleanupStaleData removes stale control planes and node mappings
 // This should be called periodically (e.g., every 5 minutes) for long-running services
 func (s *InMemoryRoutingStorage) CleanupStaleData(ctx context.Context, maxAge time.Duration) error {

@@ -18,6 +18,7 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/pkg/helper"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/registry"
 	pb "github.com/CloudNativeWorks/elchi-proto/client"
 	"go.mongodb.org/mongo-driver/bson"
 )
@@ -60,9 +61,9 @@ func (e ClientFetchError) Error() string {
 
 // Constants
 const (
-	HTTPTimeout        = 25 * time.Second // Increased to 25s (less than server WriteTimeout 45s)
-	ControllerHTTPPort = "8099"
-	DevModeEnvVar      = "DEV_MODE"
+	HTTPTimeout                  = 25 * time.Second // Increased to 25s (less than server WriteTimeout 45s)
+	defaultControllerForwardPort = uint(8099)
+	DevModeEnvVar                = "DEV_MODE"
 
 	// Headers
 	HeaderContentType      = "Content-Type"
@@ -410,16 +411,23 @@ func (h *Client) processClientSequential(ctx context.Context, clients []models.S
 	return result, nil
 }
 
-// buildTargetURL builds the target URL for forwarding based on environment
+// buildTargetURL builds the target URL for forwarding based on environment.
+// The forward port is read from CONTROLLER_PORT (fleet-wide) and falls back to
+// 8099 to preserve historical behaviour. K8s service-DNS suffixing is handled
+// by registry.ResolveControllerHTTPAddress so bare-metal deployments resolve
+// targetControllerID via /etc/hosts or real DNS instead.
 func (h *Client) buildTargetURL(targetControllerID string, requestDetails models.RequestDetails) string {
 	var baseURL string
 	if os.Getenv(DevModeEnvVar) == ForwardTrue {
-		// Development mode: use container hostname (bridge network)
-		baseURL = fmt.Sprintf("http://%s:%s/api/op/clients", targetControllerID, ControllerHTTPPort)
+		// Development mode: bypass any DNS construction and use container hostname directly.
+		port := h.Context.Config.ControllerPort
+		if port == 0 {
+			port = defaultControllerForwardPort
+		}
+		baseURL = fmt.Sprintf("http://%s:%d/api/op/clients", targetControllerID, port)
 	} else {
-		// Production mode: use Kubernetes service DNS
-		serviceName := helper.ToK8sServiceName(targetControllerID, h.Context.Config.ElchiNamespace)
-		baseURL = fmt.Sprintf("http://%s:%s/api/op/clients", serviceName, ControllerHTTPPort)
+		addr := registry.ResolveControllerHTTPAddress(targetControllerID, h.Context.Config.ControllerPort, h.Context.Config.ElchiNamespace)
+		baseURL = fmt.Sprintf("http://%s/api/op/clients", addr)
 	}
 
 	// Add query parameters if they exist

@@ -3,13 +3,11 @@ package registry
 import (
 	"context"
 	"fmt"
-	"os"
 	"sync"
 	"time"
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/bridge"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/config"
-	"github.com/CloudNativeWorks/elchi-backend/pkg/helper"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/version"
 	"google.golang.org/grpc"
@@ -63,18 +61,14 @@ func NewRegistryClient(registryAddress string, logger *logger.Logger, appConfig 
 
 // NewRegistryClientWithConfig creates a new registry client with custom config
 func NewRegistryClientWithConfig(config *Config, logger *logger.Logger, appConfig *config.AppConfig) (*RegistryClient, error) {
-	// Auto-detect controller ID from hostname
-	controllerID, err := os.Hostname()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get hostname: %w", err)
-	}
+	controllerID := ResolveControllerID(appConfig)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
 	client := &RegistryClient{
 		controllerID:     controllerID,
 		version:          config.Version,
-		grpcAddress:      buildGRPCAddress(controllerID, appConfig.ElchiNamespace),
+		grpcAddress:      ResolveControllerHTTPAddress(controllerID, appConfig.ControllerPort, appConfig.ElchiNamespace),
 		registryAddr:     config.RegistryAddress,
 		logger:           logger,
 		connectionState:  ControllerStateDisconnected,
@@ -87,15 +81,6 @@ func NewRegistryClientWithConfig(config *Config, logger *logger.Logger, appConfi
 	return client, nil
 }
 
-// buildGRPCAddress builds gRPC address for Kubernetes StatefulSet environment
-func buildGRPCAddress(hostname string, namespace string) string {
-	if ksp := os.Getenv("KUBERNETES_SERVICE_PORT"); ksp != "" {
-		// Add headless service address to hostname
-		return helper.ToK8sServiceName(hostname, namespace)
-	}
-
-	return fmt.Sprintf("%s:8099", hostname)
-}
 
 // Connect establishes gRPC connection to registry
 func (r *RegistryClient) Connect() error {

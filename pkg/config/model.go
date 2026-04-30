@@ -35,16 +35,47 @@ type AppConfig struct {
 	// CORS configuration
 	ElchiCORSAllowedOrigins string `mapstructure:"ELCHI_CORS_ALLOWED_ORIGINS" yaml:"ELCHI_CORS_ALLOWED_ORIGINS"`
 
-	// Routing configuration.
-	// REGISTRY_PORT is dual-purpose: the port the registry server listens on
-	// AND the port controllers/control-planes use to dial the registry.
-	// CONTROL_PLANE_PORT is the gRPC xDS port the control-plane listens on.
-	// Any of these can be overridden at runtime with the `--port` CLI flag.
-	// If unset (or 0) the binaries fall back to their built-in defaults
-	// (registry: 9090, control-plane: 18000) — startup never fails on a missing port.
-	RegistryAddress  string `mapstructure:"REGISTRY_ADDRESS" yaml:"REGISTRY_ADDRESS"`
-	RegistryPort     uint   `mapstructure:"REGISTRY_PORT" yaml:"REGISTRY_PORT"`
-	ControlPlanePort uint   `mapstructure:"CONTROL_PLANE_PORT" yaml:"CONTROL_PLANE_PORT"`
+	// Listen-port configuration.
+	// CONTROLLER_PORT     : HTTP/REST port the controller listens on (default 8099).
+	// CONTROLLER_GRPC_PORT: gRPC port the controller's client server binds on
+	//                       (default 50051). Override per-instance to run multiple
+	//                       controllers on the same host.
+	// REGISTRY_PORT       : gRPC port the registry listens on AND the port controllers/
+	//                       control-planes use to dial it (default 9090).
+	// CONTROL_PLANE_PORT  : gRPC xDS port the control-plane listens on (default 18000).
+	// Registry and control-plane also accept a `--port` CLI flag override.
+	// If unset (or 0) the binaries fall back to their built-in defaults — startup
+	// never fails on a missing port.
+	RegistryAddress    string `mapstructure:"REGISTRY_ADDRESS" yaml:"REGISTRY_ADDRESS"`
+	RegistryPort       uint   `mapstructure:"REGISTRY_PORT" yaml:"REGISTRY_PORT"`
+	ControlPlanePort   uint   `mapstructure:"CONTROL_PLANE_PORT" yaml:"CONTROL_PLANE_PORT"`
+	ControllerPort     uint   `mapstructure:"CONTROLLER_PORT" yaml:"CONTROLLER_PORT"`
+	ControllerGRPCPort uint   `mapstructure:"CONTROLLER_GRPC_PORT" yaml:"CONTROLLER_GRPC_PORT"`
+
+	// CONTROLLER_ID overrides the auto-derived controller identity used for
+	// x-target-cluster routing.
+	// Default (K8s):     hostname (StatefulSet pod name).
+	// Default (non-K8s): "<hostname>-controller"
+	// Controller is version-agnostic so the suffix omits the envoy version.
+	ControllerID string `mapstructure:"CONTROLLER_ID" yaml:"CONTROLLER_ID"`
+
+	// CONTROL_PLANE_ID overrides the auto-derived control-plane identity used
+	// for x-target-cluster routing.
+	// Default (K8s):     hostname (StatefulSet pod name).
+	// Default (non-K8s): "<hostname>-controlplane-<version>"
+	//                    (e.g. "m2host-controlplane-1.38.0").
+	// Set this when running multiple control-plane binaries on the same host
+	// and you want to publish a custom name in /etc/hosts and Envoy clusters.
+	ControlPlaneID string `mapstructure:"CONTROL_PLANE_ID" yaml:"CONTROL_PLANE_ID"`
+
+	// Registry HA — leader election + state snapshot (active-passive).
+	// All four are optional; built-in defaults apply when blank/zero.
+	// Defaults: lock TTL 30s, renewal 10s, snapshot write 5m (leader),
+	// snapshot poll 30s (standby). See registry/leader and registry/snapshot.
+	RegistryLeaderLockTTL         string `mapstructure:"REGISTRY_LEADER_LOCK_TTL"          yaml:"REGISTRY_LEADER_LOCK_TTL"`
+	RegistryLeaderRenewalInterval string `mapstructure:"REGISTRY_LEADER_RENEWAL_INTERVAL" yaml:"REGISTRY_LEADER_RENEWAL_INTERVAL"`
+	RegistrySnapshotInterval      string `mapstructure:"REGISTRY_SNAPSHOT_INTERVAL"       yaml:"REGISTRY_SNAPSHOT_INTERVAL"`
+	RegistrySnapshotPollInterval  string `mapstructure:"REGISTRY_SNAPSHOT_POLL_INTERVAL"  yaml:"REGISTRY_SNAPSHOT_POLL_INTERVAL"`
 
 	// ACME certificate management configuration
 	ACME ACMEConfig `mapstructure:"ACME" yaml:"ACME"`

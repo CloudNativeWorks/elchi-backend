@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/CloudNativeWorks/elchi-proto v0.0.0-20260105113801-d89349b0818e
-	github.com/CloudNativeWorks/versioned-go-control-plane v0.13.4-envoy1.36.2
+	github.com/CloudNativeWorks/versioned-go-control-plane v0.14.0-envoy1.36.2
 	github.com/CloudNativeWorks/versioned-go-control-plane/envoy v1.36.2
 	github.com/gin-contrib/pprof v1.5.3
 	github.com/gin-gonic/gin v1.10.0

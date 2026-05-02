@@ -65,14 +65,6 @@ jobs:
 
       - name: Build AMD64 binaries (one per envoy version)
         if: steps.check_release.outputs.exists == 'false'
-        env:
-          # Bypass proxy.golang.org and the checksum DB so a freshly retagged
-          # versioned-go-control-plane release (same tag, new commit) is
-          # fetched directly from GitHub. Without this, a stale proxy entry
-          # for envoy/v1.X.Y would silently serve the previous commit's
-          # generated descriptors.
-          GOPROXY: direct
-          GOSUMDB: "off"
         run: |
           VERSION=${{ steps.get_version.outputs.version }}
           IFS=',' read -ra CP_VERSIONS <<< "${{ github.event.inputs.envoy_versions }}"

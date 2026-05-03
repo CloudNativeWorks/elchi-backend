@@ -124,6 +124,15 @@ func initSettingRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		{"GET", "/otp-config", h.Settings.GetOTPConfig()},
 		{"PUT", "/otp-config", h.Settings.UpdateOTPConfig()},
 		{"POST", "/otp/reset-user/:user_id", h.Settings.ResetUserOTP()},
+
+		// License endpoints. GET is exempted in InitSettingMiddleware so any
+		// authenticated user can read plan info for the UI banner; mutating
+		// endpoints stay Admin/Owner. activate takes BOTH license_key and api_key
+		// in one call — there is no separate api-key-only endpoint.
+		{"GET", "/license", h.Settings.GetLicenseStatus},
+		{"POST", "/license/activate", h.SetLicenseActivateWithAudit},
+		{"POST", "/license/check", h.ForceLicenseCheckWithAudit},
+		{"DELETE", "/license", h.DeleteLicenseWithAudit},
 	}
 
 	initRoutes(rg, routes)

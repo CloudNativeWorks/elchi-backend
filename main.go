@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"log"
 	"time"
 
@@ -8,6 +9,15 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/pkg/version"
 	"github.com/go-acme/lego/v4/challenge/dns01"
 )
+
+//go:embed VERSION
+var versionFile string
+
+func init() {
+	// Make the embedded VERSION the fallback whenever ldflags didn't inject
+	// ProjectVersion (i.e. local `go run` / plain `go build`).
+	version.SetProjectVersion(versionFile)
+}
 
 func init() {
 	log.Println("main.go init() started - configuring DNS resolvers...")

@@ -2,6 +2,7 @@ package authorization
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -17,31 +18,40 @@ func ValidateRequestProject(ctx context.Context, db *mongo.Database, userDetails
 	return validator.ValidateProjectAccess(ctx, userDetails, projectID)
 }
 
-// ExtractProjectFromRequest safely extracts project ID from various sources
-// Priority: Path param > Query param > Request body
+// ExtractProjectFromRequest safely extracts project ID from various sources.
+// Priority: Path param > Query param > Request body.
+//
+// IMPORTANT: When falling back to the body, this reads from BodyCaptureMiddleware's
+// cached copy (`_original_body`) rather than calling c.ShouldBindJSON. Calling
+// ShouldBindJSON here would consume c.Request.Body and any handler that later
+// tries to bind its own request struct gets "EOF". This bug existed silently
+// for endpoints with no `?project=` query param (e.g. /setting/license/activate)
+// — those calls fell through to the body-read branch and broke the handler.
 func ExtractProjectFromRequest(c *gin.Context) string {
-	// First check path parameter
 	if project := c.Param("project"); project != "" {
 		return project
 	}
-
-	// Then check query parameter
 	if project := c.Query("project"); project != "" {
 		return project
 	}
-
-	// Finally check request body (for POST/PUT requests)
+	if c.Request.Method != http.MethodPost && c.Request.Method != http.MethodPut && c.Request.Method != http.MethodPatch {
+		return ""
+	}
+	cached, exists := c.Get("_original_body")
+	if !exists {
+		return ""
+	}
+	bodyBytes, ok := cached.([]byte)
+	if !ok || len(bodyBytes) == 0 {
+		return ""
+	}
 	var body struct {
 		Project string `json:"project"`
 	}
-	if c.Request.Method == http.MethodPost || c.Request.Method == http.MethodPut || c.Request.Method == http.MethodPatch {
-		// Try to bind JSON without consuming the body
-		if err := c.ShouldBindJSON(&body); err == nil && body.Project != "" {
-			return body.Project
-		}
+	if err := json.Unmarshal(bodyBytes, &body); err != nil {
+		return ""
 	}
-
-	return ""
+	return body.Project
 }
 
 // EnforceProjectFilter adds project filter to MongoDB queries based on user permissions

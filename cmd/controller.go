@@ -32,6 +32,7 @@ import (
 	pkgGslb "github.com/CloudNativeWorks/elchi-backend/pkg/gslb"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/helper"
 	server "github.com/CloudNativeWorks/elchi-backend/pkg/httpserver"
+	licensepkg "github.com/CloudNativeWorks/elchi-backend/pkg/license"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/registry"
 )
@@ -217,8 +218,6 @@ var restCmd = &cobra.Command{
 		// Ensure graceful shutdown of registry client
 		defer registryClient.Stop()
 
-		go clientHandler.Start(appConfig)
-
 		dependencyHandler.StartCacheCleanup(1 * time.Minute)
 
 		// Initialize audit service
@@ -233,6 +232,33 @@ var restCmd = &cobra.Command{
 		if err := jobHandler.StartAsyncSystem(&bridgeHandler.Poke); err != nil {
 			rootLogger.Fatalf("Failed to start async job system: %v", err)
 		}
+
+		// Initialize license service (online-only) BEFORE the gRPC server starts
+		// accepting Register requests, so the per-plan cap is enforced from the
+		// very first connection. KEK derives from the JWT secret — rotating the
+		// secret invalidates the stored license and forces re-activation.
+		licenseLogger := logger.NewLogger("controller/license")
+		licenseKEK, err := licensepkg.NewKEK(appConfig.ElchiJWTSecret)
+		if err != nil {
+			rootLogger.Fatalf("Failed to derive license KEK: %v", err)
+		}
+		licenseRepo := licensepkg.NewRepo(appContext)
+		licenseService := licensepkg.NewService(licenseRepo, licenseKEK, &appConfig.License, licenseLogger)
+		licenseCtx := context.Background()
+		licenseService.Start(licenseCtx)
+		licenseService.StartRefreshLoop(licenseCtx, 60*time.Second)
+		licenseService.StartCheckLoop(licenseCtx, 24*time.Hour)
+		go func() {
+			if err := licenseService.CheckLicense(licenseCtx); err != nil {
+				rootLogger.Warnf("initial license validation failed: %v", err)
+			}
+		}()
+		clientService.SetLicenseChecker(licenseService)
+		userHandler.SetLicenseService(licenseService)
+		userHandler.SetClientCounter(clientService)
+
+		// Now safe to start the gRPC client server — license check is wired in.
+		go clientHandler.Start(appConfig)
 
 		// Initialize all sub-handlers that will be passed to NewHandler
 		asyncSystem := jobHandler.GetAsyncSystem()

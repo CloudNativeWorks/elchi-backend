@@ -42,6 +42,12 @@ var AllowedEndpoints = []string{
 	"/api/v3/setting/otp-config",
 	"/api/v3/setting/otp/reset-user/:user_id",
 
+	// License endpoints. GET is open to all authenticated users (UI banner);
+	// POST endpoints are Admin/Owner only via InitSettingMiddleware.
+	"/api/v3/setting/license",
+	"/api/v3/setting/license/activate",
+	"/api/v3/setting/license/check",
+
 	// Profile endpoints (All authenticated users)
 	"/api/v3/profile",
 	"/api/v3/profile/email",

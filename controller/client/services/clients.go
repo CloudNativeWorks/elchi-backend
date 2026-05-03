@@ -32,8 +32,21 @@ type ClientService struct {
 	logger           *logger.Logger
 	registryClient   *registry.RegistryClient
 
+	// licenseChecker is read on every RegisterClient (gRPC concurrent) and
+	// written by SetLicenseChecker at startup. Guarded by its own RWMutex so
+	// the race detector stays clean and a future hot-swap is safe.
+	licenseChecker   LicenseChecker
+	licenseCheckerMu sync.RWMutex
+
 	// Callback for client disconnect events
 	onClientDisconnected func(clientID string)
+}
+
+// LicenseChecker is the minimal license-service surface ClientService depends on.
+// Defined as an interface to avoid an import cycle with pkg/license.
+type LicenseChecker interface {
+	GetEffectivePlan() string
+	GetClientLimit() int
 }
 
 type ClientWithServiceIPs struct {
@@ -56,6 +69,57 @@ func NewClientService(context *db.AppContext) *ClientService {
 // SetRegistryClient sets the registry client for notifications
 func (s *ClientService) SetRegistryClient(client *registry.RegistryClient) {
 	s.registryClient = client
+}
+
+// SetLicenseChecker installs the license service so RegisterClient can enforce
+// per-plan connection caps. Nil disables enforcement (e.g. dev mode).
+func (s *ClientService) SetLicenseChecker(lc LicenseChecker) {
+	s.licenseCheckerMu.Lock()
+	defer s.licenseCheckerMu.Unlock()
+	s.licenseChecker = lc
+}
+
+// getLicenseChecker returns the currently installed checker (or nil).
+func (s *ClientService) getLicenseChecker() LicenseChecker {
+	s.licenseCheckerMu.RLock()
+	defer s.licenseCheckerMu.RUnlock()
+	return s.licenseChecker
+}
+
+// staleConnectionThreshold is how long a client's last_seen may lag before we
+// stop counting it as connected for license purposes. Set comfortably larger
+// than the registry health-check interval so genuine clients aren't filtered
+// out, but short enough that a crashed pod's stale `connected:true` rows
+// don't permanently consume license slots.
+const staleConnectionThreshold = 5 * time.Minute
+
+// CountActiveClients returns the cluster-wide count of currently-connected
+// clients (across all controller pods) for license/UI display. Reuses the same
+// staleness filter as the registration limit check so the displayed count
+// matches the count enforced at registration time.
+func (s *ClientService) CountActiveClients(ctx context.Context) (int64, error) {
+	return s.countGloballyConnectedClients(ctx, "")
+}
+
+// countGloballyConnectedClients returns the cluster-wide connected client count
+// from the `clients` collection. Excludes the supplied ID so re-registrations
+// don't double-count themselves, and ignores rows whose `last_seen` is older
+// than staleConnectionThreshold so an unclean pod shutdown can't lock customers
+// out (a controller crash leaves `connected:true` rows that would otherwise
+// inflate the count forever).
+//
+// Uses a hard 5s timeout because RegisterClient holds the write lock — a
+// stalled Mongo here would block all client operations.
+func (s *ClientService) countGloballyConnectedClients(ctx context.Context, excludeClientID string) (int64, error) {
+	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	cutoff := time.Now().Add(-staleConnectionThreshold)
+	filter := bson.M{
+		"connected": true,
+		"client_id": bson.M{"$ne": excludeClientID},
+		"last_seen": bson.M{"$gte": cutoff},
+	}
+	return s.Context.Client.Collection("clients").CountDocuments(cctx, filter)
 }
 
 // SetClientDisconnectedCallback sets the callback for client disconnect events
@@ -257,6 +321,29 @@ func (s *ClientService) RegisterClient(req *pb.RegisterRequest) (*client.ClientI
 
 	if !tokenValid {
 		return nil, "", fmt.Errorf("invalid token provided")
+	}
+
+	// License-based connection limit enforcement.
+	// Counts globally across all controller pods via the `clients` collection so
+	// the cap holds in multi-pod deployments. Two pods racing at limit-1 may admit
+	// one extra connection — accepted tradeoff (no distributed lock).
+	if lc := s.getLicenseChecker(); lc != nil {
+		limit := lc.GetClientLimit()
+		if limit > 0 {
+			currentCount, err := s.countGloballyConnectedClients(ctx, req.GetClientId())
+			if err != nil {
+				s.logger.Errorf("license limit check failed for client %s: %v", req.GetClientId(), err)
+				return nil, "", fmt.Errorf("license limit check failed: %w", err)
+			}
+			if currentCount >= int64(limit) {
+				plan := lc.GetEffectivePlan()
+				s.logger.Warnf("license limit exceeded for client %s: %d/%d connected (plan=%s)",
+					req.GetClientId(), currentCount, limit, plan)
+				return nil, "", fmt.Errorf(
+					"license limit reached: %d/%d clients connected (plan: %s)",
+					currentCount, limit, plan)
+			}
+		}
 	}
 
 	// Create client info

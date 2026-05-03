@@ -1,8 +1,9 @@
 module github.com/CloudNativeWorks/elchi-backend
 
-go 1.25.0
+go 1.25.6
 
 require (
+	github.com/CloudNativeWorks/cnw-license-sdk v0.2.5
 	github.com/CloudNativeWorks/elchi-proto v0.0.0-20260105113801-d89349b0818e
 	github.com/CloudNativeWorks/versioned-go-control-plane v0.14.0-envoy1.36.2
 	github.com/CloudNativeWorks/versioned-go-control-plane/envoy v1.36.2

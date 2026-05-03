@@ -819,6 +819,42 @@ func (h *Handler) DeleteCloudWithAudit(c *gin.Context) {
 	}
 }
 
+// SetLicenseActivateWithAudit logs a license activation attempt.
+func (h *Handler) SetLicenseActivateWithAudit(c *gin.Context) {
+	requestDetails, _ := h.getRequestDetails(c)
+	h.setResourceAuditContext(c, requestDetails)
+	h.Settings.ActivateLicense(c)
+	if c.Writer.Status() >= 400 {
+		h.setAuditResult(c, fmt.Errorf("license activation failed"))
+	} else {
+		h.setAuditResult(c, nil)
+	}
+}
+
+// DeleteLicenseWithAudit logs a license deletion (hard delete → free plan).
+func (h *Handler) DeleteLicenseWithAudit(c *gin.Context) {
+	requestDetails, _ := h.getRequestDetails(c)
+	h.setResourceAuditContext(c, requestDetails)
+	h.Settings.DeleteLicense(c)
+	if c.Writer.Status() >= 400 {
+		h.setAuditResult(c, fmt.Errorf("license deletion failed"))
+	} else {
+		h.setAuditResult(c, nil)
+	}
+}
+
+// ForceLicenseCheckWithAudit logs a manual license re-validation trigger.
+func (h *Handler) ForceLicenseCheckWithAudit(c *gin.Context) {
+	requestDetails, _ := h.getRequestDetails(c)
+	h.setResourceAuditContext(c, requestDetails)
+	h.Settings.ForceLicenseCheck(c)
+	if c.Writer.Status() >= 400 {
+		h.setAuditResult(c, fmt.Errorf("license re-check failed"))
+	} else {
+		h.setAuditResult(c, nil)
+	}
+}
+
 // updateAuditContextFromResponse updates audit context with response data for CREATE operations
 func (h *Handler) updateAuditContextFromResponse(c *gin.Context, response any) {
 	if response == nil {

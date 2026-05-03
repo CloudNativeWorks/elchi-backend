@@ -208,6 +208,14 @@ func InitSettingMiddleware() gin.HandlerFunc {
 			}
 		}
 
+		// Special case for license status GET - any authenticated user can read.
+		// UI banners need plan/limit info regardless of role; mutating endpoints
+		// (activate/api-key/check) still require Admin/Owner via the default path below.
+		if c.Request.URL.Path == "/api/v3/setting/license" && c.Request.Method == http.MethodGet {
+			c.Next()
+			return
+		}
+
 		if strings.HasPrefix(c.Request.URL.Path, "/api/v3/setting/users/") && c.Request.Method == http.MethodGet {
 			c.Next()
 			return

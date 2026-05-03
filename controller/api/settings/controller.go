@@ -17,13 +17,36 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/errstr"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/helper"
+	licensepkg "github.com/CloudNativeWorks/elchi-backend/pkg/license"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 )
 
 type AppHandler struct {
 	crud.Application
-	Logger *logger.Logger
+	Logger        *logger.Logger
+	License       *licensepkg.Service
+	ClientCounter ClientCounter
+}
+
+// ClientCounter exposes the cluster-wide connected-client count to the settings
+// layer so /license can return current_clients alongside client_limit.
+// Defined as an interface to avoid importing controller/client/services
+// (which would create an import cycle).
+type ClientCounter interface {
+	CountActiveClients(ctx context.Context) (int64, error)
+}
+
+// SetLicenseService wires the license service into the settings handler so
+// /api/v3/setting/license endpoints can read and mutate license state.
+func (handler *AppHandler) SetLicenseService(svc *licensepkg.Service) {
+	handler.License = svc
+}
+
+// SetClientCounter wires the connected-client counter so GetLicenseStatus can
+// expose current_clients for UI usage display.
+func (handler *AppHandler) SetClientCounter(counter ClientCounter) {
+	handler.ClientCounter = counter
 }
 
 var validate = validator.New()

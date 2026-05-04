@@ -669,6 +669,32 @@ func (h *ACMEHandler) RetryVerification(c *gin.Context) {
 		return
 	}
 
+	// Ensure a temp key (private_key + CSR) is present for the worker.
+	// CreateCertificate stores one initially, but it can disappear between
+	// attempts — legacy TTL cleanup, a previous failure that nuked it, or
+	// manual ops. The worker calls GetTempKey unconditionally and fails the
+	// job with "temp key not found" when missing. Always refreshing here
+	// matches the behavior RenewCertificate already implements.
+	//
+	// Safety: this branch is reached only on the automatic DNS path (manual
+	// is rejected above). Automatic verification calls lego's ObtainCertificate
+	// which always opens a fresh ACME order, so the regenerated key + CSR are
+	// compatible — cert.ACME.OrderURL is irrelevant on this code path.
+	privateKeyPEM, csrPEM, err := h.manager.PrepareRenewalKey(ctx, cert.Domains)
+	if err != nil {
+		h.logger.Errorf("Failed to prepare retry-verification key for cert %s: %v", certIDStr, err)
+		h.auditHelper.SetAuditError(c, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to prepare retry-verification key"})
+		return
+	}
+	if err := h.manager.CreateOrUpdateTempKeyForRenewal(ctx, certID, project, cert.SecretName, privateKeyPEM, csrPEM); err != nil {
+		h.logger.Errorf("Failed to store retry-verification temp key for cert %s: %v", certIDStr, err)
+		h.auditHelper.SetAuditError(c, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to store retry-verification temp key"})
+		return
+	}
+	h.logger.Infof("Refreshed temp key for retry-verification of certificate %s", certIDStr)
+
 	// Create new async job for retry
 	job, err := h.asyncSystem.CreateACMEVerificationJob(ctx, &async.CreateACMEJobRequest{
 		CertificateID:   certIDStr,

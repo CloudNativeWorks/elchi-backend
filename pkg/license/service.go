@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/CloudNativeWorks/elchi-backend/pkg/config"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/version"
 	"github.com/CloudNativeWorks/cnw-license-sdk/cnwlicense"
@@ -53,7 +52,6 @@ type ClientLimitStatus struct {
 type Service struct {
 	repo   *Repo
 	kek    []byte
-	cfg    *config.LicenseConfig
 	logger *logger.Logger
 
 	mu          sync.RWMutex
@@ -62,11 +60,10 @@ type Service struct {
 }
 
 // NewService constructs a Service. Call Start before any other method.
-func NewService(repo *Repo, kek []byte, cfg *config.LicenseConfig, log *logger.Logger) *Service {
+func NewService(repo *Repo, kek []byte, log *logger.Logger) *Service {
 	return &Service{
 		repo:   repo,
 		kek:    kek,
-		cfg:    cfg,
 		logger: log,
 	}
 }
@@ -153,9 +150,7 @@ func (s *Service) GetCachedStatus() *StatusView {
 		APIVersion:  version.GetProjectVersion(),
 		Fingerprint: s.fingerprint,
 	}
-	configHasAPIKey := s.cfg != nil && s.cfg.APIKey != ""
 	if s.cached == nil {
-		view.APIKeyConfigured = configHasAPIKey
 		return view
 	}
 	view.ExpiresAt = s.cached.ExpiresAt
@@ -167,7 +162,7 @@ func (s *Service) GetCachedStatus() *StatusView {
 	if s.cached.LicenseKeyLast4 != "" {
 		view.LicenseKey = "****" + s.cached.LicenseKeyLast4
 	}
-	view.APIKeyConfigured = s.cached.EncryptedAPIKey != "" || configHasAPIKey
+	view.APIKeyConfigured = s.cached.EncryptedAPIKey != ""
 	if s.cached.APIKeyLast4 != "" {
 		view.APIKey = "****" + s.cached.APIKeyLast4
 	}
@@ -525,35 +520,24 @@ func (s *Service) getFingerprint() string {
 	return s.fingerprint
 }
 
-// resolveAPIKey returns the API key to use, in priority order:
-// 1. encrypted_api_key in the license document (set via SetAPIKey or POST /license/activate body)
-// 2. config.LicenseConfig.APIKey (yaml/env override, dev convenience only)
+// resolveAPIKey returns the API key to use. Only source is the encrypted DB
+// value (set via POST /license/activate). No config / env / build-time fallback
+// — those would be license bypass vectors and we deliberately closed them.
 func (s *Service) resolveAPIKey(ctx context.Context) (string, error) {
 	info, err := s.repo.Get(ctx)
 	if err != nil {
 		return "", fmt.Errorf("read license: %w", err)
 	}
-	if info != nil && info.EncryptedAPIKey != "" {
-		plain, err := Decrypt(info.EncryptedAPIKey, s.kek)
-		if err != nil {
-			return "", fmt.Errorf("decrypt api key: %w", err)
-		}
-		out := string(plain)
-		zeroBytes(plain)
-		return out, nil
+	if info == nil || info.EncryptedAPIKey == "" {
+		return "", nil
 	}
-	if s.cfg != nil && s.cfg.APIKey != "" {
-		return s.cfg.APIKey, nil
+	plain, err := Decrypt(info.EncryptedAPIKey, s.kek)
+	if err != nil {
+		return "", fmt.Errorf("decrypt api key: %w", err)
 	}
-	return "", nil
-}
-
-// serverURL returns the configured server URL, preferring config override over the default.
-func (s *Service) serverURL() string {
-	if s.cfg != nil && s.cfg.ServerURL != "" {
-		return s.cfg.ServerURL
-	}
-	return DefaultServerURL
+	out := string(plain)
+	zeroBytes(plain)
+	return out, nil
 }
 
 func (s *Service) newClient(apiKey, fingerprint string) *cnwlicense.OnlineClient {
@@ -564,7 +548,7 @@ func (s *Service) newClient(apiKey, fingerprint string) *cnwlicense.OnlineClient
 	if v := semverOrEmpty(version.GetProjectVersion()); v != "" {
 		opts = append(opts, cnwlicense.WithMetadata(map[string]string{"version": v}))
 	}
-	return cnwlicense.NewOnlineClient(s.serverURL(), apiKey, opts...)
+	return cnwlicense.NewOnlineClient(ServerURL, apiKey, opts...)
 }
 
 // describeSDKError unwraps a cnwlicense.ServerError if present so the operator

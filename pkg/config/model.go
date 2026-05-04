@@ -82,17 +82,6 @@ type AppConfig struct {
 
 	// CA Providers configuration (embedded in config instead of separate file)
 	CAProviders map[string]CAProviderConfig `mapstructure:"CA_PROVIDERS" yaml:"CA_PROVIDERS"`
-
-	// License integration overrides. Production builds inject the API key via
-	// -ldflags into pkg/license.APIKey, so both fields here are usually empty.
-	License LicenseConfig `mapstructure:"LICENSE" yaml:"LICENSE"`
-}
-
-// LicenseConfig holds optional dev/runtime overrides for the license SDK.
-// Production deployments rely on the build-time pkg/license.APIKey instead.
-type LicenseConfig struct {
-	APIKey    string `mapstructure:"api_key" yaml:"api_key"`
-	ServerURL string `mapstructure:"server_url" yaml:"server_url"`
 }
 
 type LoggingConfig struct {

@@ -1,5 +1,7 @@
 package license
 
-// DefaultServerURL is the CNW License Server endpoint. Override per-deployment
-// via config.LicenseConfig.ServerURL when needed (staging, regional mirror).
-const DefaultServerURL = "https://license-api.cloudnativeworks.com"
+// ServerURL is the CNW License Server endpoint. Hard-coded — no config or env
+// override. Letting operators redirect this would be a license bypass vector
+// (point at a fake server that always returns plan=enterprise). Change here
+// requires a code release.
+const ServerURL = "https://license-api.cloudnativeworks.com"

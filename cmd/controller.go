@@ -243,7 +243,7 @@ var restCmd = &cobra.Command{
 			rootLogger.Fatalf("Failed to derive license KEK: %v", err)
 		}
 		licenseRepo := licensepkg.NewRepo(appContext)
-		licenseService := licensepkg.NewService(licenseRepo, licenseKEK, &appConfig.License, licenseLogger)
+		licenseService := licensepkg.NewService(licenseRepo, licenseKEK, licenseLogger)
 		licenseCtx := context.Background()
 		licenseService.Start(licenseCtx)
 		licenseService.StartRefreshLoop(licenseCtx, 60*time.Second)

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/CloudNativeWorks/elchi-backend/controller/waf"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/audit"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 	"github.com/gin-gonic/gin"
@@ -633,21 +634,28 @@ func (h *Handler) getWAFConfigNameFromID(c *gin.Context, configID string) string
 	return config.Name
 }
 
-// setWAFAuditChanges handles change comparison for WAF config updates
+// setWAFAuditChanges handles change comparison for WAF config updates.
+//
+// Both sides of the diff are routed through the canonical waf.WAFConfigData
+// (Un)Marshal hooks: the request body via UnmarshalJSON (which accepts either
+// legacy or modern wire shape during the transition), and the existing DB doc
+// via UnmarshalBSON. Both are then re-marshalled through MarshalJSON so the
+// diff library compares apples-to-apples in the modern shape — without this
+// canonicalisation, a legacy-on-disk doc compared against a modern-wire body
+// would report the entire data subtree as changed.
 func (h *Handler) setWAFAuditChanges(ctx context.Context, db *mongo.Database, bodyBytes []byte, configID string) string {
-	var newConfig bson.M
-	if err := json.Unmarshal(bodyBytes, &newConfig); err != nil {
+	var newReq waf.WAFConfigRequest
+	if err := json.Unmarshal(bodyBytes, &newReq); err != nil {
 		return ""
 	}
 
-	// Fetch existing WAF config
 	objID, err := primitive.ObjectIDFromHex(configID)
 	if err != nil {
 		return ""
 	}
 
-	var existingConfig bson.M
-	err = db.Collection("waf").FindOne(ctx, bson.M{"_id": objID}).Decode(&existingConfig)
+	var existing waf.WAFConfig
+	err = db.Collection("waf").FindOne(ctx, bson.M{"_id": objID}).Decode(&existing)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return "new_waf_config: true"
@@ -655,24 +663,30 @@ func (h *Handler) setWAFAuditChanges(ctx context.Context, db *mongo.Database, bo
 		return ""
 	}
 
-	// Clean data - remove metadata fields that shouldn't be compared
-	cleanExisting := cleanWAFData(existingConfig)
-	cleanNew := cleanWAFData(newConfig)
+	newSide := map[string]any{
+		"name":    newReq.Name,
+		"project": newReq.Project,
+		"data":    newReq.Data,
+	}
+	existingSide := map[string]any{
+		"name":    existing.Name,
+		"project": existing.Project,
+		"data":    existing.Data,
+	}
 
-	// Normalize both sides to handle primitive types
-	normalizedExisting, err := normalizePrimitiveTypes(cleanExisting)
+	// Round-trip through MarshalJSON → map[string]any so both sides share the
+	// modern shape (sorted Sets[]) and primitive types diff cleanly.
+	normalizedNew, err := normaliseViaJSON(newSide)
 	if err != nil {
 		return ""
 	}
-	normalizedNew, err := normalizePrimitiveTypes(cleanNew)
+	normalizedExisting, err := normaliseViaJSON(existingSide)
 	if err != nil {
 		return ""
 	}
 
-	// Use r3labs/diff for better JSON comparison
 	changelog, err := diff.Diff(normalizedExisting, normalizedNew)
 	if err != nil {
-		// Fallback to go-cmp if diff fails
 		if !cmp.Equal(normalizedExisting, normalizedNew) {
 			return cmp.Diff(normalizedExisting, normalizedNew)
 		}
@@ -684,11 +698,17 @@ func (h *Handler) setWAFAuditChanges(ctx context.Context, db *mongo.Database, bo
 	return ""
 }
 
-// cleanWAFData removes metadata fields from WAF config for comparison
-func cleanWAFData(wafConfig bson.M) map[string]any {
-	return map[string]any{
-		"name":    wafConfig["name"],
-		"project": wafConfig["project"],
-		"data":    wafConfig["data"],
+// normaliseViaJSON marshals via the canonical MarshalJSON hooks then
+// unmarshals into a plain map. This guarantees both sides of an audit diff
+// share the same shape and primitive types.
+func normaliseViaJSON(side map[string]any) (map[string]any, error) {
+	b, err := json.Marshal(side)
+	if err != nil {
+		return nil, err
 	}
+	var out map[string]any
+	if err := json.Unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }

@@ -399,6 +399,11 @@ func initWAFRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		{"DELETE", "/config/:config_id", h.WAF.DeleteWAFConfigWithAudit}, // DELETE /api/v3/waf/config/:config_id
 		{"GET", "/config/:config_id", h.WAF.GetWAFConfig},                // GET /api/v3/waf/config/:config_id
 		{"GET", "/config", h.WAF.ListWAFConfigs},                         // GET /api/v3/waf/config?project=xxx&version=1.32
+
+		// WAF Config Versioning Endpoints
+		{"GET", "/config/:config_id/versions", h.WAF.ListWAFVersions},                     // GET /api/v3/waf/config/:config_id/versions[?limit=N]
+		{"GET", "/config/:config_id/versions/:version", h.WAF.GetWAFVersion},              // GET /api/v3/waf/config/:config_id/versions/:version
+		{"POST", "/config/:config_id/versions/:version/restore", h.WAF.RestoreWAFVersion}, // POST /api/v3/waf/config/:config_id/versions/:version/restore
 	}
 
 	initRoutes(rg, routes)

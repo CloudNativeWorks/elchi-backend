@@ -37,22 +37,61 @@ func NewWAFCRUDService(dbContext *db.AppContext, logger *logger.Logger, asyncSys
 	}
 }
 
-// validateWAFConfigData validates WAF configuration data
+// maxSetDescriptionLength bounds per-set descriptions (§3.2 of the redesign plan).
+const maxSetDescriptionLength = 280
+
+// normalizeData replaces nil slices/maps with empty ones so JSON output is
+// stable ([] / {} rather than null) and downstream validators can iterate
+// without nil checks.
+func normalizeData(data *WAFConfigData) {
+	if data.Sets == nil {
+		data.Sets = []DirectiveSet{}
+	}
+	if data.MetricLabels == nil {
+		data.MetricLabels = make(map[string]string)
+	}
+	if data.PerAuthorityDirectives == nil {
+		data.PerAuthorityDirectives = make(map[string]string)
+	}
+}
+
+// validateWAFConfigData validates WAF configuration data against the canonical
+// schema. Validation runs after UnmarshalJSON has lifted whatever wire shape
+// was sent into the canonical Sets[] form.
 func validateWAFConfigData(data *WAFConfigData) error {
-	// Validate directives_map has at least one entry
-	if len(data.DirectivesMap) == 0 {
-		return fmt.Errorf("directives_map cannot be empty")
+	if len(data.Sets) == 0 {
+		return fmt.Errorf("sets cannot be empty")
 	}
 
-	// Validate default_directives exists in directives_map
-	if _, exists := data.DirectivesMap[data.DefaultDirectives]; !exists {
-		return fmt.Errorf("default_directives '%s' not found in directives_map", data.DefaultDirectives)
+	if data.DefaultSet == "" {
+		return fmt.Errorf("default_set is required")
 	}
 
-	// Validate per_authority_directives references exist in directives_map
-	for authority, directiveKey := range data.PerAuthorityDirectives {
-		if _, exists := data.DirectivesMap[directiveKey]; !exists {
-			return fmt.Errorf("per_authority_directives[%s] references '%s' which not found in directives_map", authority, directiveKey)
+	seen := make(map[string]struct{}, len(data.Sets))
+	defaultExists := false
+	for i, s := range data.Sets {
+		if s.Name == "" {
+			return fmt.Errorf("sets[%d].name cannot be empty", i)
+		}
+		if _, dup := seen[s.Name]; dup {
+			return fmt.Errorf("duplicate set name: '%s'", s.Name)
+		}
+		seen[s.Name] = struct{}{}
+		if s.Name == data.DefaultSet {
+			defaultExists = true
+		}
+		if len(s.Description) > maxSetDescriptionLength {
+			return fmt.Errorf("sets[%d].description exceeds %d characters", i, maxSetDescriptionLength)
+		}
+	}
+
+	if !defaultExists {
+		return fmt.Errorf("default_set '%s' does not name an existing set", data.DefaultSet)
+	}
+
+	for authority, setName := range data.PerAuthorityDirectives {
+		if _, exists := seen[setName]; !exists {
+			return fmt.Errorf("per_authority_directives[%s] references unknown set '%s'", authority, setName)
 		}
 	}
 
@@ -72,21 +111,17 @@ func (s *WAFCRUDService) Create(ctx context.Context, req WAFConfigRequest, userD
 		Data:      req.Data,
 	}
 
-	// Initialize empty maps if nil
-	if config.Data.MetricLabels == nil {
-		config.Data.MetricLabels = make(map[string]string)
-	}
-	if config.Data.PerAuthorityDirectives == nil {
-		config.Data.PerAuthorityDirectives = make(map[string]string)
-	}
+	normalizeData(&config.Data)
 
-	// Validate config data
 	if err := validateWAFConfigData(&config.Data); err != nil {
 		return nil, err
 	}
 
 	_, err := s.dbContext.Client.Collection(WAFCollection).InsertOne(ctx, config)
 	if err != nil {
+		if mongo.IsDuplicateKeyError(err) {
+			return nil, ErrWAFNameTaken
+		}
 		return nil, fmt.Errorf("failed to create WAF config: %w", err)
 	}
 
@@ -109,15 +144,15 @@ func (s *WAFCRUDService) Update(ctx context.Context, id string, req WAFConfigReq
 		return nil, nil, nil, err
 	}
 
-	// Initialize empty maps if nil
-	if req.Data.MetricLabels == nil {
-		req.Data.MetricLabels = make(map[string]string)
-	}
-	if req.Data.PerAuthorityDirectives == nil {
-		req.Data.PerAuthorityDirectives = make(map[string]string)
+	// Name and Project are referenced by WASM extensions via {project, name};
+	// silently rewriting them would orphan those references and break the
+	// data plane. Reject explicitly.
+	if req.Name != oldConfig.Name || req.Project != oldConfig.Project {
+		return nil, nil, nil, ErrWAFIdentityImmutable
 	}
 
-	// Validate config data
+	normalizeData(&req.Data)
+
 	if err := validateWAFConfigData(&req.Data); err != nil {
 		return nil, nil, nil, err
 	}
@@ -141,6 +176,9 @@ func (s *WAFCRUDService) Update(ctx context.Context, id string, req WAFConfigReq
 	if result.Err() != nil {
 		if errors.Is(result.Err(), mongo.ErrNoDocuments) {
 			return nil, nil, nil, fmt.Errorf("WAF config not found")
+		}
+		if mongo.IsDuplicateKeyError(result.Err()) {
+			return nil, nil, nil, ErrWAFNameTaken
 		}
 		return nil, nil, nil, fmt.Errorf("failed to update WAF config: %w", result.Err())
 	}
@@ -230,13 +268,15 @@ func (s *WAFCRUDService) Delete(ctx context.Context, id string, userDetails mode
 	}
 
 	if len(usedBy) > 0 {
-		// Build list of extension names for error message
-		extensionNames := make([]string, len(usedBy))
+		refs := make([]WAFUsageRef, len(usedBy))
 		for i, ext := range usedBy {
-			extensionNames[i] = ext.CanonicalName
+			refs[i] = WAFUsageRef{
+				Type: "wasm_extension",
+				ID:   ext.ID,
+				Name: ext.CanonicalName,
+			}
 		}
-		return nil, fmt.Errorf("WAF config '%s' is being used by %d WASM extension(s): %v. Please remove WAF reference from these extensions before deleting",
-			config.Name, len(usedBy), extensionNames)
+		return nil, &WAFInUseError{Name: config.Name, References: refs}
 	}
 
 	result, err := s.dbContext.Client.Collection(WAFCollection).DeleteOne(ctx, bson.M{"_id": objectID})
@@ -246,6 +286,14 @@ func (s *WAFCRUDService) Delete(ctx context.Context, id string, userDetails mode
 
 	if result.DeletedCount == 0 {
 		return nil, fmt.Errorf("WAF config not found")
+	}
+
+	// Cascade-delete version snapshots for this config so they don't pile up
+	// as orphans. Best-effort: a failure here doesn't undo the config delete.
+	if delRes, err := s.dbContext.Client.Collection(WAFVersionsCollection).DeleteMany(ctx, bson.M{"config_id": objectID}); err != nil {
+		s.logger.Warnf("WAF cascade: version cleanup failed for config %s: %v", objectID.Hex(), err)
+	} else if delRes.DeletedCount > 0 {
+		s.logger.Infof("WAF cascade: pruned %d version snapshots for deleted config %s", delRes.DeletedCount, objectID.Hex())
 	}
 
 	s.logger.Infof("User '%s' deleted WAF config '%s' (ID: %s) from project '%s'",

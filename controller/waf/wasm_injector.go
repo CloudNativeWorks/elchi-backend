@@ -71,13 +71,17 @@ func (w *WAFWasmInjector) loadWAFConfig(ctx context.Context, configName string) 
 	return &config, nil
 }
 
-// buildCorazaConfigJSON builds Coraza WAF configuration as JSON string
-// Returns the entire Data structure as a JSON string (not base64 yet)
+// buildCorazaConfigJSON builds Coraza WAF configuration as JSON string.
+//
+// IMPORTANT: this MUST emit the legacy shape (directives_map / default_directives),
+// which is the contract the Coraza WASM plugin parses. We explicitly bypass
+// WAFConfigData.MarshalJSON (which would emit the modern HTTP-API shape) by
+// marshalling toLegacyShape() directly. See wasm_injector_test.go for the
+// invariant test that locks this contract.
 func (w *WAFWasmInjector) buildCorazaConfigJSON(config *WAFConfig) (string, error) {
-	// Convert Data struct to JSON
-	jsonBytes, err := json.Marshal(config.Data)
+	jsonBytes, err := json.Marshal(config.Data.toLegacyShape())
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal WAF data to JSON: %w", err)
+		return "", fmt.Errorf("failed to marshal WAF data to legacy JSON: %w", err)
 	}
 
 	return string(jsonBytes), nil

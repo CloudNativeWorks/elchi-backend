@@ -12,7 +12,12 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/pkg/authorization"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/errstr"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/security/secretredact"
 )
+
+// SecretsCollection is the MongoDB collection name that triggers TLS
+// secret redaction on read.
+const SecretsCollection = "secrets"
 
 func (xds *AppHandler) GetResource(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
 	collection := xds.Context.Client.Collection(requestDetails.Collection)
@@ -47,6 +52,18 @@ func (xds *AppHandler) GetResource(ctx context.Context, resource models.Resource
 	err = result.Decode(resource)
 	if err != nil {
 		return nil, err
+	}
+
+	// For the secrets collection, mask sensitive `inline_string` /
+	// `inline_bytes` leaves before returning to the management API. The
+	// data plane (control-plane → Envoy via xDS) is unaffected — that
+	// path reads MongoDB directly without going through this handler.
+	if requestDetails.Collection == SecretsCollection {
+		masked, err := secretredact.MaskJSON(resource)
+		if err != nil {
+			return nil, fmt.Errorf("failed to mask secret resource: %w", err)
+		}
+		return masked, nil
 	}
 
 	return resource, nil

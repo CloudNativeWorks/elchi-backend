@@ -10,6 +10,7 @@ import (
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/audit"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/security/secretredact"
 	"github.com/gin-gonic/gin"
 	"github.com/google/go-cmp/cmp"
 	"github.com/r3labs/diff/v3"
@@ -438,6 +439,15 @@ func (h *Handler) compareWithExistingResource(ctx context.Context, newResource *
 		}
 		return ""
 	}
+
+	// Always scrub sensitive paths from the changelog regardless of
+	// collection. RedactChangelog is path-aware (uses IsAuditSensitivePath)
+	// so it's a no-op for non-sensitive paths but catches inline_string /
+	// password / token / api_key leaks no matter which collection the
+	// resource lives in (e.g. clusters with inline TLS material, settings
+	// docs with API tokens). Limiting this to collection=="secrets" left
+	// every other inline credential exposed in audit_logs.
+	changelog = secretredact.RedactChangelog(changelog)
 
 	// If there are changes, format them as JSON
 	if len(changelog) > 0 {

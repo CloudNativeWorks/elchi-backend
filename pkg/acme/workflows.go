@@ -682,11 +682,19 @@ func (m *CertificateManager) VerifyCertificateWithDNSProviderAsync(
 			return nil, fmt.Errorf("certificate is not in pending_verification or verification_failed status (current: %s)", cert.Status)
 		}
 	} else {
-		// For renewal, also accept verification_failed/renewal_failed so a previously
-		// issued cert that failed a renewal attempt can be retried (manual or scheduler).
+		// For renewal, also accept verification_failed/renewal_failed/expired so a
+		// previously issued cert that failed a renewal attempt or already expired
+		// can be retried (manual user action or scheduler reload after migration).
+		// Defensive guard: an "expired" cert with empty SecretVersions implies a
+		// corrupt state (status set manually, never actually issued) — refuse
+		// rather than letting the worker proceed with no real material to renew.
 		switch cert.Status {
 		case "active", "renewal_pending", "renewal_failed":
 			// ok
+		case "expired":
+			if len(cert.SecretVersions) == 0 {
+				return nil, fmt.Errorf("cannot renew expired certificate that was never issued (corrupt state)")
+			}
 		case "verification_failed":
 			if len(cert.SecretVersions) == 0 {
 				return nil, fmt.Errorf("cannot renew never-issued certificate in verification_failed state")
@@ -893,11 +901,19 @@ func (m *CertificateManager) RenewCertificate(ctx context.Context, certID string
 		return nil, fmt.Errorf("failed to get certificate: %w", err)
 	}
 
-	// Check status — allow retrying renewal after a failed attempt provided the cert
-	// was previously issued (SecretVersions populated).
+	// Check status — allow retrying renewal after a failed attempt or after the
+	// cert has already expired, provided it was previously issued (SecretVersions
+	// populated). Without "expired" the user has no recovery path once a cert
+	// crosses its expiry timestamp. The "expired" branch enforces the same
+	// SecretVersions guard as "verification_failed" to refuse renewal on
+	// docs that were never actually issued.
 	switch cert.Status {
 	case "active", "renewal_pending", "renewal_failed":
 		// ok
+	case "expired":
+		if len(cert.SecretVersions) == 0 {
+			return nil, fmt.Errorf("cannot renew expired certificate that was never issued (corrupt state)")
+		}
 	case "verification_failed":
 		if len(cert.SecretVersions) == 0 {
 			return nil, fmt.Errorf("cannot renew never-issued certificate in verification_failed state")

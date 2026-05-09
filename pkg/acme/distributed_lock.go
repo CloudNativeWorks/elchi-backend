@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
@@ -34,7 +35,15 @@ type SchedulerLock struct {
 	Heartbeat  primitive.DateTime `bson:"heartbeat"`
 }
 
-// DistributedScheduler wraps RenewalScheduler with distributed locking
+// DistributedScheduler wraps RenewalScheduler with distributed locking.
+//
+// Concurrency: isLeader is read by leadershipLoop, heartbeatLoop and Stop()
+// while being mutated by becomeLeader / loseLeadership. We use atomic.Bool
+// so all accesses are race-free without holding a mutex on the hot path.
+// The CAS in becomeLeader/loseLeadership doubles as an idempotency guard so
+// a re-entry (e.g. an immediate Start() acquire followed by a ticker tick)
+// cannot spawn duplicate heartbeat goroutines or restart the inner
+// RenewalScheduler twice.
 type DistributedScheduler struct {
 	scheduler   *RenewalScheduler
 	db          *mongo.Database
@@ -42,7 +51,7 @@ type DistributedScheduler struct {
 	hostname    string
 	logger      *logger.Logger
 	stopCh      chan struct{}
-	isLeader    bool
+	isLeader    atomic.Bool
 	heartbeatCh chan struct{}
 	stopOnce    sync.Once // Ensures Stop() is only executed once
 }
@@ -68,22 +77,42 @@ func NewDistributedScheduler(
 		hostname:    hostname,
 		logger:      logger,
 		stopCh:      make(chan struct{}),
-		isLeader:    false,
+		// isLeader: atomic.Bool zero value is false; do not initialize.
 		heartbeatCh: make(chan struct{}),
 	}
 }
 
-// Start begins the distributed scheduler with leader election
+// Start begins the distributed scheduler with leader election.
+//
+// The caller-supplied ctx is used only for the synchronous setup work
+// (index creation + first lock attempt). All long-lived background work
+// (leadership loop, heartbeat, inner RenewalScheduler) is given a
+// process-lifetime context so it survives a request-scoped Start() ctx
+// cancellation; without that the lock could be held in MongoDB for up
+// to LockDuration after startup with no goroutine to renew or release
+// it. Stop() remains the canonical way to terminate.
 func (d *DistributedScheduler) Start(ctx context.Context) error {
 	d.logger.Infof("Starting distributed scheduler (instance: %s)", d.instanceID)
 
-	// Ensure indexes exist
 	if err := d.ensureIndexes(ctx); err != nil {
 		return fmt.Errorf("failed to create indexes: %w", err)
 	}
 
-	// Start leadership monitoring loop
-	go d.leadershipLoop(ctx)
+	// Background context for the long-lived loops. Stop() closes stopCh
+	// which is the actual shutdown signal these loops listen for.
+	bgCtx := context.Background()
+
+	// Attempt leadership immediately so the first renewal check fires within
+	// seconds of startup rather than waiting LockCheckInterval (30s) for the
+	// ticker. Critical for dev environments where the pod may restart before
+	// the ticker ever fires; also reduces production cold-start latency.
+	if acquired, err := d.tryAcquireLock(ctx); err != nil {
+		d.logger.Warnf("Initial lock acquisition failed: %v (will retry via ticker)", err)
+	} else if acquired {
+		d.becomeLeader(bgCtx)
+	}
+
+	go d.leadershipLoop(bgCtx)
 
 	return nil
 }
@@ -96,15 +125,18 @@ func (d *DistributedScheduler) Stop() error {
 		d.logger.Infof("Stopping distributed scheduler (instance: %s)", d.instanceID)
 		close(d.stopCh)
 
-		// Release lock if we're the leader
-		if d.isLeader {
+		// Snapshot leadership state once so the release-lock and
+		// scheduler-stop branches stay consistent even if leadershipLoop
+		// flips the flag concurrently.
+		wasLeader := d.isLeader.Load()
+
+		if wasLeader {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			_ = d.releaseLock(ctx)
 		}
 
-		// Stop the underlying scheduler if it's running
-		if d.isLeader {
+		if wasLeader {
 			stopErr = d.scheduler.Stop()
 		}
 	})
@@ -135,18 +167,20 @@ func (d *DistributedScheduler) leadershipLoop(ctx context.Context) {
 				continue
 			}
 
-			// Leadership state changed
-			if acquired && !d.isLeader {
-				// We just became leader
+			// Leadership state changed. becomeLeader/loseLeadership use a
+			// CAS internally so calling them twice for the same state is
+			// a no-op — that closes the window where Start()'s immediate
+			// acquire and a ticker-driven acquire could both spawn the
+			// inner scheduler / heartbeat goroutine.
+			leader := d.isLeader.Load()
+			if acquired && !leader {
 				d.becomeLeader(ctx)
-			} else if !acquired && d.isLeader {
-				// We lost leadership
+			} else if !acquired && leader {
 				d.loseLeadership()
 			}
 
 		case <-d.heartbeatCh:
-			// Heartbeat to maintain leadership
-			if d.isLeader {
+			if d.isLeader.Load() {
 				if err := d.updateHeartbeat(ctx); err != nil {
 					d.logger.Errorf("Failed to update heartbeat: %v", err)
 					d.loseLeadership()
@@ -281,38 +315,46 @@ func (d *DistributedScheduler) releaseLock(ctx context.Context) error {
 	return nil
 }
 
-// becomeLeader is called when this instance becomes the leader
+// becomeLeader is called when this instance becomes the leader.
+// Idempotent: a CAS guard ensures the inner RenewalScheduler and the
+// heartbeat goroutine are spawned at most once per leadership episode.
 func (d *DistributedScheduler) becomeLeader(ctx context.Context) {
+	if !d.isLeader.CompareAndSwap(false, true) {
+		// Already leader (re-entry from a concurrent acquire path); no-op.
+		return
+	}
 	d.logger.Infof("Became leader (instance: %s) - starting renewal scheduler", d.instanceID)
-	d.isLeader = true
 
-	// Start the underlying renewal scheduler
+	// Start the underlying renewal scheduler. If it fails, roll back the
+	// leader flag so a future tick can retry cleanly.
 	if err := d.scheduler.Start(ctx); err != nil {
 		d.logger.Errorf("Failed to start renewal scheduler: %v", err)
-		d.isLeader = false
+		d.isLeader.Store(false)
 		return
 	}
 
-	// Start heartbeat goroutine
+	// Start heartbeat goroutine.
 	go d.heartbeatLoop()
 }
 
-// loseLeadership is called when this instance loses leadership
+// loseLeadership is called when this instance loses leadership.
+// Idempotent: CAS guards a duplicate scheduler.Stop() call from a racing
+// caller.
 func (d *DistributedScheduler) loseLeadership() {
-	if !d.isLeader {
+	if !d.isLeader.CompareAndSwap(true, false) {
 		return
 	}
 
 	d.logger.Warnf("Lost leadership (instance: %s) - stopping renewal scheduler", d.instanceID)
-	d.isLeader = false
 
-	// Stop the underlying renewal scheduler
 	if err := d.scheduler.Stop(); err != nil {
 		d.logger.Errorf("Failed to stop renewal scheduler: %v", err)
 	}
 }
 
-// heartbeatLoop sends regular heartbeat signals
+// heartbeatLoop sends regular heartbeat signals while we hold leadership.
+// Exits as soon as the leader flag flips so we don't outlive a
+// loseLeadership transition.
 func (d *DistributedScheduler) heartbeatLoop() {
 	ticker := time.NewTicker(HeartbeatInterval)
 	defer ticker.Stop()
@@ -322,8 +364,8 @@ func (d *DistributedScheduler) heartbeatLoop() {
 		case <-d.stopCh:
 			return
 		case <-ticker.C:
-			if !d.isLeader {
-				return // Stop heartbeat if not leader anymore
+			if !d.isLeader.Load() {
+				return
 			}
 			select {
 			case d.heartbeatCh <- struct{}{}:

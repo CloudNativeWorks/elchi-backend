@@ -950,13 +950,24 @@ func (h *ACMEHandler) RenewCertificate(c *gin.Context) {
 		return
 	}
 
-	// Allow renewal for active certs and for certs that previously issued but failed
-	// during a renewal attempt (verification_failed / renewal_failed). A non-empty
-	// SecretVersions list means the cert was active at some point, so retrying renewal
-	// is safe — the alternative is being permanently stuck after one failed attempt.
+	// Allow renewal for active certs, expired certs, and certs that previously
+	// issued but failed during a renewal attempt (verification_failed /
+	// renewal_failed). Expired is explicitly included because that is when
+	// users most often want to manually renew — leaving it out leaves expired
+	// certs stuck with no recovery path. A non-empty SecretVersions list means
+	// the cert was active at some point, so retrying renewal is safe.
+	//
+	// The expired branch enforces the same SecretVersions guard as
+	// verification_failed so a corrupt-state doc (manually flipped to
+	// expired without ever being issued) cannot enter the renewal flow.
 	switch certificate.Status {
 	case "active", "renewal_failed":
 		// ok
+	case "expired":
+		if len(certificate.SecretVersions) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "expired certificate was never issued (corrupt state); use retry-verification instead"})
+			return
+		}
 	case "verification_failed":
 		if len(certificate.SecretVersions) == 0 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "certificate has never been issued; use retry-verification instead"})

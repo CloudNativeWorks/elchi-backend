@@ -17,6 +17,7 @@ type ControlPlaneRegistryClient struct {
 	conn         *grpc.ClientConn
 	client       bridge.EnvoyRoutingServiceClient
 	registryAddr string
+	appConfig    *config.AppConfig // retained for TLS dial decisions on (re)connect
 	logger       *logger.Logger
 }
 
@@ -38,10 +39,13 @@ func NewControlPlaneConfig(registryAddress, envoyVersion string, appConfig *conf
 	}
 }
 
-// NewControlPlaneRegistryClient creates a new registry client for control-plane
-func NewControlPlaneRegistryClient(config *ControlPlaneConfig, logger *logger.Logger) (*ControlPlaneRegistryClient, error) {
+// NewControlPlaneRegistryClient creates a new registry client for control-plane.
+// appConfig is retained on the client so subsequent (re)connect attempts use
+// the same transport credential decision (plaintext vs TLS).
+func NewControlPlaneRegistryClient(cpConfig *ControlPlaneConfig, logger *logger.Logger, appConfig *config.AppConfig) (*ControlPlaneRegistryClient, error) {
 	client := &ControlPlaneRegistryClient{
-		registryAddr: config.RegistryAddress,
+		registryAddr: cpConfig.RegistryAddress,
+		appConfig:    appConfig,
 		logger:       logger,
 	}
 
@@ -51,7 +55,7 @@ func NewControlPlaneRegistryClient(config *ControlPlaneConfig, logger *logger.Lo
 // Connect establishes gRPC connection to registry
 func (r *ControlPlaneRegistryClient) Connect() error {
 	// Use shared gRPC dial options for consistency
-	conn, err := grpc.NewClient(r.registryAddr, GetDefaultGRPCDialOptions()...)
+	conn, err := grpc.NewClient(r.registryAddr, GetDefaultGRPCDialOptions(r.appConfig)...)
 	if err != nil {
 		return fmt.Errorf("failed to create connection: %w", err)
 	}

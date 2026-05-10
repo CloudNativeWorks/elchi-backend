@@ -21,6 +21,7 @@ type RegistryClient struct {
 	version          string
 	grpcAddress      string
 	registryAddr     string
+	appConfig        *config.AppConfig // retained for TLS dial decisions on (re)connect
 	logger           *logger.Logger
 
 	// Connection state tracking
@@ -70,6 +71,7 @@ func NewRegistryClientWithConfig(config *Config, logger *logger.Logger, appConfi
 		version:          config.Version,
 		grpcAddress:      ResolveControllerHTTPAddress(controllerID, appConfig.ControllerPort, appConfig.ElchiNamespace),
 		registryAddr:     config.RegistryAddress,
+		appConfig:        appConfig,
 		logger:           logger,
 		connectionState:  ControllerStateDisconnected,
 		reconnectEnabled: true,
@@ -85,7 +87,7 @@ func NewRegistryClientWithConfig(config *Config, logger *logger.Logger, appConfi
 // Connect establishes gRPC connection to registry
 func (r *RegistryClient) Connect() error {
 	// Use shared gRPC dial options for consistency
-	conn, err := grpc.NewClient(r.registryAddr, GetDefaultGRPCDialOptions()...)
+	conn, err := grpc.NewClient(r.registryAddr, GetDefaultGRPCDialOptions(r.appConfig)...)
 	if err != nil {
 		return fmt.Errorf("failed to create connection: %w", err)
 	}

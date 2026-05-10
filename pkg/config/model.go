@@ -52,6 +52,15 @@ type AppConfig struct {
 	ControllerPort     uint   `mapstructure:"CONTROLLER_PORT" yaml:"CONTROLLER_PORT"`
 	ControllerGRPCPort uint   `mapstructure:"CONTROLLER_GRPC_PORT" yaml:"CONTROLLER_GRPC_PORT"`
 
+	// REGISTRY_TLS_ENABLED — opt-in TLS dialing for the registry gRPC
+	// channel. Default false (legacy plaintext, unchanged behavior).
+	// When true, controller and control-plane dial the registry with TLS
+	// using the system trust pool + standard hostname verification. The
+	// server itself is expected to be fronted by a TLS terminator
+	// (sidecar / mesh / load balancer) — this flag does NOT bind the
+	// registry's listener to TLS, only the client side of the connection.
+	RegistryTLSEnabled bool `mapstructure:"REGISTRY_TLS_ENABLED" yaml:"REGISTRY_TLS_ENABLED"`
+
 	// CONTROLLER_ID overrides the auto-derived controller identity used for
 	// x-target-cluster routing.
 	// Default (K8s):     hostname (StatefulSet pod name).

@@ -4,13 +4,16 @@ package registry
 
 import (
 	"context"
+	"crypto/tls"
 	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 
+	"github.com/CloudNativeWorks/elchi-backend/pkg/config"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 )
 
@@ -118,10 +121,26 @@ func RetryWithBackoff(ctx context.Context, operation string, config RetryConfig,
 }
 
 // GetDefaultGRPCDialOptions returns the standard gRPC dial options
-// used across all registry clients for consistency
-func GetDefaultGRPCDialOptions() []grpc.DialOption {
+// used across all registry clients for consistency.
+//
+// Transport credentials follow appConfig.RegistryTLSEnabled:
+//   - false (default): plaintext, identical to legacy behavior.
+//   - true: TLS using the system trust pool + standard hostname
+//     verification (server name = host part of registryAddr). The
+//     server is expected to be fronted by an external TLS terminator
+//     (sidecar / mesh / load balancer).
+//
+// appConfig may be nil — falls back to plaintext for safety.
+func GetDefaultGRPCDialOptions(appConfig *config.AppConfig) []grpc.DialOption {
+	var creds credentials.TransportCredentials
+	if appConfig != nil && appConfig.RegistryTLSEnabled {
+		creds = credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS12})
+	} else {
+		creds = insecure.NewCredentials()
+	}
+
 	return []grpc.DialOption{
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithTransportCredentials(creds),
 		grpc.WithDisableServiceConfig(),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:                DefaultKeepaliveTime,

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/CloudNativeWorks/elchi-backend/control-plane/server/snapshot"
+	appcfg "github.com/CloudNativeWorks/elchi-backend/pkg/config"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 )
 
@@ -43,9 +44,11 @@ const (
 	StateConnected
 )
 
-// NewControlPlaneManager creates a new registry manager for control-plane
-func NewControlPlaneManager(config *ControlPlaneConfig, logger *logger.Logger, snapshotContext *snapshot.Context) (*ControlPlaneManager, error) {
-	client, err := NewControlPlaneRegistryClient(config, logger)
+// NewControlPlaneManager creates a new registry manager for control-plane.
+// appConfig is forwarded to the registry client so it can decide on TLS vs
+// plaintext for the registry dial (controlled by REGISTRY_TLS_ENABLED).
+func NewControlPlaneManager(config *ControlPlaneConfig, logger *logger.Logger, snapshotContext *snapshot.Context, appConfig *appcfg.AppConfig) (*ControlPlaneManager, error) {
+	client, err := NewControlPlaneRegistryClient(config, logger, appConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create registry client: %w", err)
 	}

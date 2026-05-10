@@ -733,3 +733,36 @@ func (h *Handler) setGSLBAuditContext(c *gin.Context, requestDetails models.Requ
 	audit.SetAuditResource(c, "gslb", "", "gslb-config", requestDetails.Project)
 	audit.SetAuditAction(c, action)
 }
+
+// setSyslogAuditContext sets audit context for syslog forwarding settings.
+// The resource is global (no project), so Project is intentionally empty.
+func (h *Handler) setSyslogAuditContext(c *gin.Context, _ models.RequestDetails) {
+	if h.AuditService == nil {
+		return
+	}
+
+	path := c.Request.URL.Path
+	if !strings.Contains(path, "/syslog-config") {
+		return
+	}
+	// Test endpoint and GET reads are not audited.
+	if strings.Contains(path, "/test") || c.Request.Method == http.MethodGet {
+		return
+	}
+
+	action := ""
+	switch c.Request.Method {
+	case http.MethodPost:
+		action = "CREATE_SYSLOG_CONFIG"
+	case http.MethodPut:
+		action = "UPDATE_SYSLOG_CONFIG"
+	case http.MethodDelete:
+		action = "DELETE_SYSLOG_CONFIG"
+	}
+	if action == "" {
+		return
+	}
+
+	audit.SetAuditResource(c, "syslog", "", "syslog-config", "")
+	audit.SetAuditAction(c, action)
+}

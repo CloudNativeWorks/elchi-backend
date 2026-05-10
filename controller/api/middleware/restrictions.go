@@ -37,6 +37,8 @@ var AllowedEndpoints = []string{
 	"/api/v3/setting/ldap-config",
 	"/api/v3/setting/ldap-config/test",
 	"/api/v3/setting/ldap-config/test-auth",
+	"/api/v3/setting/syslog-config",
+	"/api/v3/setting/syslog-config/test",
 
 	// OTP Admin endpoints (Admin/Owner only)
 	"/api/v3/setting/otp-config",

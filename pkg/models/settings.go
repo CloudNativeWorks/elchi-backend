@@ -14,6 +14,9 @@ type Settings struct {
 
 	// GSLB Configuration
 	GSLBConfig *GSLBConfig `bson:"gslb_config,omitempty" json:"gslb_config,omitempty"`
+
+	// Audit-log syslog forwarding (global; lives only on the system-settings document).
+	SyslogConfig *SyslogConfig `bson:"syslog_config,omitempty" json:"syslog_config,omitempty"`
 }
 
 type Token struct {
@@ -58,6 +61,32 @@ type LDAPConfig struct {
 	BindPassword  string `json:"bind_password" bson:"bind_password"`
 	TLSEnabled    bool   `json:"tls_enabled" bson:"tls_enabled"`
 	TLSSkipVerify bool   `json:"tls_skip_verify" bson:"tls_skip_verify"`
+}
+
+// SyslogConfig stores the global audit-log syslog/SIEM forwarding settings.
+// Stored as a sub-document on the system-settings record (project = sentinel).
+type SyslogConfig struct {
+	Enabled  bool   `bson:"enabled" json:"enabled"`
+	Protocol string `bson:"protocol" json:"protocol"` // "udp" | "tcp" | "tcp+tls"
+	Host     string `bson:"host" json:"host"`
+	Port     int    `bson:"port" json:"port"`
+	Facility string `bson:"facility,omitempty" json:"facility,omitempty"` // "local0".."local7" (default local0)
+	Tag      string `bson:"tag,omitempty" json:"tag,omitempty"`           // RFC5424 APP-NAME (default "elchi-audit")
+
+	// TLS material — populated only when Protocol == "tcp+tls".
+	CACert     string `bson:"ca_cert,omitempty" json:"ca_cert,omitempty"`
+	ClientCert string `bson:"client_cert,omitempty" json:"client_cert,omitempty"`
+	ClientKey  string `bson:"client_key,omitempty" json:"client_key,omitempty"`
+
+	// Tuning knobs (zeros fall back to defaults inside pkg/syslog).
+	QueueSize        int `bson:"queue_size,omitempty" json:"queue_size,omitempty"`
+	ConnectTimeoutMs int `bson:"connect_timeout_ms,omitempty" json:"connect_timeout_ms,omitempty"`
+	WriteTimeoutMs   int `bson:"write_timeout_ms,omitempty" json:"write_timeout_ms,omitempty"`
+
+	// Read-only response indicators — never persisted.
+	HasCACert     bool `bson:"-" json:"has_ca_cert,omitempty"`
+	HasClientCert bool `bson:"-" json:"has_client_cert,omitempty"`
+	HasClientKey  bool `bson:"-" json:"has_client_key,omitempty"`
 }
 
 // GSLBConfig represents GSLB (Global Server Load Balancing) configuration

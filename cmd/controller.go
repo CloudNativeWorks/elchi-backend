@@ -35,6 +35,7 @@ import (
 	licensepkg "github.com/CloudNativeWorks/elchi-backend/pkg/license"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/registry"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/syslog"
 )
 
 // acmeJobAdapter adapts async.AsyncJobSystem to acme.AsyncJobCreator interface
@@ -226,6 +227,16 @@ var restCmd = &cobra.Command{
 
 		// Initialize settings handler
 		userHandler := settings.NewUserHandler(appContext)
+
+		// Wire optional syslog/SIEM forwarding for audit logs. The forwarder
+		// is started immediately and disables itself until an operator saves
+		// a config via /api/v3/setting/syslog-config — config polls every 30s
+		// pick up later activations without restarting the controller.
+		syslogLogger := logger.NewLogger("controller/syslog-forwarder")
+		syslogForwarder := syslog.NewForwarder(userHandler, syslogLogger)
+		syslogForwarder.Start(context.Background())
+		auditService.SetForwarder(syslogForwarder)
+		defer syslogForwarder.Stop()
 
 		// Initialize async job system workers FIRST (needed by upgrade handler)
 		rootLogger.Infof("Starting async job system workers...")

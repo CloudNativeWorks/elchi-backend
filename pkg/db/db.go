@@ -76,8 +76,12 @@ var Indices = map[string]mongo.IndexModel{
 	"gslb_ip_health": {Keys: bson.D{{Key: "record_id", Value: 1}, {Key: "ip", Value: 1}}, Options: options.Index().SetUnique(true).SetName("record_id_ip_1")},
 	// GSLB nodes collection - Tracks elchi-gslb instances that fetch DNS records
 	"gslb_nodes": {Keys: bson.D{{Key: "node_ip", Value: 1}, {Key: "zone", Value: 1}}, Options: options.Index().SetUnique(true).SetName("node_ip_zone_1")},
-	// License singleton document - stores the activated license + fingerprint + check state
-	"license": {Keys: bson.M{"_id": 1}, Options: options.Index().SetName("license_id_1")},
+	// (No "license" entry — the collection only needs the auto-created _id_
+	// index. A previous spec tried to recreate {_id: 1} under the name
+	// "license_id_1"; Mongo silently ignores the duplicate-key request but
+	// indexExists() can't find it under that name, so every controller boot
+	// logged "Created index: license.license_id_1" without anything actually
+	// changing on disk. Removed.)
 }
 
 // TextSearchIndices defines text search indexes for secure search functionality
@@ -234,10 +238,15 @@ var AuditIndices = map[string]mongo.IndexModel{
 		Options: options.Index(),
 	},
 
-	// Performance index for cleanup operations
+	// Auto-purge audit entries after 90 days. Mongo's TTL monitor drops
+	// docs whose `timestamp` is older than expireAfterSeconds. Note: when
+	// upgrading from a deployment that already has the non-TTL version of
+	// this index, the old index must be dropped once so this spec
+	// recreates with the TTL flag — Mongo will not silently mutate an
+	// existing index. See migration note in the audit retention rollout.
 	"audit_cleanup": {
 		Keys:    bson.D{{Key: "timestamp", Value: 1}},
-		Options: options.Index(),
+		Options: options.Index().SetExpireAfterSeconds(60 * 60 * 24 * 90),
 	},
 
 	// Request ID for debugging and tracing
@@ -483,6 +492,77 @@ var ACMEIndices = map[string][]mongo.IndexModel{
 		{
 			Keys:    bson.M{"expires_at": 1},
 			Options: options.Index().SetName("expires_at_1"),
+		},
+	},
+}
+
+// CompoundIndices holds extra performance indexes for collections that
+// only get an automatic _id_ index but receive frequent compound-key
+// queries from the application. Each entry was added because grep'ing the
+// hot read paths showed a Find / FindOne / UpdateOne / CountDocuments
+// using these exact key shapes that would otherwise full-scan.
+//
+//   - discovery {project, cluster_name}: every K8s sync tick from the
+//     discovery agent looks up clusters by (project, cluster_name) — see
+//     discovery/service.go:749. The same compound also serves the
+//     project-only listing (Mongo uses the prefix automatically).
+//   - clients {project}: periodic client list update + per-project counts
+//     (services/clients.go:122, :434, :522). Without this, every periodic
+//     update is a full collection scan over the clients collection.
+var CompoundIndices = map[string][]mongo.IndexModel{
+	"discovery": {
+		{
+			Keys:    bson.D{{Key: "project", Value: 1}, {Key: "cluster_name", Value: 1}},
+			Options: options.Index().SetName("project_cluster_name_1"),
+		},
+	},
+	"clients": {
+		{
+			Keys:    bson.D{{Key: "project", Value: 1}},
+			Options: options.Index().SetName("project_1"),
+		},
+	},
+}
+
+// BackgroundJobIndices defines specialized indexes for background_jobs.
+//
+// The TTL on completed_at auto-purges terminal jobs after 30 days. Because
+// the field is only set when a job reaches a terminal state
+// (COMPLETED / FAILED / CANCELLED / NO_WORK_NEEDED), in-flight jobs
+// (ANALYZING / PENDING / CLAIMED / RUNNING) are NOT touched — their
+// completed_at is missing and Mongo's TTL monitor only acts on docs that
+// have the field with a Date value.
+//
+// The remaining three indexes target the three hot read paths:
+//
+//   - status_created_at_1: ClaimJob (manager.go:400) is a per-worker
+//     polling FindOneAndUpdate with filter {status: PENDING, ...} and
+//     sort {created_at: 1}. Without this compound index every claim
+//     attempt is a collection scan + in-memory sort. Also covers
+//     GetStuckJobs (status: {$in: RUNNING/CLAIMED}).
+//   - project_created_at_-1: ListJobs / CountJobs (manager.go:323, :391)
+//     are UI-driven and almost always project-scoped, sorted by
+//     created_at desc.
+//   - job_id_1: GetJobByJobID (manager.go:216) looks up a job by its
+//     human-friendly ID (e.g. "EC-123") which the UI passes around. Made
+//     unique because the counter atomically guarantees uniqueness.
+var BackgroundJobIndices = map[string][]mongo.IndexModel{
+	"background_jobs": {
+		{
+			Keys:    bson.D{{Key: "completed_at", Value: 1}},
+			Options: options.Index().SetName("completed_at_ttl_1").SetExpireAfterSeconds(60 * 60 * 24 * 30),
+		},
+		{
+			Keys:    bson.D{{Key: "status", Value: 1}, {Key: "created_at", Value: 1}},
+			Options: options.Index().SetName("status_created_at_1"),
+		},
+		{
+			Keys:    bson.D{{Key: "project", Value: 1}, {Key: "created_at", Value: -1}},
+			Options: options.Index().SetName("project_created_at_-1"),
+		},
+		{
+			Keys:    bson.D{{Key: "job_id", Value: 1}},
+			Options: options.Index().SetName("job_id_1").SetUnique(true).SetSparse(true),
 		},
 	},
 }
@@ -808,6 +888,54 @@ func collectCreateIndex(ctx context.Context, database *mongo.Database, logger *l
 				logger.Infof("Created ACME index: %s.%s", collectionName, indexName)
 			} else {
 				logger.Debugf("ACME index already exists: %s.%s", collectionName, indexName)
+			}
+		}
+	}
+
+	// Create CompoundIndices (discovery, clients — hot read paths)
+	for collectionName, indexes := range CompoundIndices {
+		collection := database.Collection(collectionName)
+		for _, index := range indexes {
+			indexName := getIndexName(index)
+
+			exists, err := indexExists(ctx, collection, indexName)
+			if err != nil {
+				logger.Errorf("Failed to check compound index %s.%s: %v", collectionName, indexName, err)
+				continue
+			}
+
+			if !exists {
+				if err := createIndex(ctx, collection, index, indexName); err != nil {
+					logger.Errorf("Failed to create compound index %s.%s: %v", collectionName, indexName, err)
+					continue
+				}
+				logger.Infof("Created compound index: %s.%s", collectionName, indexName)
+			} else {
+				logger.Debugf("Compound index already exists: %s.%s", collectionName, indexName)
+			}
+		}
+	}
+
+	// Create background_jobs TTL index (auto-purge terminal jobs after 30d).
+	for collectionName, indexes := range BackgroundJobIndices {
+		collection := database.Collection(collectionName)
+		for _, index := range indexes {
+			indexName := getIndexName(index)
+
+			exists, err := indexExists(ctx, collection, indexName)
+			if err != nil {
+				logger.Errorf("Failed to check background_jobs index %s.%s: %v", collectionName, indexName, err)
+				continue
+			}
+
+			if !exists {
+				if err := createIndex(ctx, collection, index, indexName); err != nil {
+					logger.Errorf("Failed to create background_jobs index %s.%s: %v", collectionName, indexName, err)
+					continue
+				}
+				logger.Infof("Created background_jobs index: %s.%s", collectionName, indexName)
+			} else {
+				logger.Debugf("background_jobs index already exists: %s.%s", collectionName, indexName)
 			}
 		}
 	}

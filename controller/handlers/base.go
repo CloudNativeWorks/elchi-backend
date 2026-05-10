@@ -956,6 +956,49 @@ func (h *Handler) DeleteGSLBConfigWithAudit(c *gin.Context) {
 	}
 }
 
+// ================== SYSLOG CONFIGURATION AUDIT WRAPPERS ==================
+
+// SetSyslogConfigWithAudit wraps SetSyslogConfig with audit logging.
+func (h *Handler) SetSyslogConfigWithAudit(c *gin.Context) {
+	requestDetails, _ := h.getRequestDetails(c)
+	h.setSyslogAuditContext(c, requestDetails)
+	h.Settings.SetSyslogConfig(c)
+	if c.Writer.Status() >= 400 {
+		h.setAuditResult(c, fmt.Errorf("syslog config creation failed"))
+	} else {
+		h.setAuditResult(c, nil)
+	}
+}
+
+// UpdateSyslogConfigWithAudit wraps UpdateSyslogConfig with audit logging.
+func (h *Handler) UpdateSyslogConfigWithAudit(c *gin.Context) {
+	requestDetails, _ := h.getRequestDetails(c)
+	h.setSyslogAuditContext(c, requestDetails)
+	h.Settings.UpdateSyslogConfig(c)
+	if c.Writer.Status() >= 400 {
+		h.setAuditResult(c, fmt.Errorf("syslog config update failed"))
+	} else {
+		h.setAuditResult(c, nil)
+	}
+}
+
+// DeleteSyslogConfigWithAudit wraps DeleteSyslogConfig with audit logging.
+func (h *Handler) DeleteSyslogConfigWithAudit(c *gin.Context) {
+	requestDetails, _ := h.getRequestDetails(c)
+	h.setSyslogAuditContext(c, requestDetails)
+	h.Settings.DeleteSyslogConfig(c)
+	if c.Writer.Status() >= 400 {
+		h.setAuditResult(c, fmt.Errorf("syslog config deletion failed"))
+	} else {
+		h.setAuditResult(c, nil)
+	}
+}
+
+// TestSyslogConnectionHandler wraps TestSyslogConnection (no audit for test endpoints).
+func (h *Handler) TestSyslogConnectionHandler(c *gin.Context) {
+	h.Settings.TestSyslogConnection(c)
+}
+
 // updateScenarioAuditFromResponse extracts scenario ID and name from CREATE response
 func (h *Handler) updateScenarioAuditFromResponse(c *gin.Context, response any) {
 	var scenarioID, scenarioName string

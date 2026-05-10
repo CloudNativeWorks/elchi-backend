@@ -120,6 +120,13 @@ func initSettingRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		{"DELETE", "/gslb", h.DeleteGSLBConfigWithAudit},
 		{"GET", "/gslb/options", h.Settings.GetGSLBOptions},
 
+		// Audit-log syslog forwarding (global)
+		{"GET", "/syslog-config", h.Settings.GetSyslogConfig},
+		{"POST", "/syslog-config", h.SetSyslogConfigWithAudit},
+		{"PUT", "/syslog-config", h.UpdateSyslogConfigWithAudit},
+		{"DELETE", "/syslog-config", h.DeleteSyslogConfigWithAudit},
+		{"POST", "/syslog-config/test", h.TestSyslogConnectionHandler},
+
 		// OTP configuration endpoints (Admin/Owner only)
 		{"GET", "/otp-config", h.Settings.GetOTPConfig()},
 		{"PUT", "/otp-config", h.Settings.UpdateOTPConfig()},

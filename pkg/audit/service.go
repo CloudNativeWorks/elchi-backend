@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
@@ -18,6 +19,20 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+// Forwarder is the optional contract for a side-channel sink (syslog/SIEM)
+// that receives every audit entry after it has been persisted to MongoDB.
+// Implementations MUST be non-blocking — the audit pipeline cannot wait on
+// network I/O.
+type Forwarder interface {
+	Enqueue(entry *models.AuditEntry)
+}
+
+// forwarderHolder wraps the optional Forwarder so atomic.Value can store a
+// nil-bearing value with a stable concrete type.
+type forwarderHolder struct {
+	f Forwarder
+}
+
 // Service handles audit logging operations
 type Service struct {
 	db            *db.AppContext
@@ -27,6 +42,7 @@ type Service struct {
 	batch         chan *models.AuditEntry // Batch processing channel
 	batchSize     int                     // Number of entries to batch
 	batchInterval time.Duration           // Max time to wait before flushing batch
+	forwarder     atomic.Value            // holds forwarderHolder
 }
 
 // ================== STANDARDIZED ERROR HANDLING ==================
@@ -77,10 +93,30 @@ func NewService(db *db.AppContext, logger *logger.Logger) *Service {
 		batchInterval: 5 * time.Second,                     // Flush every 5 seconds
 	}
 
+	// Initialise forwarder slot with a typed empty holder so atomic.Value's
+	// type check is satisfied even before SetForwarder is called.
+	s.forwarder.Store(forwarderHolder{})
+
 	// Start batch processor
 	s.startBatchProcessor()
 
 	return s
+}
+
+// SetForwarder registers (or unregisters) an optional sink that receives a
+// copy of every persisted audit entry. Pass nil to unregister. Safe to call
+// at any time after NewService.
+func (s *Service) SetForwarder(f Forwarder) {
+	s.forwarder.Store(forwarderHolder{f: f})
+}
+
+// loadForwarder returns the current Forwarder, or nil if none is set.
+func (s *Service) loadForwarder() Forwarder {
+	v := s.forwarder.Load()
+	if v == nil {
+		return nil
+	}
+	return v.(forwarderHolder).f
 }
 
 // Store saves an audit entry to the database with async batching capability
@@ -116,6 +152,10 @@ func (s *Service) Store(entry *models.AuditEntry) error {
 
 	s.logger.Debugf("Stored audit entry: action=%s, resource=%s/%s, user=%s",
 		entry.Action, entry.ResourceType, entry.ResourceID, entry.Username)
+
+	if f := s.loadForwarder(); f != nil {
+		f.Enqueue(entry)
+	}
 
 	return nil
 }
@@ -226,8 +266,16 @@ func (s *Service) flushBatch(entries []*models.AuditEntry) {
 	_, err := collection.InsertMany(ctx, docs)
 	if err != nil {
 		s.logger.Errorf("audit batch_flush failed (%d entries): %v", len(entries), err)
-	} else {
-		s.logger.Debugf("Flushed %d audit entries to database", len(entries))
+		// Skip syslog forwarding when the canonical write failed — we only
+		// forward what we successfully persisted.
+		return
+	}
+	s.logger.Debugf("Flushed %d audit entries to database", len(entries))
+
+	if f := s.loadForwarder(); f != nil {
+		for _, e := range entries {
+			f.Enqueue(e)
+		}
 	}
 }
 

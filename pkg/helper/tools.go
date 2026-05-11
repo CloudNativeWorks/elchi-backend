@@ -241,6 +241,45 @@ func GenerateAllTokens(email, username *string, userID string, groups *[]string,
 	return token, refreshToken, err
 }
 
+// internalForwardTokenTTL bounds the lifetime of tokens issued for
+// inter-controller forwarding. Forward HTTPTimeout is 25s; 60s leaves a
+// comfortable margin while keeping the leak window tiny.
+const internalForwardTokenTTL = 60 * time.Second
+
+// GenerateInternalForwardToken issues a short-lived JWT used when one
+// controller forwards a worker-originated command to another controller.
+// The token impersonates the trigger user so the target pod's
+// authentication, authorization and audit pipelines see the original
+// identity — no special-case branching needed on the receiving side.
+//
+// Returns an error if the JWT secret is unset or the trigger user lacks
+// an ID. Callers should fail the forward in that case rather than send
+// an unauthenticated request.
+func GenerateInternalForwardToken(user models.UserDetails) (string, error) {
+	if SecretKey == "" {
+		return "", ErrJWTSecretNotSet
+	}
+	if user.UserID == "" {
+		return "", fmt.Errorf("internal forward token: trigger user id is empty")
+	}
+
+	username := user.UserName
+	role := user.Role
+	if role == "" {
+		role = models.RoleViewer
+	}
+
+	claims := &models.SignedDetails{
+		Username: &username,
+		UserID:   user.UserID,
+		Role:     &role,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(internalForwardTokenTTL)),
+		},
+	}
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(SecretKey))
+}
+
 func RemoveDuplicates(strings *[]string) *[]string {
 	if strings == nil {
 		result := []string{}

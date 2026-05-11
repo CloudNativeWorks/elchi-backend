@@ -451,13 +451,24 @@ func (h *Client) prepareForwardRequest(ctx context.Context, targetURL string, re
 	req.Header.Set(HeaderForwardClient, clientID)
 	req.Header.Set(HeaderForwardedRequest, ForwardTrue) // Prevent infinite loops
 
-	// Forward authentication tokens from original request using standard Authorization header
-	if requestDetails.Token != "" {
-		req.Header.Set(HeaderAuthorization, "Bearer "+requestDetails.Token)
-		h.logger.Debugf("Forwarding authentication token for client %s", clientID)
+	// Forward authentication tokens from original request using standard
+	// Authorization header. Worker-originated commands (background jobs)
+	// have no gin context, so requestDetails.Token is empty; in that case
+	// mint a short-lived JWT impersonating the trigger user so the target
+	// pod accepts the forward through the standard auth path.
+	token := requestDetails.Token
+	if token == "" {
+		minted, err := helper.GenerateInternalForwardToken(requestDetails.User)
+		if err != nil {
+			return nil, fmt.Errorf("forward without authentication for client %s: %w", clientID, err)
+		}
+		token = minted
+		h.logger.Debugf("Using internal forward token for client %s (user=%s)",
+			clientID, requestDetails.User.UserID)
 	} else {
-		h.logger.Warnf("No authentication token found in original request for client %s", clientID)
+		h.logger.Debugf("Forwarding authentication token for client %s", clientID)
 	}
+	req.Header.Set(HeaderAuthorization, "Bearer "+token)
 
 	// Note: RefreshToken forwarding removed as it should only be used for /refresh endpoint
 
@@ -752,7 +763,7 @@ func (h *Client) sendCommandWithLocationCheck(ctx context.Context, requestDetail
 	h.logger.Debugf("Original Body Size: %d bytes", len(requestDetails.OriginalBody))
 	h.logger.Debugf("=====================")
 
-	return h.forwardCommandViaHTTP(ctx, requestDetails, clientLocation.ControllerId, clientID, op.GetTypeNum(), op.GetSubTypeNum(), nil, &client) // Pass client info for downstream_address preservation
+	return h.forwardCommandViaHTTP(ctx, requestDetails, clientLocation.ControllerId, clientID, op.GetTypeNum(), op.GetSubTypeNum(), op, &client) // Pass op so a body can be synthesised when OriginalBody is empty (worker-originated commands)
 }
 
 // ForwardedResponse is a special error type that contains the raw forwarded response
@@ -772,7 +783,7 @@ func (e *ForwardedResponse) Error() string {
 // The caller should check for ForwardedResponse using errors.As() to handle the forwarded response.
 //
 //nolint:unparam // response is intentionally nil; raw JSON is returned via ForwardedResponse error
-func (h *Client) forwardCommandViaHTTP(ctx context.Context, requestDetails models.RequestDetails, targetControllerID, clientID string, _ pb.CommandType, _ pb.SubCommandType, _ any, clientInfo *models.ServiceClients) (*pb.CommandResponse, error) {
+func (h *Client) forwardCommandViaHTTP(ctx context.Context, requestDetails models.RequestDetails, targetControllerID, clientID string, _ pb.CommandType, _ pb.SubCommandType, op models.OperationClass, clientInfo *models.ServiceClients) (*pb.CommandResponse, error) {
 	// Build target URL
 	targetURL := h.buildTargetURL(targetControllerID, requestDetails)
 
@@ -785,20 +796,31 @@ func (h *Client) forwardCommandViaHTTP(ctx context.Context, requestDetails model
 	h.logger.Debugf("Is Forwarded: %v", requestDetails.IsForwarded)
 	h.logger.Debugf("===================")
 
-	// Filter original request body to only include the specific client
-	var requestBody []byte
-	if len(requestDetails.OriginalBody) > 0 {
-		h.logger.Debugf("About to filter request body for client %s...", clientID)
-		filteredBody, err := h.filterRequestBodyForClient(requestDetails.OriginalBody, clientID, clientInfo)
-		if err != nil {
-			h.logger.Errorf("Failed to filter request body for client %s: %v", clientID, err)
-			return nil, fmt.Errorf("failed to filter request body for client %s: %w", clientID, err)
+	// Filter original request body to only include the specific client.
+	// User-triggered commands carry the original POST body in
+	// requestDetails.OriginalBody. Worker-originated commands don't have a
+	// gin context, so OriginalBody is empty — in that case synthesise the
+	// body from the in-memory op so the target pod can decode it normally.
+	originalBody := requestDetails.OriginalBody
+	if len(originalBody) == 0 {
+		if op == nil {
+			return nil, fmt.Errorf("no original body and no operation available for client %s", clientID)
 		}
-		requestBody = filteredBody
-		h.logger.Debugf("Successfully filtered request body for client %s: original=%d bytes, filtered=%d bytes", clientID, len(requestDetails.OriginalBody), len(requestBody))
-	} else {
-		h.logger.Warnf("No original request body found for client %s", clientID)
+		synthesised, err := json.Marshal(op)
+		if err != nil {
+			return nil, fmt.Errorf("synthesise forward body for client %s: %w", clientID, err)
+		}
+		originalBody = synthesised
+		h.logger.Debugf("Synthesised forward body for client %s from in-memory op (%d bytes)", clientID, len(originalBody))
 	}
+
+	h.logger.Debugf("About to filter request body for client %s...", clientID)
+	requestBody, err := h.filterRequestBodyForClient(originalBody, clientID, clientInfo)
+	if err != nil {
+		h.logger.Errorf("Failed to filter request body for client %s: %v", clientID, err)
+		return nil, fmt.Errorf("failed to filter request body for client %s: %w", clientID, err)
+	}
+	h.logger.Debugf("Successfully filtered request body for client %s: original=%d bytes, filtered=%d bytes", clientID, len(originalBody), len(requestBody))
 
 	// Prepare HTTP request
 	req, err := h.prepareForwardRequest(ctx, targetURL, requestBody, requestDetails, clientID)

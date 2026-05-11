@@ -3,9 +3,13 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/CloudNativeWorks/elchi-backend/controller/upgrade"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/async"
@@ -14,6 +18,8 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 )
+
+const analysisHeartbeatInterval = 30 * time.Second
 
 // UpgradeHandler handles resource upgrade operations
 type UpgradeHandler struct {
@@ -63,6 +69,14 @@ func (h *UpgradeHandler) UpgradeResource(c *gin.Context) {
 		return
 	}
 
+	// Reject no-op upgrades: same version produces nothing but needless
+	// systemd restarts on every connected client (binary path doesn't change
+	// but elchi-client still calls RestartService).
+	if req.FromVersion == req.ToVersion {
+		c.JSON(400, gin.H{"error": "from_version and to_version must differ"})
+		return
+	}
+
 	// Set audit context (join all listener names for audit)
 	listenerNamesStr := fmt.Sprintf("%v", req.ResourceNames) // Convert array to string representation
 	h.setUpgradeAuditContext(c, req.ResourceType, listenerNamesStr, req.Project, req.FromVersion, req.ToVersion)
@@ -74,6 +88,14 @@ func (h *UpgradeHandler) UpgradeResource(c *gin.Context) {
 		c.JSON(401, gin.H{"error": "User not authenticated"})
 		return
 	}
+
+	// Compute a deterministic lock key so the background_jobs partial unique
+	// index can reject a second concurrent upgrade against the same listener
+	// set. Sorted join makes the key order-independent.
+	sortedListeners := make([]string, len(req.ResourceNames))
+	copy(sortedListeners, req.ResourceNames)
+	sort.Strings(sortedListeners)
+	lockKey := fmt.Sprintf("upgrade::%s::%s", req.Project, strings.Join(sortedListeners, ","))
 
 	// Create job metadata with proper Listener GType
 	jobMeta := &job.JobMetadata{
@@ -99,6 +121,7 @@ func (h *UpgradeHandler) UpgradeResource(c *gin.Context) {
 			ValidateClients:   req.Options.ValidateClients,
 			UpdateBootstrap:   req.Options.UpdateBootstrap,
 			DryRun:            req.Options.DryRun,
+			LockKey:           lockKey,
 		},
 	}
 
@@ -115,6 +138,12 @@ func (h *UpgradeHandler) UpgradeResource(c *gin.Context) {
 		Metadata: jobMeta,
 	})
 	if err != nil {
+		// Partial unique index on lock_key rejects concurrent upgrades.
+		if mongo.IsDuplicateKeyError(err) {
+			h.setAuditResult(c, err)
+			c.JSON(409, gin.H{"error": "an upgrade is already in flight for the requested listener(s); wait for it to finish or retry it"})
+			return
+		}
 		h.setAuditResult(c, err)
 		c.JSON(500, gin.H{"error": "Failed to create upgrade job"})
 		return
@@ -147,6 +176,30 @@ func (h *UpgradeHandler) UpgradeResource(c *gin.Context) {
 // analyzeUpgradeDependencies analyzes dependencies in background
 func (h *UpgradeHandler) analyzeUpgradeDependencies(ctx context.Context, j *job.Job) {
 	jobManager := h.asyncSystem.GetJobManager()
+
+	// Stamp ownership + heartbeat so a controller crash during analysis is
+	// surfaced as a stuck job (and reaped by FailStuckAnalyzingJobs) rather
+	// than leaving the job ANALYZING forever.
+	workerID := fmt.Sprintf("analyzer-%s", j.ID.Hex())
+	if err := jobManager.UpdateJob(ctx, j.ID.Hex(), map[string]any{
+		"$set": map[string]any{
+			"worker_info": map[string]any{
+				"worker_id":  workerID,
+				"claimed_at": time.Now(),
+				"heartbeat":  time.Now(),
+				"ttl":        300,
+			},
+		},
+	}); err != nil {
+		// Non-fatal: analysis can still proceed; only stuck detection is degraded.
+		// (Logging is best-effort; the analyzer has its own logger.)
+		_ = err
+	}
+
+	hbCtx, hbCancel := context.WithCancel(ctx)
+	defer hbCancel()
+	go h.runAnalysisHeartbeat(hbCtx, jobManager, j.ID)
+
 	analyzer := upgrade.NewUpgradeAnalyzer(h.dbContext, h.commandHandler)
 
 	// Run analysis
@@ -194,6 +247,22 @@ func (h *UpgradeHandler) analyzeUpgradeDependencies(ctx context.Context, j *job.
 			"status": job.JobStatusPending,
 		},
 	})
+}
+
+// runAnalysisHeartbeat keeps the job's worker_info.heartbeat fresh so the
+// FailStuckAnalyzingJobs reaper does not mistakenly mark a long-running
+// analysis as stuck. Exits when the caller cancels the context.
+func (h *UpgradeHandler) runAnalysisHeartbeat(ctx context.Context, jm async.JobManagerInterface, jobID primitive.ObjectID) {
+	ticker := time.NewTicker(analysisHeartbeatInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			_ = jm.UpdateJobHeartbeat(ctx, jobID)
+		}
+	}
 }
 
 // setUpgradeAuditContext sets audit context for resource upgrade operations

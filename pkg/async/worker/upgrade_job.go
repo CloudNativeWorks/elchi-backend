@@ -62,11 +62,25 @@ func (w *Worker) processResourceUpgradeJob(ctx context.Context, j *job.Job) {
 		return
 	}
 
-	// Step 4: Trigger snapshot updates for upgraded listeners (Phase 3)
+	// Step 4: Trigger snapshot updates for upgraded listeners (Phase 3).
+	// Phase 3 is best-effort by design — failures are logged but never
+	// block job completion (control-plane regenerates on demand).
 	w.triggerSnapshotUpdates(ctx, meta, listenerNames)
 
-	// Step 5: Update bootstraps and notify clients (Phase 4)
-	w.updateBootstrapsAndNotifyClients(ctx, j, meta, analysis, listenerNames)
+	// Step 5: Update bootstraps and notify clients (Phase 4). Hard failures
+	// here (no bootstrap advanced, no client notified, services collection
+	// write failure) are real inconsistencies and must surface as FailJob
+	// — otherwise the operator sees a green job over a half-done upgrade.
+	if err := w.updateBootstrapsAndNotifyClients(ctx, j, meta, analysis, listenerNames); err != nil {
+		w.logger.Errorf("Phase 4 (bootstrap+notify) failed: %v", err)
+		// Persist whatever resources were created so the metadata stays
+		// inspectable for the failed job.
+		w.storeCreatedResources(ctx, j, allCreatedResources)
+		if failErr := w.jobManager.FailJob(ctx, j.ID, err); failErr != nil {
+			w.logger.Errorf("Failed to mark job as failed: %v", failErr)
+		}
+		return
+	}
 
 	// Step 6: Store created resources and complete job
 	w.storeCreatedResources(ctx, j, allCreatedResources)
@@ -182,25 +196,57 @@ func (w *Worker) updateListenerProgress(ctx context.Context, j *job.Job, complet
 	}
 }
 
-// updateBootstrapsAndNotifyClients updates bootstraps and notifies clients (Phase 3)
-func (w *Worker) updateBootstrapsAndNotifyClients(ctx context.Context, j *job.Job, meta *job.JobMetadata, analysis *job.UpgradeAnalysisResult, listenerNames []string) {
+// updateBootstrapsAndNotifyClients updates bootstraps and notifies clients (Phase 4).
+//
+// Returns the first per-listener failure encountered. We keep going through
+// remaining listeners after a failure so their bootstrap/notify steps have
+// a chance to run and their outcomes are recorded in job metadata — but
+// any failure ultimately surfaces as a job-level FailJob via the
+// orchestrator.
+func (w *Worker) updateBootstrapsAndNotifyClients(ctx context.Context, j *job.Job, meta *job.JobMetadata, analysis *job.UpgradeAnalysisResult, listenerNames []string) error {
 	upgradeConfig := meta.UpgradeConfig
 
 	if !analysis.BootstrapRequired || !upgradeConfig.UpdateBootstrap {
 		w.logger.Infof("Bootstrap update not required or disabled")
-		return
+		return nil
 	}
 
 	w.logger.Infof("Bootstrap update required for %d bootstraps", len(analysis.BootstrapNames))
 
-	// Update all bootstraps and notify clients
+	var firstErr error
 	for _, listenerName := range listenerNames {
 		requiresClientUpgrade := w.findRequiresClientUpgrade(analysis, listenerName)
-		w.updateBootstrapsForListener(ctx, j, listenerName, analysis.BootstrapNames, requiresClientUpgrade)
+		// Scope the bootstrap set to THIS listener; analysis.BootstrapNames
+		// is the deduplicated global union and would cause each listener
+		// iteration to re-update every other listener's bootstrap.
+		listenerBootstraps := w.findListenerBootstrapNames(analysis, listenerName)
+		if err := w.updateBootstrapsForListener(ctx, j, listenerName, listenerBootstraps, requiresClientUpgrade); err != nil && firstErr == nil {
+			firstErr = err
+		}
 	}
+	return firstErr
 }
 
-// triggerSnapshotUpdates triggers snapshot updates for all upgraded listeners
+// findListenerBootstrapNames returns the bootstrap names recorded for a
+// specific listener in the analysis. Falls back to nil so callers receive
+// "no bootstraps" instead of the global union when the listener wasn't
+// found (shouldn't happen — analyzer always records ListenerDetails).
+func (w *Worker) findListenerBootstrapNames(analysis *job.UpgradeAnalysisResult, listenerName string) []string {
+	for _, la := range analysis.ListenerDetails {
+		if la.ListenerName == listenerName {
+			return la.BootstrapNames
+		}
+	}
+	return nil
+}
+
+// triggerSnapshotUpdates triggers snapshot updates for all upgraded listeners.
+//
+// Phase 3 is intentionally non-fatal: any failure here (transport, missing
+// row, all-poke blackout) is logged at error level but does not stop the
+// upgrade. The control-plane regenerates a snapshot on the next xDS
+// request, and the operator can inspect logs if needed. Phase 4 still
+// runs so client notification can proceed.
 func (w *Worker) triggerSnapshotUpdates(ctx context.Context, meta *job.JobMetadata, listenerNames []string) {
 	if w.pokeService == nil {
 		w.logger.Warn("Poke service not available, snapshot updates will occur on next client request")
@@ -213,27 +259,31 @@ func (w *Worker) triggerSnapshotUpdates(ctx context.Context, meta *job.JobMetada
 	w.logger.Infof("📸 Triggering snapshot updates for %d upgraded listener(s)", len(listenerNames))
 
 	for _, listenerName := range listenerNames {
-		// Get listener to check if managed
 		if err := w.pokeListenerSnapshot(ctx, listenerName, project, toVersion); err != nil {
 			w.logger.Errorf("Failed to trigger snapshot for listener %s: %v", listenerName, err)
-			// Don't fail job - snapshot will regenerate on client request
+			// Do not abort upgrade — snapshot regeneration is best-effort.
 		} else {
 			w.logger.Infof("Snapshot update triggered for listener: %s", listenerName)
 		}
 	}
 }
 
-// pokeListenerSnapshot triggers snapshot regeneration via control-plane
+// pokeListenerSnapshot triggers snapshot regeneration via control-plane.
+//
+// For managed listeners we poke once per connected client. Individual poke
+// failures are logged but not fatal; only when EVERY poke fails do we
+// return an aggregate error so the caller can record a clear log line.
+// The caller does NOT propagate this as a job failure — Phase 3 is
+// always best-effort.
 func (w *Worker) pokeListenerSnapshot(ctx context.Context, listenerName, project, toVersion string) error {
 	// Get listener to determine if managed (NO version filter - listener name is unique per project)
 	listenerCollection := w.dbContext.Client.Collection("listeners")
 	var listener models.DBResource
-	err := listenerCollection.FindOne(ctx, bson.M{
+	if err := listenerCollection.FindOne(ctx, bson.M{
 		"general.name":    listenerName,
 		"general.project": project,
-	}).Decode(&listener)
-	if err != nil {
-		return fmt.Errorf("failed to get listener: %w", err)
+	}).Decode(&listener); err != nil {
+		return fmt.Errorf("failed to get listener %s: %w", listenerName, err)
 	}
 
 	// If managed, poke for each connected client
@@ -251,11 +301,19 @@ func (w *Worker) pokeListenerSnapshot(ctx context.Context, listenerName, project
 			return w.sendPokeToControlPlane(ctx, listenerName, project, toVersion, "")
 		}
 
-		// Send poke for each client's downstream address with NEW version
+		// Send poke for each client's downstream address with NEW version.
+		// Track failures so a complete blackout is surfaced as an error.
+		var lastErr error
+		failed := 0
 		for _, client := range clients {
 			if err := w.sendPokeToControlPlane(ctx, listenerName, project, toVersion, client.DownstreamAddress); err != nil {
 				w.logger.Errorf("Failed to poke for client %s: %v", client.ClientID, err)
+				failed++
+				lastErr = err
 			}
+		}
+		if failed == len(clients) {
+			return fmt.Errorf("all %d snapshot pokes failed for listener %s; last error: %w", failed, listenerName, lastErr)
 		}
 		return nil
 	}
@@ -455,8 +513,15 @@ func (w *Worker) getConnectedClients(ctx context.Context, clientIDs []string) ([
 	return clients, nil
 }
 
-// updateBootstrapsForListener orchestrates bootstrap update and client notification
-func (w *Worker) updateBootstrapsForListener(ctx context.Context, j *job.Job, listenerName string, bootstrapNames []string, requiresClientUpgrade bool) {
+// updateBootstrapsForListener orchestrates bootstrap update and client notification.
+//
+// Strict-fail policy: any bootstrap update failure aborts the listener's
+// Phase 4 — client notification and services.version advancement are
+// skipped so a retry runs against a coherent fromVersion state. All
+// bootstraps are still attempted (the inner loop never short-circuits),
+// so the per-bootstrap outcomes are persisted in job metadata for the
+// operator to inspect before clicking retry.
+func (w *Worker) updateBootstrapsForListener(ctx context.Context, j *job.Job, listenerName string, bootstrapNames []string, requiresClientUpgrade bool) error {
 	meta := j.Metadata
 	project := meta.SourceResource.ProjectID
 	fromVersion := meta.SourceResource.Version
@@ -464,29 +529,53 @@ func (w *Worker) updateBootstrapsForListener(ctx context.Context, j *job.Job, li
 
 	w.logger.Infof("Updating %d bootstrap(s) for listener %s to version %s", len(bootstrapNames), listenerName, toVersion)
 
-	// Step 1: Update all bootstraps
+	// Step 1: Update all bootstraps (loop never short-circuits)
 	bootstrapUpdates := w.performBootstrapUpdates(ctx, bootstrapNames, listenerName, project, fromVersion, toVersion)
 
-	// Step 2: Store bootstrap updates in job metadata
+	// Step 2: Store bootstrap updates in job metadata (best-effort audit)
 	w.storeBootstrapUpdates(ctx, j, meta, bootstrapUpdates)
 
-	// Step 3: Update admin_port for managed listeners
+	// Step 3: Assess bootstrap outcomes — any failure aborts Phase 4 for this listener.
+	// Notify/service-version updates are deliberately skipped so the listener
+	// stays in a recoverable state for retry (services.version still matches
+	// fromVersion, client binaries haven't been told to swap).
+	if total := len(bootstrapUpdates); total > 0 {
+		successes := 0
+		var firstErr string
+		for _, u := range bootstrapUpdates {
+			if u.Success {
+				successes++
+				continue
+			}
+			if firstErr == "" {
+				firstErr = u.Error
+			}
+		}
+		if successes < total {
+			return fmt.Errorf("bootstrap update incomplete for listener %s: %d/%d succeeded; first error: %s",
+				listenerName, successes, total, firstErr)
+		}
+	}
+
+	// Step 4: Update admin_port for managed listeners (advisory, stays non-fatal)
 	if requiresClientUpgrade {
 		w.updateAdminPortForListener(ctx, project, listenerName, toVersion)
 	}
 
-	// Step 4: Notify clients or update service version
+	// Step 5: Notify clients or update service version
 	if requiresClientUpgrade {
-		err := w.notifyClientsForUpgrade(ctx, j, project, listenerName, toVersion)
-		if err != nil {
+		if err := w.notifyClientsForUpgrade(ctx, j, project, listenerName, toVersion); err != nil {
 			w.logger.Errorf("Failed to notify clients for listener %s: %v", listenerName, err)
-			// Don't fail the whole operation, log and continue
+			return err
 		}
-	} else {
-		w.logger.Infof("Listener '%s' does not require client upgrade commands (unmanaged or no clients)", listenerName)
-		// Even if no clients, update service version if service exists
-		w.updateServiceVersion(ctx, project, listenerName, fromVersion, toVersion)
+		return nil
 	}
+
+	w.logger.Infof("Listener '%s' does not require client upgrade commands (unmanaged or no clients)", listenerName)
+	if err := w.updateServiceVersion(ctx, project, listenerName, fromVersion, toVersion); err != nil {
+		return err
+	}
+	return nil
 }
 
 // performBootstrapUpdates updates each bootstrap to target version
@@ -610,6 +699,11 @@ func (w *Worker) storeBootstrapUpdates(ctx context.Context, j *job.Job, meta *jo
 	allUpdates = append(allUpdates, existingUpdates...)
 	allUpdates = append(allUpdates, bootstrapUpdates...)
 
+	// Keep the in-memory metadata in sync with what we just wrote, so a
+	// subsequent listener iteration sees the accumulated list instead of
+	// reading a stale snapshot and clobbering earlier updates in the DB.
+	meta.UpgradeConfig.BootstrapUpdates = allUpdates
+
 	if err := w.jobManager.UpdateJob(ctx, j.ID.Hex(), map[string]any{
 		"$set": map[string]any{
 			"metadata.upgrade_config.bootstrap_updates": allUpdates,
@@ -630,45 +724,118 @@ func (w *Worker) updateAdminPortForListener(ctx context.Context, project, listen
 	}
 }
 
-// notifyClientsForUpgrade orchestrates client notification for upgrade
+// notifyClientsForUpgrade orchestrates client notification for upgrade.
+//
+// Strict-fail policy: any client notification failure (even one of many)
+// aborts the listener's Phase 4 — services.version is NOT advanced and
+// the function returns an error so the orchestrator marks the job FAILED.
+// All clients are still attempted (the inner loop never short-circuits),
+// so partial outcomes are persisted in metadata.client_responses.
+//
+// Why keep services.version pinned to fromVersion on failure: retry
+// queries services with `version: fromVersion` to find the affected
+// clients; advancing services on partial success would orphan the unsent
+// clients and prevent retry from finding them.
 func (w *Worker) notifyClientsForUpgrade(ctx context.Context, j *job.Job, project, listenerName, toVersion string) error {
-	// Check if command handler is available
-	if w.commandHandler == nil {
-		w.logger.Warn("Command handler not available, cannot send upgrade commands to clients")
-		return nil
-	}
-
 	meta := j.Metadata
 	fromVersion := meta.SourceResource.Version
 
-	// Step 1: Get connected clients
+	// Step 1: Get connected clients first so we can decide whether the
+	// missing commandHandler is a hard failure or a no-op.
 	clients, err := w.getConnectedClientsForListener(ctx, listenerName, project, fromVersion)
 	if err != nil {
 		return err
 	}
+	originalConnectedCount := len(clients)
+
+	// On retry, exclude clients that already completed UPGRADE_LISTENER in
+	// the original job — they'd otherwise suffer a needless systemd restart
+	// (elchi-client's ReplaceAll is a no-op once the file targets toVersion).
+	allSkippedByRetryFilter := false
+	if j.RetryInfo != nil && !j.RetryInfo.OriginalJobID.IsZero() {
+		skip := w.collectAlreadyUpgradedClientIDs(ctx, j.RetryInfo.OriginalJobID)
+		if len(skip) > 0 {
+			filtered := make([]ClientRecord, 0, len(clients))
+			for _, c := range clients {
+				if !skip[c.ClientID] {
+					filtered = append(filtered, c)
+				}
+			}
+			if skipped := len(clients) - len(filtered); skipped > 0 {
+				w.logger.Infof("Retry: skipping %d already-upgraded client(s) for listener %s", skipped, listenerName)
+			}
+			if len(filtered) == 0 && originalConnectedCount > 0 {
+				allSkippedByRetryFilter = true
+			}
+			clients = filtered
+		}
+	}
 
 	if len(clients) == 0 {
+		// Two distinct paths land here:
+		//   1. No connected clients exist (services empty, OR services
+		//      records exist but every client is offline). Advancing
+		//      services.version here would silently diverge the DB from
+		//      offline-client reality — exactly the drift Bug #1 closes.
+		//      Preserve the pre-retry behaviour: return nil and leave
+		//      services pinned to fromVersion.
+		//   2. Retry skip-filter removed every client because the previous
+		//      job already notified all of them. services.version is still
+		//      pinned to fromVersion (we keep it old on partial failure);
+		//      now that every client is confirmed upgraded, it is safe to
+		//      advance it so the DB reflects reality.
+		if allSkippedByRetryFilter {
+			w.logger.Infof("Retry: all clients already upgraded for listener %s; advancing services.version", listenerName)
+			return w.updateServiceVersion(ctx, project, listenerName, fromVersion, toVersion)
+		}
 		w.logger.Warnf("No connected clients found for listener %s (precheck should have caught this)", listenerName)
 		return nil
 	}
 
+	if w.commandHandler == nil {
+		// We have clients to notify but cannot — the upgrade is incomplete.
+		return fmt.Errorf("command handler not available; cannot notify %d client(s) for listener %s", len(clients), listenerName)
+	}
+
 	w.logger.Infof("Sending UPGRADE_LISTENER commands to %d client(s)", len(clients))
 
-	// Step 2: Send upgrade commands to all clients
+	// Step 2: Send upgrade commands to all clients (loop never short-circuits)
 	clientResponses, successCount, failureCount := w.sendUpgradeCommandsToClients(ctx, clients, meta, project, listenerName, fromVersion, toVersion)
 
 	// Step 3: Store client responses in job metadata
 	w.storeClientResponses(ctx, j, clientResponses)
 
-	// Step 4: Update service version if any succeeded
-	if successCount > 0 {
-		w.logger.Infof("Upgrade notification summary: %d succeeded, %d failed", successCount, failureCount)
-		w.updateServiceVersion(ctx, project, listenerName, fromVersion, toVersion)
-	} else {
-		w.logger.Warnf("All upgrade notifications failed: %d failed", failureCount)
+	// Step 4: Any failure aborts the listener — keep services.version on
+	// fromVersion so retry can find the same client set.
+	if failureCount > 0 {
+		firstErr := extractFirstClientError(clientResponses)
+		return fmt.Errorf("client notification incomplete for listener %s: %d/%d succeeded, %d failed; first error: %s",
+			listenerName, successCount, len(clients), failureCount, firstErr)
 	}
 
+	w.logger.Infof("Upgrade notification summary: %d succeeded", successCount)
+	if err := w.updateServiceVersion(ctx, project, listenerName, fromVersion, toVersion); err != nil {
+		return err
+	}
 	return nil
+}
+
+// extractFirstClientError pulls the error message from the first failed
+// client response so the aggregate error carries a hint about the cause.
+func extractFirstClientError(responses []any) string {
+	for _, r := range responses {
+		m, ok := r.(map[string]any)
+		if !ok {
+			continue
+		}
+		if success, _ := m["success"].(bool); success {
+			continue
+		}
+		if msg, ok := m["error"].(string); ok && msg != "" {
+			return msg
+		}
+	}
+	return "no error details captured"
 }
 
 // getConnectedClientsForListener retrieves connected clients using the listener
@@ -751,13 +918,74 @@ func (w *Worker) sendUpgradeCommandsToClients(ctx context.Context, clients []Cli
 			continue
 		}
 
-		// Success
-		clientResponses = append(clientResponses, response)
+		// Success — wrap in envelope so retry filter can identify per-client
+		// outcomes deterministically (matches the {client_id, success, error}
+		// shape used on the failure path).
+		clientResponses = append(clientResponses, map[string]any{
+			"client_id": client.ClientID,
+			"success":   true,
+			"result":    response,
+		})
 		w.logger.Infof("Successfully sent UPGRADE_LISTENER to client %s", client.ClientID)
 		successCount++
 	}
 
 	return clientResponses, successCount, failureCount
+}
+
+// collectAlreadyUpgradedClientIDs walks the retry chain starting at the
+// given job and returns the union of client IDs that successfully
+// processed UPGRADE_LISTENER across every ancestor. Walking the chain is
+// required because each retry only writes responses for the clients it
+// actually notified — earlier successes are otherwise invisible to a
+// chain-retry and would be re-notified (gratuitous restart).
+//
+// Bounded by maxRetryChainDepth so a corrupted RetryInfo cycle cannot
+// pin a worker forever. Fail-open by design: any fetch error returns
+// whatever the walk has collected so far, so the caller may still skip
+// some — over-sending is the safer regression mode.
+func (w *Worker) collectAlreadyUpgradedClientIDs(ctx context.Context, originalJobID primitive.ObjectID) map[string]bool {
+	const maxRetryChainDepth = 10
+	skip := make(map[string]bool)
+	current := originalJobID
+	visited := make(map[primitive.ObjectID]bool, maxRetryChainDepth)
+
+	for depth := 0; depth < maxRetryChainDepth && !current.IsZero(); depth++ {
+		if visited[current] {
+			w.logger.Warnf("Retry chain cycle detected at job %s; aborting walk", current.Hex())
+			break
+		}
+		visited[current] = true
+
+		j, err := w.jobManager.GetJob(ctx, current.Hex())
+		if err != nil {
+			w.logger.Warnf("Retry: failed to fetch job %s while walking chain (continuing with %d already collected): %v", current.Hex(), len(skip), err)
+			break
+		}
+		if j.Metadata == nil || j.Metadata.UpgradeConfig == nil {
+			break
+		}
+
+		for _, raw := range j.Metadata.UpgradeConfig.ClientResponses {
+			m, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			if success, _ := m["success"].(bool); !success {
+				continue
+			}
+			if cid, _ := m["client_id"].(string); cid != "" {
+				skip[cid] = true
+			}
+		}
+
+		if j.RetryInfo == nil || j.RetryInfo.OriginalJobID.IsZero() {
+			break
+		}
+		current = j.RetryInfo.OriginalJobID
+	}
+
+	return skip
 }
 
 // buildUpgradeOperation creates upgrade operation for client
@@ -817,8 +1045,11 @@ func (w *Worker) storeClientResponses(ctx context.Context, j *job.Job, clientRes
 	}
 }
 
-// updateServiceVersion updates service version from fromVersion to toVersion
-func (w *Worker) updateServiceVersion(ctx context.Context, project, listenerName, fromVersion, toVersion string) {
+// updateServiceVersion updates service version from fromVersion to toVersion.
+// ModifiedCount == 0 is NOT treated as an error — a listener may have no
+// services row at all (unmanaged path), or the service may already be at
+// the new version from a previous run.
+func (w *Worker) updateServiceVersion(ctx context.Context, project, listenerName, fromVersion, toVersion string) error {
 	serviceCollection := w.dbContext.Client.Collection("services")
 	updateResult, err := serviceCollection.UpdateMany(ctx, bson.M{
 		"name":    listenerName,
@@ -829,14 +1060,16 @@ func (w *Worker) updateServiceVersion(ctx context.Context, project, listenerName
 			"version": toVersion, // Update to new version
 		},
 	})
-	switch {
-	case err != nil:
+	if err != nil {
 		w.logger.Errorf("Failed to update service version: %v", err)
-	case updateResult.ModifiedCount > 0:
+		return fmt.Errorf("update service version for %s: %w", listenerName, err)
+	}
+	if updateResult.ModifiedCount > 0 {
 		w.logger.Infof("Updated %d service(s) to version %s", updateResult.ModifiedCount, toVersion)
-	default:
+	} else {
 		w.logger.Debugf("No services found to update for listener %s", listenerName)
 	}
+	return nil
 }
 
 // updateAdminPortVersion updates admin_port version to target version

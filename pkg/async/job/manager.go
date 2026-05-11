@@ -641,14 +641,17 @@ func (m *Manager) RetryFailedSnapshots(ctx context.Context, jobID string) (*Job,
 	return retryJob, nil
 }
 
-// GetStuckJobs finds jobs that haven't had a heartbeat in 10 minutes
+// GetStuckJobs finds jobs that haven't had a heartbeat in 10 minutes.
+// Includes ANALYZING (handler-owned, controller-side) as well as
+// RUNNING/CLAIMED (worker-owned) so a controller crash during dependency
+// analysis is surfaced the same way as a worker crash mid-execution.
 func (m *Manager) GetStuckJobs(ctx context.Context) ([]*Job, error) {
 	collection := m.db.Collection("background_jobs")
 
 	stuckThreshold := time.Now().Add(-10 * time.Minute)
 	filter := bson.M{
 		"$and": bson.A{
-			bson.M{"status": bson.M{"$in": []JobStatus{JobStatusRunning, JobStatusClaimed}}},
+			bson.M{"status": bson.M{"$in": []JobStatus{JobStatusAnalyzing, JobStatusRunning, JobStatusClaimed}}},
 			bson.M{"worker_info.heartbeat": bson.M{"$lt": stuckThreshold}},
 		},
 	}
@@ -665,6 +668,43 @@ func (m *Manager) GetStuckJobs(ctx context.Context) ([]*Job, error) {
 	}
 
 	return stuckJobs, nil
+}
+
+// FailStuckAnalyzingJobs marks ANALYZING jobs as FAILED when their owning
+// controller has stopped heart-beating for more than 10 minutes (or never
+// set worker_info at all — older-version jobs created before this hook).
+//
+// Designed to be invoked periodically from every controller pod; MongoDB
+// UpdateMany is atomic so concurrent callers race-free converge on the
+// same result (only the first effective write modifies a given document).
+// The job is marked FAILED rather than retried because the in-memory
+// analysis state is lost — the operator must trigger a fresh upgrade.
+//
+// Returns the number of jobs transitioned to FAILED so the caller can log.
+func (m *Manager) FailStuckAnalyzingJobs(ctx context.Context) (int, error) {
+	collection := m.db.Collection("background_jobs")
+
+	threshold := time.Now().Add(-10 * time.Minute)
+	filter := bson.M{
+		"status": JobStatusAnalyzing,
+		"$or": bson.A{
+			bson.M{"worker_info.heartbeat": bson.M{"$lt": threshold}},
+			bson.M{"worker_info": bson.M{"$exists": false}},
+		},
+	}
+	update := bson.M{
+		"$set": bson.M{
+			"status":       JobStatusFailed,
+			"completed_at": time.Now(),
+			"error":        "controller crashed during dependency analysis; retry the upgrade",
+		},
+	}
+
+	res, err := collection.UpdateMany(ctx, filter, update)
+	if err != nil {
+		return 0, err
+	}
+	return int(res.ModifiedCount), nil
 }
 
 // CreatePreliminaryJob creates a job without dependency analysis (fast response)

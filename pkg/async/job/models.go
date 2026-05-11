@@ -211,6 +211,13 @@ type UpgradeMetadata struct {
 	ClientResponses   []any                  `bson:"client_responses,omitempty" json:"client_responses,omitempty"`   // Raw responses from each client
 	CreatedResources  []ResourceRef          `bson:"created_resources,omitempty" json:"created_resources,omitempty"` // Resources created during upgrade
 	BootstrapUpdates  []BootstrapUpdate      `bson:"bootstrap_updates,omitempty" json:"bootstrap_updates,omitempty"` // Bootstrap updates performed
+
+	// LockKey is a deterministic string ("upgrade::{project}::{sorted listener names}")
+	// used by a partial unique index on background_jobs to reject a second
+	// concurrent upgrade against the same listener set. Index filter limits
+	// uniqueness to active statuses (ANALYZING/PENDING/CLAIMED/RUNNING) so
+	// terminal jobs no longer block fresh upgrades on the same target.
+	LockKey string `bson:"lock_key,omitempty" json:"lock_key,omitempty"`
 }
 
 // UpgradeAnalysisResult contains the result of upgrade dependency analysis

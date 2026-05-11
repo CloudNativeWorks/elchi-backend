@@ -238,6 +238,25 @@ var restCmd = &cobra.Command{
 		auditService.SetForwarder(syslogForwarder)
 		defer syslogForwarder.Stop()
 
+		// Background reaper for ANALYZING jobs whose owning controller died
+		// mid-analysis. Each pod runs this independently; MongoDB UpdateMany
+		// is atomic so concurrent reapers converge on the same result without
+		// race. 5-min ticker is well under the 10-min stuck threshold.
+		asyncSystemForReap := jobHandler.GetAsyncSystem()
+		go func() {
+			ticker := time.NewTicker(5 * time.Minute)
+			defer ticker.Stop()
+			for range ticker.C {
+				n, err := asyncSystemForReap.FailStuckAnalyzingJobs(context.Background())
+				switch {
+				case err != nil:
+					rootLogger.Warnf("stuck ANALYZING reaper: %v", err)
+				case n > 0:
+					rootLogger.Infof("stuck ANALYZING reaper: marked %d job(s) as failed", n)
+				}
+			}
+		}()
+
 		// Initialize async job system workers FIRST (needed by upgrade handler)
 		rootLogger.Infof("Starting async job system workers...")
 		if err := jobHandler.StartAsyncSystem(&bridgeHandler.Poke); err != nil {

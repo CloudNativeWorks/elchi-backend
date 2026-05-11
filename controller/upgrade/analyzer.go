@@ -192,13 +192,25 @@ func (a *UpgradeAnalyzer) AnalyzeDependencies(ctx context.Context, j *job.Job) (
 			totalClientsValidated += validationResult.ValidCount
 			allIncompatibleClients = append(allIncompatibleClients, validationResult.IncompatibleClients...)
 		} else {
-			// No validation requested
-			validationResult = &ClientValidationResult{
-				ValidCount:            0,
-				IncompatibleClients:   []string{},
-				RequiresClientUpgrade: false,
-				ConnectedClients:      0,
-				TotalClients:          0,
+			// ValidateClients is disabled — skip connectivity & target-version
+			// availability checks, but STILL query services to determine if
+			// the listener has clients that must be notified. Otherwise the
+			// worker would take the unmanaged branch and advance services.version
+			// without sending UPGRADE_LISTENER, silently diverging DB state
+			// from real client binaries.
+			_, totalClientsForListener, err := a.getClientIDsFromServices(ctx,
+				listenerName, meta.SourceResource.ProjectID, fromVersion)
+			if err != nil {
+				a.logger.Errorf("Failed to count clients for listener %s (ValidateClients=off): %v", listenerName, err)
+				validationResult = emptyValidationResult()
+			} else {
+				validationResult = &ClientValidationResult{
+					ValidCount:            0,
+					IncompatibleClients:   []string{},
+					RequiresClientUpgrade: totalClientsForListener > 0,
+					ConnectedClients:      0,
+					TotalClients:          totalClientsForListener,
+				}
 			}
 		}
 

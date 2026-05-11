@@ -564,6 +564,30 @@ var BackgroundJobIndices = map[string][]mongo.IndexModel{
 			Keys:    bson.D{{Key: "job_id", Value: 1}},
 			Options: options.Index().SetName("job_id_1").SetUnique(true).SetSparse(true),
 		},
+		// Partial unique index that prevents two concurrent RESOURCE_UPGRADE
+		// jobs from advancing the same listener(s) at once. lock_key is
+		// computed deterministically in the handler ("upgrade::{project}::
+		// {sorted listener names}"); the partial filter limits uniqueness
+		// enforcement to active statuses so terminal jobs no longer block
+		// fresh upgrades on the same target.
+		//
+		// The `lock_key: {$exists: true}` clause is critical for upgrade
+		// safety on rolling deploy: pre-fix jobs in the active queue have
+		// no lock_key field, and without this filter MongoDB would treat
+		// all of them as colliding null values and refuse to build the
+		// index. With the existence guard, only fix-aware jobs enter the
+		// unique-enforced subset and legacy in-flight jobs are ignored.
+		{
+			Keys: bson.D{{Key: "metadata.upgrade_config.lock_key", Value: 1}},
+			Options: options.Index().
+				SetName("upgrade_lock_key_unique_active").
+				SetUnique(true).
+				SetPartialFilterExpression(bson.M{
+					"type":                             "RESOURCE_UPGRADE",
+					"status":                           bson.M{"$in": []string{"ANALYZING", "PENDING", "CLAIMED", "RUNNING"}},
+					"metadata.upgrade_config.lock_key": bson.M{"$exists": true},
+				}),
+		},
 	},
 }
 

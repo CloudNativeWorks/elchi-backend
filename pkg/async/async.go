@@ -40,6 +40,7 @@ type AsyncJobSystem interface {
 	RetryJob(ctx context.Context, jobID string, reason string) (*Job, error)
 	RetryFailedSnapshots(ctx context.Context, jobID string) (*Job, error)
 	GetStuckJobs(ctx context.Context) ([]*Job, error)
+	FailStuckAnalyzingJobs(ctx context.Context) (int, error)
 
 	// Fast response methods
 	CreatePreliminaryJob(ctx context.Context, req *CreateJobRequest) (*Job, error)
@@ -236,6 +237,13 @@ func (s *asyncJobSystem) RetryFailedSnapshots(ctx context.Context, jobID string)
 // GetStuckJobs finds jobs that are stuck (no heartbeat)
 func (s *asyncJobSystem) GetStuckJobs(ctx context.Context) ([]*Job, error) {
 	return s.jobManager.GetStuckJobs(ctx)
+}
+
+// FailStuckAnalyzingJobs marks ANALYZING jobs whose owning controller has
+// stopped heart-beating as FAILED. Designed to be invoked periodically
+// from controller startup; safe to run concurrently from every pod.
+func (s *asyncJobSystem) FailStuckAnalyzingJobs(ctx context.Context) (int, error) {
+	return s.jobManager.FailStuckAnalyzingJobs(ctx)
 }
 
 // GetJobStats returns basic job statistics

@@ -201,8 +201,20 @@ func (a *UpgradeAnalyzer) AnalyzeDependencies(ctx context.Context, j *job.Job) (
 			_, totalClientsForListener, err := a.getClientIDsFromServices(ctx,
 				listenerName, meta.SourceResource.ProjectID, fromVersion)
 			if err != nil {
-				a.logger.Errorf("Failed to count clients for listener %s (ValidateClients=off): %v", listenerName, err)
-				validationResult = emptyValidationResult()
+				// Fail-closed: an unreachable services collection must not be
+				// downgraded to "no clients" — that would re-introduce the
+				// silent drift this whole else-branch was added to close.
+				// Surface as IncompatibleClients so validateJobMetadata aborts
+				// the upgrade with a clear reason.
+				errMsg := fmt.Sprintf("services query failed for listener %s (ValidateClients=off): %v", listenerName, err)
+				a.logger.Errorf("%s", errMsg)
+				validationResult = &ClientValidationResult{
+					ValidCount:            0,
+					IncompatibleClients:   []string{errMsg},
+					RequiresClientUpgrade: true,
+					ConnectedClients:      0,
+					TotalClients:          0,
+				}
 			} else {
 				validationResult = &ClientValidationResult{
 					ValidCount:            0,
@@ -212,6 +224,11 @@ func (a *UpgradeAnalyzer) AnalyzeDependencies(ctx context.Context, j *job.Job) (
 					TotalClients:          totalClientsForListener,
 				}
 			}
+
+			// IncompatibleClients must propagate to the aggregate slice so
+			// validateJobMetadata sees it (true branch above does this via
+			// validateClients's return).
+			allIncompatibleClients = append(allIncompatibleClients, validationResult.IncompatibleClients...)
 		}
 
 		// Create listener-specific analysis entry

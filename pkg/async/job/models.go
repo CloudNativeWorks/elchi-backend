@@ -183,6 +183,13 @@ type CreateJobRequest struct {
 	Type     JobType      `json:"type"`
 	Status   JobStatus    `json:"status"`
 	Metadata *JobMetadata `json:"metadata"`
+	// RetryInfo is set by RetryJob / RetryFailedSnapshots so the manager
+	// can persist retry context atomically in the same InsertOne as the
+	// new job document. Writing it via a follow-up UpdateOne opens a
+	// race window where a worker may claim the job before retry_info is
+	// visible, causing the upgrade worker's retry-skip filter to see a
+	// nil RetryInfo and re-notify every client (gratuitous restart).
+	RetryInfo *RetryInfo `json:"retry_info,omitempty"`
 }
 
 // DependencyAnalysisResult holds the result of dependency analysis

@@ -279,15 +279,21 @@ func GenerateInternalForwardToken(user models.UserDetails) (string, error) {
 		projects = append(projects, models.CombinedProjects{ProjectID: pid})
 	}
 
+	// Carry the trigger user's groups too so getFreshUserGroups's fallback
+	// path (claims.Groups when the DB fetch fails) doesn't deref a typed
+	// nil. We don't expand the scope here — pure defensive plumbing.
+	groups := append([]string(nil), user.Groups...)
+
 	// Initialise remaining pointer fields to empty (non-nil) values so the
 	// target pod's GetUserDetails does not deref typed-nil pointers when
-	// dereferencing BaseGroup/BaseProject/AuthType/Email.
+	// dereferencing BaseGroup/BaseProject/AuthType/Email/Groups.
 	emptyStr := ""
 	authType := "internal"
 	claims := &models.SignedDetails{
 		Username:    &username,
 		UserID:      user.UserID,
 		Role:        &role,
+		Groups:      &groups,
 		Projects:    &projects,
 		BaseGroup:   &emptyStr,
 		BaseProject: &emptyStr,

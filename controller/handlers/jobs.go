@@ -328,6 +328,20 @@ func (h *JobHandler) RetryJob(c *gin.Context) {
 	}
 
 	if err != nil {
+		// Surface "still in flight" as 409 so the operator gets a clear
+		// signal instead of a generic 500 (which used to hide both the
+		// "no failed snapshots" and "job still running" cases).
+		if errors.Is(err, job.ErrJobNotTerminal) {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			return
+		}
+		// Original job is terminal but another active upgrade holds the
+		// same lock_key — partial unique index rejects the InsertOne.
+		// Treat the same way as a brand-new POST that hits the lock.
+		if mongo.IsDuplicateKeyError(err) {
+			c.JSON(http.StatusConflict, gin.H{"error": "another upgrade is already in flight for the same listener(s); wait for it to finish or retry it"})
+			return
+		}
 		h.logger.Errorf("Failed to retry job %s: %v", jobID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retry job"})
 		return

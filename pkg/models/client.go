@@ -457,6 +457,14 @@ func (o *Operations) AppendClient(client ServiceClients) {
 	o.Clients = append(o.Clients, client)
 }
 
+func (c CommandTypeJSON) MarshalJSON() ([]byte, error) {
+	name, ok := pb.CommandType_name[int32(c)]
+	if !ok {
+		return nil, fmt.Errorf("invalid CommandType enum: %d", int32(c))
+	}
+	return json.Marshal(name)
+}
+
 func (c *CommandTypeJSON) UnmarshalJSON(data []byte) error {
 	var strValue string
 	if err := json.Unmarshal(data, &strValue); err != nil {
@@ -472,6 +480,14 @@ func (c *CommandTypeJSON) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+func (s SubCommandTypeJSON) MarshalJSON() ([]byte, error) {
+	name, ok := pb.SubCommandType_name[int32(s)]
+	if !ok {
+		return nil, fmt.Errorf("invalid SubCommandType enum: %d", int32(s))
+	}
+	return json.Marshal(name)
+}
+
 func (s *SubCommandTypeJSON) UnmarshalJSON(data []byte) error {
 	var strValue string
 	if err := json.Unmarshal(data, &strValue); err != nil {
@@ -485,6 +501,14 @@ func (s *SubCommandTypeJSON) UnmarshalJSON(data []byte) error {
 
 	*s = SubCommandTypeJSON(enumVal)
 	return nil
+}
+
+func (f FRRProtocolTypeJSON) MarshalJSON() ([]byte, error) {
+	name, ok := pb.FrrProtocolType_name[int32(f)]
+	if !ok {
+		return nil, fmt.Errorf("invalid FrrProtocolType enum: %d", int32(f))
+	}
+	return json.Marshal(name)
 }
 
 func (f *FRRProtocolTypeJSON) UnmarshalJSON(data []byte) error {

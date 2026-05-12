@@ -85,6 +85,11 @@ func (m *Manager) CreateJob(ctx context.Context, req *CreateJobRequest) (*Job, e
 			Failed:     0,
 			Percentage: 0.0,
 		},
+		// RetryInfo must be persisted alongside the document so a worker
+		// that claims the job between InsertOne and a follow-up UpdateOne
+		// cannot observe a nil RetryInfo (which would bypass the upgrade
+		// worker's retry-skip filter and re-notify every client).
+		RetryInfo: req.RetryInfo,
 		CreatedBy: req.Metadata.TriggerUser.ID,
 		CreatedAt: now,
 		Project:   project,
@@ -154,6 +159,7 @@ func (m *Manager) CreateJobWithParent(ctx context.Context, req *CreateJobRequest
 			Failed:     0,
 			Percentage: 0.0,
 		},
+		RetryInfo: req.RetryInfo, // see CreateJob — atomic persist avoids retry-filter bypass
 		CreatedBy: req.Metadata.TriggerUser.ID,
 		CreatedAt: now,
 		Project:   project,
@@ -527,6 +533,46 @@ func (m *Manager) FailJob(ctx context.Context, jobID primitive.ObjectID, jobErro
 	return nil
 }
 
+// ErrJobNotTerminal is returned by RetryJob / RetryFailedSnapshots when
+// the caller tries to retry a job that is still in flight. Handlers map
+// this to a 409 so the operator sees a clear "wait for it to finish"
+// message instead of a generic 500.
+var ErrJobNotTerminal = errors.New("job is not in a terminal state")
+
+// isTerminalStatus reports whether a job is in a state that allows it
+// to be retried. Anything else (ANALYZING/PENDING/CLAIMED/RUNNING) is
+// still in flight and a retry would collide with the partial unique
+// lock_key index or accidentally double-process the same upgrade.
+func isTerminalStatus(s JobStatus) bool {
+	switch s {
+	case JobStatusFailed, JobStatusCompleted, JobStatusCancelled, JobStatusNoWorkNeeded:
+		return true
+	default:
+		return false
+	}
+}
+
+// cloneRetryMetadata produces a deep-enough copy of the source metadata with
+// per-execution result fields cleared so a retry job starts with a clean
+// slate. Configuration/audit fields (Analysis, TriggerUser, UpgradeConfig
+// flags, LockKey, etc.) are preserved so the retry resumes with the same
+// intent; only ClientResponses / BootstrapUpdates / CreatedResources are
+// dropped to avoid the UI mixing stale entries with the new run's results.
+func cloneRetryMetadata(src *JobMetadata) *JobMetadata {
+	if src == nil {
+		return nil
+	}
+	cloned := *src
+	if src.UpgradeConfig != nil {
+		uc := *src.UpgradeConfig
+		uc.ClientResponses = nil
+		uc.BootstrapUpdates = nil
+		uc.CreatedResources = nil
+		cloned.UpgradeConfig = &uc
+	}
+	return &cloned
+}
+
 // RetryJob creates a retry job from an existing job
 func (m *Manager) RetryJob(ctx context.Context, jobID string, reason string) (*Job, error) {
 	// Get original job
@@ -535,38 +581,44 @@ func (m *Manager) RetryJob(ctx context.Context, jobID string, reason string) (*J
 		return nil, err
 	}
 
+	// Refuse retry while the original job is still in flight. Without
+	// this guard the new PENDING job would carry the same lock_key and
+	// trip the partial unique index — surfacing as a generic 500 to the
+	// operator. Terminal/no-work statuses are safe because they exit
+	// the partial filter as soon as the document is updated.
+	if !isTerminalStatus(originalJob.Status) {
+		return nil, fmt.Errorf("%w (current status: %s)", ErrJobNotTerminal, originalJob.Status)
+	}
+
 	// Create retry job
 	retryCount := 1
 	if originalJob.RetryInfo != nil {
 		retryCount = originalJob.RetryInfo.RetryCount + 1
 	}
 
+	// Clone metadata and clear execution-result fields so the retry starts
+	// with a clean slate. Without this the original's ClientResponses /
+	// BootstrapUpdates / CreatedResources leak into the new job and the
+	// UI shows a mixture of stale and fresh entries (e.g. three "failed"
+	// rows on a single client when only the latest is current).
+	retryMeta := cloneRetryMetadata(originalJob.Metadata)
+
 	req := &CreateJobRequest{
 		Type:     originalJob.Type,
 		Status:   JobStatusPending,
-		Metadata: originalJob.Metadata,
+		Metadata: retryMeta,
+		// Persist RetryInfo in the same InsertOne so a worker claiming
+		// the PENDING job cannot see a nil RetryInfo before the
+		// follow-up write lands.
+		RetryInfo: &RetryInfo{
+			OriginalJobID: originalJob.ID,
+			RetryCount:    retryCount,
+			RetryReason:   reason,
+			RetryType:     "full",
+		},
 	}
 
 	retryJob, err := m.CreateJob(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-
-	// Update retry info
-	retryJob.RetryInfo = &RetryInfo{
-		OriginalJobID: originalJob.ID,
-		RetryCount:    retryCount,
-		RetryReason:   reason,
-		RetryType:     "full",
-	}
-
-	// Update in database
-	collection := m.db.Collection("background_jobs")
-	_, err = collection.UpdateOne(
-		ctx,
-		bson.M{"_id": retryJob.ID},
-		bson.M{"$set": bson.M{"retry_info": retryJob.RetryInfo}},
-	)
 	if err != nil {
 		return nil, err
 	}
@@ -583,6 +635,10 @@ func (m *Manager) RetryFailedSnapshots(ctx context.Context, jobID string) (*Job,
 		return nil, err
 	}
 
+	if !isTerminalStatus(originalJob.Status) {
+		return nil, fmt.Errorf("%w (current status: %s)", ErrJobNotTerminal, originalJob.Status)
+	}
+
 	// Extract failed listeners
 	failedListeners := []string{}
 	if originalJob.ExecutionDetails != nil {
@@ -597,8 +653,16 @@ func (m *Manager) RetryFailedSnapshots(ctx context.Context, jobID string) (*Job,
 		return nil, fmt.Errorf("no failed snapshots to retry")
 	}
 
-	// Create retry job for failed snapshots only
-	metadata := *originalJob.Metadata
+	// Update retry info
+	retryCount := 1
+	if originalJob.RetryInfo != nil {
+		retryCount = originalJob.RetryInfo.RetryCount + 1
+	}
+
+	// Create retry job for failed snapshots only.
+	// Clone + clear execution-result fields (see cloneRetryMetadata).
+	cloned := cloneRetryMetadata(originalJob.Metadata)
+	metadata := *cloned
 	metadata.AffectedListeners = failedListeners
 	metadata.TotalAffected = len(failedListeners)
 
@@ -606,33 +670,16 @@ func (m *Manager) RetryFailedSnapshots(ctx context.Context, jobID string) (*Job,
 		Type:     originalJob.Type,
 		Status:   JobStatusPending,
 		Metadata: &metadata,
+		// See RetryJob — atomic persist closes the worker-claim race.
+		RetryInfo: &RetryInfo{
+			OriginalJobID: originalJob.ID,
+			RetryCount:    retryCount,
+			RetryReason:   "failed_only",
+			RetryType:     "failed_only",
+		},
 	}
 
 	retryJob, err := m.CreateJob(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-
-	// Update retry info
-	retryCount := 1
-	if originalJob.RetryInfo != nil {
-		retryCount = originalJob.RetryInfo.RetryCount + 1
-	}
-
-	retryJob.RetryInfo = &RetryInfo{
-		OriginalJobID: originalJob.ID,
-		RetryCount:    retryCount,
-		RetryReason:   "failed_only",
-		RetryType:     "failed_only",
-	}
-
-	// Update in database
-	collection := m.db.Collection("background_jobs")
-	_, err = collection.UpdateOne(
-		ctx,
-		bson.M{"_id": retryJob.ID},
-		bson.M{"$set": bson.M{"retry_info": retryJob.RetryInfo}},
-	)
 	if err != nil {
 		return nil, err
 	}

@@ -373,8 +373,12 @@ func GetUserDetails(c *gin.Context) (models.UserDetails, error) {
 	BaseGroup, _ := c.Get("base_group")
 
 	userGroup, ok := groups.(*[]string)
-	if !ok {
-		userGroup = &[]string{}
+	if !ok || userGroup == nil {
+		// Guard against typed-nil *[]string (JWT claim missing Groups
+		// deserialises to (*[]string)(nil), which satisfies the type
+		// assertion above but panics on dereference).
+		empty := []string{}
+		userGroup = &empty
 	}
 
 	// Handle projects - support both []string and *[]CombinedProjects from JWT.

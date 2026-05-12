@@ -377,11 +377,13 @@ func GetUserDetails(c *gin.Context) (models.UserDetails, error) {
 		userGroup = &[]string{}
 	}
 
-	// Handle projects - support both []string and *[]CombinedProjects from JWT
+	// Handle projects - support both []string and *[]CombinedProjects from JWT.
+	// Guard against typed-nil pointers (a JWT claim missing the Projects
+	// field deserialises to *[]CombinedProjects(nil), which still satisfies
+	// the type assertion but panics on dereference).
 	userProjects, ok := projects.([]string)
 	if !ok {
-		// Try CombinedProjects (from JWT claims)
-		if combinedProjects, ok := projects.(*[]models.CombinedProjects); ok {
+		if combinedProjects, ok := projects.(*[]models.CombinedProjects); ok && combinedProjects != nil {
 			userProjects = []string{}
 			for _, proj := range *combinedProjects {
 				userProjects = append(userProjects, proj.ProjectID)
@@ -419,13 +421,21 @@ func GetUserDetails(c *gin.Context) (models.UserDetails, error) {
 		userBaseGroup = ""
 	}
 
+	// Guard against typed-nil *string (JWT claim missing the Username
+	// field deserialises to (*string)(nil), which satisfies the type
+	// assertion above but panics on dereference).
+	userNameStr := ""
+	if user != nil {
+		userNameStr = *user
+	}
+
 	userDetails := models.UserDetails{
 		Groups:    *userGroup,
 		Role:      userRoleIs,
 		IsOwner:   userIsOwner,
 		UserID:    userID,
 		Projects:  userProjects,
-		UserName:  *user,
+		UserName:  userNameStr,
 		BaseGroup: userBaseGroup,
 	}
 

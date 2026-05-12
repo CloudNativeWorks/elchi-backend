@@ -1020,6 +1020,10 @@ func (w *Worker) buildRequestDetails(meta *job.JobMetadata, toVersion string) mo
 			Role:     models.Role(meta.TriggerUser.Role),
 			UserID:   meta.TriggerUser.ID,
 			UserName: meta.TriggerUser.Username,
+			// Project snapshot captured at trigger time — needed for the
+			// internal forward token so Editor/Viewer authorization still
+			// passes when the worker forwards to another controller pod.
+			Projects: append([]string(nil), meta.TriggerUser.Projects...),
 		},
 	}
 }

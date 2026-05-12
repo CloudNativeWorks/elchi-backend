@@ -269,10 +269,29 @@ func GenerateInternalForwardToken(user models.UserDetails) (string, error) {
 		role = models.RoleViewer
 	}
 
+	// Carry the trigger user's project scope into the token so the target
+	// pod's authorization layer sees the same projects the user had at job
+	// creation time. Required for Editor/Viewer roles whose authorization
+	// is project-scoped; Admin/Owner bypass project checks but populating
+	// the field is harmless for them.
+	projects := make([]models.CombinedProjects, 0, len(user.Projects))
+	for _, pid := range user.Projects {
+		projects = append(projects, models.CombinedProjects{ProjectID: pid})
+	}
+
+	// Initialise remaining pointer fields to empty (non-nil) values so the
+	// target pod's GetUserDetails does not deref typed-nil pointers when
+	// dereferencing BaseGroup/BaseProject/AuthType/Email.
+	emptyStr := ""
+	authType := "internal"
 	claims := &models.SignedDetails{
-		Username: &username,
-		UserID:   user.UserID,
-		Role:     &role,
+		Username:    &username,
+		UserID:      user.UserID,
+		Role:        &role,
+		Projects:    &projects,
+		BaseGroup:   &emptyStr,
+		BaseProject: &emptyStr,
+		AuthType:    &authType,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(internalForwardTokenTTL)),
 		},

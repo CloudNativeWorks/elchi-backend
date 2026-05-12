@@ -114,6 +114,7 @@ func (h *UpgradeHandler) UpgradeResource(c *gin.Context) {
 			Username:    userDetails.UserName,
 			DisplayName: userDetails.UserName,
 			Role:        string(userDetails.Role),
+			Projects:    append([]string(nil), userDetails.Projects...),
 		},
 		UpgradeConfig: &job.UpgradeMetadata{
 			TargetVersion:     req.ToVersion,

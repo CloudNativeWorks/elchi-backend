@@ -127,6 +127,13 @@ type TriggerUser struct {
 	Username    string `bson:"username" json:"username"`
 	DisplayName string `bson:"display_name" json:"display_name"`
 	Role        string `bson:"role" json:"role"`
+	// Projects is a snapshot of the user's project IDs at the moment the
+	// job was triggered. The async worker uses it to mint internal forward
+	// tokens with the same scope so Editor/Viewer authorization (which is
+	// project-scoped) still passes when the worker forwards to a different
+	// controller pod. Captured at trigger time so later membership changes
+	// do not change the running job's effective scope.
+	Projects []string `bson:"projects,omitempty" json:"projects,omitempty"`
 }
 
 // ExecutionDetails contains details about job execution

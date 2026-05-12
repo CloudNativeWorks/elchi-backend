@@ -239,11 +239,19 @@ func (h *UpgradeHandler) analyzeUpgradeDependencies(ctx context.Context, j *job.
 		return
 	}
 
-	// Always transition to PENDING for worker to claim
-	// Even if no dependencies need to be created, listener version must be updated
+	// Always transition to PENDING for worker to claim.
+	// $unset worker_info because the analyzer stamped it earlier (for
+	// FailStuckAnalyzingJobs heartbeat detection); ClaimJob's filter
+	// requires either worker_info absent or its ttl expired, and the
+	// analyzer's int "ttl: 300" stamp does not satisfy the date-typed
+	// `$lt: time.Now()` comparison, so jobs would otherwise be stuck
+	// in PENDING forever.
 	_ = jobManager.UpdateJob(ctx, j.ID.Hex(), map[string]any{
 		"$set": map[string]any{
 			"status": job.JobStatusPending,
+		},
+		"$unset": map[string]any{
+			"worker_info": "",
 		},
 	})
 }

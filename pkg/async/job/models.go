@@ -216,11 +216,10 @@ type JobFilter struct {
 
 // UpgradeMetadata contains metadata for resource upgrade jobs
 type UpgradeMetadata struct {
-	TargetVersion     string                 `bson:"target_version" json:"target_version"`
-	AutoCreateMissing bool                   `bson:"auto_create_missing" json:"auto_create_missing"`
-	ValidateClients   bool                   `bson:"validate_clients" json:"validate_clients"`
-	UpdateBootstrap   bool                   `bson:"update_bootstrap" json:"update_bootstrap"`
-	DryRun            bool                   `bson:"dry_run" json:"dry_run"`
+	TargetVersion   string `bson:"target_version" json:"target_version"`
+	ValidateClients bool   `bson:"validate_clients" json:"validate_clients"`
+	UpdateBootstrap bool   `bson:"update_bootstrap" json:"update_bootstrap"`
+	DryRun          bool   `bson:"dry_run" json:"dry_run"`
 	Analysis          *UpgradeAnalysisResult `bson:"analysis,omitempty" json:"analysis,omitempty"`
 	ClientResponses   []any                  `bson:"client_responses,omitempty" json:"client_responses,omitempty"`   // Raw responses from each client
 	CreatedResources  []ResourceRef          `bson:"created_resources,omitempty" json:"created_resources,omitempty"` // Resources created during upgrade

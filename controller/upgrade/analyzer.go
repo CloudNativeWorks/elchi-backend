@@ -26,6 +26,15 @@ type UpgradeAnalyzer struct {
 	dbContext      *db.AppContext
 	commandHandler CommandHandler
 	logger         *logger.Logger
+	// triggerUser is captured at the start of AnalyzeDependencies so the
+	// version-check command issued during ValidateClients carries the
+	// originating operator identity. Without it the cross-pod forward
+	// fails with "internal forward token: trigger user id is empty"
+	// because GenerateInternalForwardToken refuses an empty UserID.
+	// Each upgrade gets its own analyzer instance (NewUpgradeAnalyzer is
+	// called per request in handlers/upgrade.go), so per-instance state
+	// is race-free.
+	triggerUser *job.TriggerUser
 }
 
 // NewUpgradeAnalyzer creates a new upgrade analyzer
@@ -42,6 +51,10 @@ func (a *UpgradeAnalyzer) AnalyzeDependencies(ctx context.Context, j *job.Job) (
 	meta := j.Metadata
 	fromVersion := meta.SourceResource.Version
 	toVersion := meta.UpgradeConfig.TargetVersion
+
+	// Capture the trigger user once so downstream version-check forwards
+	// can mint an internal token that carries the operator identity.
+	a.triggerUser = meta.TriggerUser
 
 	// Get all listeners to upgrade
 	listenerNames := meta.AffectedListeners
@@ -620,6 +633,27 @@ func (a *UpgradeAnalyzer) generateSummary(
 	return summary
 }
 
+// buildAnalyzerUserDetails composes the UserDetails passed alongside
+// commands the analyzer issues during validation. We mirror the worker's
+// buildRequestDetails shape so internal forward tokens minted on the
+// receiving side carry the same identity (id, username, role, project
+// scope) as the operator that triggered the upgrade. The defensive nil
+// branch returns IsOwner=true so single-pod / synthetic-test setups
+// without a real trigger user remain functional.
+func (a *UpgradeAnalyzer) buildAnalyzerUserDetails() models.UserDetails {
+	if a.triggerUser == nil || a.triggerUser.ID == "" {
+		a.logger.Warn("Analyzer trigger user is missing; falling back to system-privileged stub (multi-pod forwards may fail)")
+		return models.UserDetails{IsOwner: true}
+	}
+	return models.UserDetails{
+		IsOwner:  a.triggerUser.Role == "owner",
+		Role:     models.Role(a.triggerUser.Role),
+		UserID:   a.triggerUser.ID,
+		UserName: a.triggerUser.Username,
+		Projects: append([]string(nil), a.triggerUser.Projects...),
+	}
+}
+
 // checkClientVersionAvailability checks if a client has the target Envoy version available
 func (a *UpgradeAnalyzer) checkClientVersionAvailability(ctx context.Context, clientID, downstreamAddress, targetVersion string) (bool, error) {
 	// If command handler is not available, skip the check
@@ -642,12 +676,16 @@ func (a *UpgradeAnalyzer) checkClientVersionAvailability(ctx context.Context, cl
 		},
 	}
 
-	// Create request details (use system/analyzer context)
+	// Build request details carrying the trigger user's identity. The
+	// command may be forwarded to another controller pod for clients not
+	// registered locally; GenerateInternalForwardToken refuses an empty
+	// UserID, so we must propagate the operator's identity captured in
+	// AnalyzeDependencies. Falling back to a system-privilege stub is
+	// only used when no trigger user was captured (defensive — should
+	// not occur in the regular upgrade flow).
 	requestDetails := models.RequestDetails{
 		Version: targetVersion,
-		User: models.UserDetails{
-			IsOwner: true, // Analyzer runs with system privileges
-		},
+		User:    a.buildAnalyzerUserDetails(),
 	}
 
 	// Send command to client

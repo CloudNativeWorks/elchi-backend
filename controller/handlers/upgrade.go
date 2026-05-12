@@ -47,10 +47,9 @@ type UpgradeRequest struct {
 	FromVersion   string   `json:"from_version" binding:"required"`
 	ToVersion     string   `json:"to_version" binding:"required"`
 	Options       struct {
-		AutoCreateMissing bool `json:"auto_create_missing"`
-		ValidateClients   bool `json:"validate_clients"`
-		UpdateBootstrap   bool `json:"update_bootstrap"`
-		DryRun            bool `json:"dry_run"`
+		ValidateClients bool `json:"validate_clients"`
+		UpdateBootstrap bool `json:"update_bootstrap"`
+		DryRun          bool `json:"dry_run"`
 	} `json:"options"`
 }
 
@@ -117,12 +116,11 @@ func (h *UpgradeHandler) UpgradeResource(c *gin.Context) {
 			Projects:    append([]string(nil), userDetails.Projects...),
 		},
 		UpgradeConfig: &job.UpgradeMetadata{
-			TargetVersion:     req.ToVersion,
-			AutoCreateMissing: req.Options.AutoCreateMissing,
-			ValidateClients:   req.Options.ValidateClients,
-			UpdateBootstrap:   req.Options.UpdateBootstrap,
-			DryRun:            req.Options.DryRun,
-			LockKey:           lockKey,
+			TargetVersion:   req.ToVersion,
+			ValidateClients: req.Options.ValidateClients,
+			UpdateBootstrap: req.Options.UpdateBootstrap,
+			DryRun:          req.Options.DryRun,
+			LockKey:         lockKey,
 		},
 	}
 

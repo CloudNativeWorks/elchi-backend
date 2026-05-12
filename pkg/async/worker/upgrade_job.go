@@ -52,45 +52,98 @@ func (w *Worker) processResourceUpgradeJob(ctx context.Context, j *job.Job) {
 		return
 	}
 
-	// Step 3: Create listeners in target version (Phase 2)
-	allCreatedResources, err := w.createListenersInTargetVersion(ctx, j, creator, meta, listenerNames, createdResources)
-	if err != nil {
+	// Step 3: Create listeners in target version (Phase 2). The loop no
+	// longer short-circuits; we collect per-listener outcomes so the
+	// orchestrator can decide whether to keep going for the survivors
+	// or roll back the whole batch.
+	allCreatedResources, successfulListeners, phase2Results, allFailed := w.createListenersInTargetVersion(ctx, j, creator, meta, listenerNames, createdResources)
+
+	// Persist Phase 2 per-listener outcomes immediately so the operator
+	// (and RetryFailedSnapshots) can see what advanced vs. what didn't,
+	// even if the orchestrator crashes before reaching CompleteJob.
+	w.persistProcessedSnapshots(ctx, j, phase2Results)
+
+	phase2HadFailure := len(successfulListeners) < len(listenerNames)
+
+	if allFailed {
+		// Catastrophic Phase 2: nothing was upgraded. Keep the existing
+		// "Phase 1 rollback + FailJob" path so the half-created deps are
+		// torn back down.
 		w.rollbackCreatedResources(ctx, allCreatedResources)
-		if failErr := w.jobManager.FailJob(ctx, j.ID, err); failErr != nil {
+		if failErr := w.jobManager.FailJob(ctx, j.ID, fmt.Errorf("all %d listener(s) failed Phase 2 update", len(listenerNames))); failErr != nil {
 			w.logger.Errorf("Failed to mark job as failed: %v", failErr)
 		}
 		return
 	}
 
-	// Step 4: Trigger snapshot updates for upgraded listeners (Phase 3).
-	// Phase 3 is best-effort by design — failures are logged but never
-	// block job completion (control-plane regenerates on demand).
-	w.triggerSnapshotUpdates(ctx, meta, listenerNames)
+	// Step 4: Trigger snapshot updates for the listeners that DID advance
+	// (Phase 3). Phase 3 is best-effort by design — failures are logged
+	// but never block job completion (control-plane regenerates on demand).
+	w.triggerSnapshotUpdates(ctx, meta, successfulListeners)
 
-	// Step 5: Update bootstraps and notify clients (Phase 4). Hard failures
-	// here (no bootstrap advanced, no client notified, services collection
-	// write failure) are real inconsistencies and must surface as FailJob
-	// — otherwise the operator sees a green job over a half-done upgrade.
-	if err := w.updateBootstrapsAndNotifyClients(ctx, j, meta, analysis, listenerNames); err != nil {
-		w.logger.Errorf("Phase 4 (bootstrap+notify) failed: %v", err)
-		// Persist whatever resources were created so the metadata stays
-		// inspectable for the failed job.
-		w.storeCreatedResources(ctx, j, allCreatedResources)
-		if failErr := w.jobManager.FailJob(ctx, j.ID, err); failErr != nil {
-			w.logger.Errorf("Failed to mark job as failed: %v", failErr)
-		}
-		return
+	// Step 5: Update bootstraps and notify clients (Phase 4) for survivors only.
+	// Hard failures here (no bootstrap advanced, no client notified, services
+	// collection write failure) are real inconsistencies and must surface as
+	// FailJob — otherwise the operator sees a green job over a half-done upgrade.
+	phase4Err := w.updateBootstrapsAndNotifyClients(ctx, j, meta, analysis, successfulListeners)
+	if phase4Err != nil {
+		w.logger.Errorf("Phase 4 (bootstrap+notify) failed: %v", phase4Err)
 	}
 
-	// Step 6: Store created resources and complete job
+	// Always persist created resources so the failed/completed job remains inspectable.
 	w.storeCreatedResources(ctx, j, allCreatedResources)
 
-	executionDetails := &job.ExecutionDetails{}
+	// Final status: any Phase 2 failure OR Phase 4 failure → FailJob.
+	// A "partial Phase 2 failure" alone is enough to fail the job because
+	// the operator must consciously retry the missing listeners (typically
+	// via failed_only) before declaring success.
+	if phase2HadFailure || phase4Err != nil {
+		summary := w.buildFailureSummary(listenerNames, successfulListeners, phase2HadFailure, phase4Err)
+		if failErr := w.jobManager.FailJob(ctx, j.ID, summary); failErr != nil {
+			w.logger.Errorf("Failed to mark job as failed: %v", failErr)
+		}
+		return
+	}
+
+	executionDetails := &job.ExecutionDetails{ProcessedSnapshots: phase2Results}
 	if err := w.jobManager.CompleteJob(ctx, j.ID, executionDetails); err != nil {
 		w.logger.Errorf("Failed to complete job: %v", err)
 	}
 	w.logger.Infof("Resource upgrade job %s completed: created %d resources (%d skipped)",
 		j.JobID, countNonSkipped(allCreatedResources), countSkipped(allCreatedResources))
+}
+
+// persistProcessedSnapshots writes the per-listener Phase 2 outcomes into
+// execution_details.processed_snapshots so RetryFailedSnapshots can see
+// which listeners need to be retried and the operator gets immediate
+// visibility into the partial-fail breakdown.
+func (w *Worker) persistProcessedSnapshots(ctx context.Context, j *job.Job, snapshots []job.SnapshotExecution) {
+	if len(snapshots) == 0 {
+		return
+	}
+	if err := w.jobManager.UpdateJob(ctx, j.ID.Hex(), map[string]any{
+		"$set": map[string]any{
+			"execution_details.processed_snapshots": snapshots,
+		},
+	}); err != nil {
+		w.logger.Errorf("Failed to persist processed_snapshots: %v", err)
+	}
+}
+
+// buildFailureSummary composes a human-readable error message that
+// distinguishes between "partial Phase 2 failure" and "Phase 4 failure"
+// so the operator can tell at a glance why the job is FAILED.
+func (w *Worker) buildFailureSummary(allListeners, successfulListeners []string, phase2HadFailure bool, phase4Err error) error {
+	switch {
+	case phase2HadFailure && phase4Err != nil:
+		return fmt.Errorf("partial upgrade: %d/%d listener(s) advanced in Phase 2; Phase 4 also reported: %w",
+			len(successfulListeners), len(allListeners), phase4Err)
+	case phase2HadFailure:
+		return fmt.Errorf("partial upgrade: %d/%d listener(s) failed Phase 2; use failed_only retry to recover",
+			len(allListeners)-len(successfulListeners), len(allListeners))
+	default:
+		return phase4Err
+	}
 }
 
 // validateJobMetadata validates job metadata and extracts required fields
@@ -147,10 +200,34 @@ func (w *Worker) createMissingDependencies(ctx context.Context, j *job.Job, crea
 	return refs, nil
 }
 
-// createListenersInTargetVersion creates each listener in target version (Phase 2)
-func (w *Worker) createListenersInTargetVersion(ctx context.Context, j *job.Job, creator *upgrade.ResourceCreator, meta *job.JobMetadata, listenerNames []string, createdResources []job.ResourceRef) ([]job.ResourceRef, error) {
+// createListenersInTargetVersion creates each listener in target version (Phase 2).
+//
+// Loop never short-circuits: every listener is attempted regardless of earlier
+// failures so a single bad listener cannot strand the rest of the batch in a
+// half-upgraded state. Per-listener outcomes are returned as
+// SnapshotExecution entries so the orchestrator can persist them to
+// ExecutionDetails.ProcessedSnapshots — that is what makes the failed_only
+// retry path actually work and gives the operator visibility into which
+// listeners advanced vs. which need attention.
+//
+// Return contract:
+//   - allCreatedResources: Phase 1 deps + listener refs (only successful listener refs are appended)
+//   - successfulListeners: subset of listenerNames whose UpdateOne went through; Phase 3-4 must only run on these
+//   - phase2Results: one SnapshotExecution per listener (SUCCESS or FAILED+error) so the operator sees the full breakdown
+//   - allFailed: true only when every listener failed; orchestrator uses this to keep the existing
+//     "Phase 1 rollback + FailJob" path intact for the catastrophic case
+func (w *Worker) createListenersInTargetVersion(ctx context.Context, j *job.Job, creator *upgrade.ResourceCreator, meta *job.JobMetadata, listenerNames []string, createdResources []job.ResourceRef) (
+	allCreatedResources []job.ResourceRef,
+	successfulListeners []string,
+	phase2Results []job.SnapshotExecution,
+	allFailed bool,
+) {
 	totalListeners := len(listenerNames)
 	upgradeConfig := meta.UpgradeConfig
+	allCreatedResources = createdResources
+	successfulListeners = make([]string, 0, totalListeners)
+	phase2Results = make([]job.SnapshotExecution, 0, totalListeners)
+	failureCount := 0
 
 	for i, listenerName := range listenerNames {
 		w.logger.Infof("Creating listener %d/%d: %s in version %s",
@@ -161,14 +238,35 @@ func (w *Worker) createListenersInTargetVersion(ctx context.Context, j *job.Job,
 		meta.SourceResource.Name = listenerName
 
 		ref, err := creator.CreateListenerInTargetVersion(ctx, j)
+
+		// Restore source resource name immediately — both branches must do
+		// this so a fail-mid-loop doesn't leave the metadata holding the
+		// wrong listener name for subsequent iterations.
+		meta.SourceResource.Name = originalName
+
+		now := time.Now()
 		if err != nil {
 			w.logger.Errorf("Failed to create listener %s: %v", listenerName, err)
-			meta.SourceResource.Name = originalName // Restore original
-			return createdResources, err
+			failureCount++
+			errMsg := err.Error()
+			phase2Results = append(phase2Results, job.SnapshotExecution{
+				ListenerName: listenerName,
+				PokeStatus:   job.PokeStatusFailed,
+				PokeSentAt:   now,
+				Error:        &errMsg,
+			})
+			// Do NOT return — keep iterating so the rest of the batch has a chance.
+			w.updateListenerProgress(ctx, j, i+1, totalListeners)
+			continue
 		}
 
-		meta.SourceResource.Name = originalName // Restore original
-		createdResources = append(createdResources, ref)
+		allCreatedResources = append(allCreatedResources, ref)
+		successfulListeners = append(successfulListeners, listenerName)
+		phase2Results = append(phase2Results, job.SnapshotExecution{
+			ListenerName: listenerName,
+			PokeStatus:   job.PokeStatusSuccess,
+			PokeSentAt:   now,
+		})
 
 		// Update progress based on listener count only
 		w.updateListenerProgress(ctx, j, i+1, totalListeners)
@@ -177,7 +275,8 @@ func (w *Worker) createListenersInTargetVersion(ctx context.Context, j *job.Job,
 	// Update final progress to 100%
 	w.updateListenerProgress(ctx, j, totalListeners, totalListeners)
 
-	return createdResources, nil
+	allFailed = failureCount == totalListeners
+	return allCreatedResources, successfulListeners, phase2Results, allFailed
 }
 
 // updateListenerProgress updates job progress for listener creation

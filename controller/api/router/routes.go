@@ -477,8 +477,15 @@ func initSearchRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 }
 
 func initMaintenanceRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
-	// Apply InitSettingMiddleware for admin/owner-only access
-	// (Similar to initSettingRoutes, child groups inherit parent middleware but we apply it explicitly)
+	// Order matters: body limit MUST run before InitSettingMiddleware,
+	// because InitSettingMiddleware's checkBackupAuthorization body-parses
+	// the request to enforce per-endpoint authorization — without the
+	// MaxBytesReader wrap, a multi-GB POST would be fully read here
+	// before any size check.
+	// Cleanup endpoints don't carry oversized bodies but applying the cap
+	// globally is harmless (DELETE bodies are tiny) and keeps the chain
+	// uniform.
+	rg.Use(middleware.BodyLimitMiddleware(middleware.MaxBackupBodyBytes))
 	rg.Use(middleware.InitSettingMiddleware())
 
 	routes := []struct {

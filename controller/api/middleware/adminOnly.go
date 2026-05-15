@@ -138,12 +138,29 @@ func checkOperationFromBody(bodyBytes []byte) bool {
 
 // checkBackupAuthorization checks if user is authorized for backup operation
 func checkBackupAuthorization(c *gin.Context, userDetails models.UserDetails) error {
-	// Only export needs authorization check (global backup = owner only)
-	if !strings.HasSuffix(c.Request.URL.Path, "/export") {
-		return nil // validate, metadata, import - no special check needed
-	}
+	path := c.Request.URL.Path
 
-	// Read body to check backup_type
+	switch {
+	case strings.HasSuffix(path, "/export"):
+		return checkBackupExportAuth(c, userDetails)
+	case strings.HasSuffix(path, "/import"):
+		return checkBackupImportAuth(c, userDetails)
+	case strings.HasSuffix(path, "/validate"), strings.HasSuffix(path, "/metadata"):
+		// validate / metadata are read-only but still expose payload
+		// structure and project scope. Restrict to Admin + Owner so an
+		// unauthenticated drive-by cannot probe arbitrary backup files.
+		if userDetails.IsOwner || userDetails.Role == models.RoleAdmin {
+			return nil
+		}
+		return errors.New("insufficient privileges to inspect backup payloads")
+	}
+	return nil
+}
+
+// checkBackupExportAuth enforces the existing rule set for /backup/export:
+// global backups are Owner-only, project backups are Admin (with target
+// project access) or Owner.
+func checkBackupExportAuth(c *gin.Context, userDetails models.UserDetails) error {
 	bodyBytes, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		return nil // Let handler handle the error
@@ -163,36 +180,90 @@ func checkBackupAuthorization(c *gin.Context, userDetails models.UserDetails) er
 		if !userDetails.IsOwner {
 			return errors.New("only owners can create global backups")
 		}
-		return nil // Owner can do global backup
+		return nil
 	}
 
 	// Project backup: Admin and Owner
 	if req.BackupType == "project" {
-		// Owner can backup any project
 		if userDetails.IsOwner {
 			return nil
 		}
-
-		// Admin can only backup projects they have access to
 		if userDetails.Role == models.RoleAdmin {
-			hasAccess := false
-			for _, projectID := range userDetails.Projects {
-				if projectID == req.ProjectID {
-					hasAccess = true
-					break
-				}
-			}
-			if !hasAccess {
+			if !userHasProject(userDetails, req.ProjectID) {
 				return errors.New("admins can only backup projects they have access to")
 			}
 			return nil
 		}
-
-		// Other roles cannot do project backup
 		return errors.New("insufficient privileges for project backup")
 	}
 
 	return nil
+}
+
+// checkBackupImportAuth enforces authorization for /backup/import. Imports
+// are destructive — they upsert XDS resources into the target project and
+// can silently overwrite production config — so the rules mirror /export:
+//
+//   - global backups (BackupData.Metadata.BackupType == "global"):
+//     Owner-only. A global import wipes/replaces resources across every
+//     project, including projects the actor has no access to.
+//   - project backups: Owner OR Admin with TargetProject in user.Projects.
+//
+// Body shape and json keys must match controller/backup/models.go::ImportRequest.
+func checkBackupImportAuth(c *gin.Context, userDetails models.UserDetails) error {
+	bodyBytes, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		return nil // surface the read error in the handler
+	}
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+
+	// Pull only the fields needed for the auth decision. The handler still
+	// runs ShouldBindJSON afterwards on the full payload.
+	var req struct {
+		BackupData struct {
+			Metadata struct {
+				BackupType string `json:"backup_type"`
+			} `json:"metadata"`
+		} `json:"backup_data"`
+		TargetProject string `json:"target_project"`
+	}
+	if json.Unmarshal(bodyBytes, &req) != nil {
+		return nil // let the handler return 400 with a precise message
+	}
+
+	backupType := req.BackupData.Metadata.BackupType
+
+	if backupType == "global" {
+		if !userDetails.IsOwner {
+			return errors.New("only owners can import global backups")
+		}
+		return nil
+	}
+
+	// Default to "project" semantics for any non-global value: importing
+	// into a specific target requires Owner or an Admin with access to
+	// that target project.
+	if userDetails.IsOwner {
+		return nil
+	}
+	if userDetails.Role == models.RoleAdmin {
+		if !userHasProject(userDetails, req.TargetProject) {
+			return errors.New("admins can only import into projects they have access to")
+		}
+		return nil
+	}
+	return errors.New("insufficient privileges for backup import")
+}
+
+// userHasProject reports whether the trigger user's project scope
+// contains the requested ID. Owner-bypass is the caller's responsibility.
+func userHasProject(userDetails models.UserDetails, projectID string) bool {
+	for _, pid := range userDetails.Projects {
+		if pid == projectID {
+			return true
+		}
+	}
+	return false
 }
 
 func InitSettingMiddleware() gin.HandlerFunc {

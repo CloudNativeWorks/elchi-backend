@@ -61,6 +61,15 @@ type General struct {
 	TypedConfig     []*TypedConfig     `json:"typed_config,omitempty" bson:"typed_config,omitempty"`
 	ElchiDiscovery  []*ElchiDiscovery  `json:"elchi_discovery,omitempty" bson:"elchi_discovery,omitempty"`
 	WAF             string             `json:"waf,omitempty" bson:"waf,omitempty"` // WAF config name (HTTP WASM only)
+	// APIDiscovery is an HCM-only "one-click" feature flag. When true,
+	// the snapshot generator appends the project's `elchi-als` access
+	// log entry to this HCM's access_log[] at snapshot time (see
+	// control-plane/server/resources/resource/inject_als.go). Stored
+	// as a standalone field — NOT inside Metadata — so the existing
+	// update flow can $set it without having to merge into the
+	// map (which currently leaves Metadata untouched to protect the
+	// system-managed `is_default` flag).
+	APIDiscovery    bool               `json:"api_discovery,omitempty" bson:"api_discovery,omitempty"`
 	CreatedAt       primitive.DateTime `json:"created_at,omitempty" bson:"created_at,omitempty"`
 	UpdatedAt       primitive.DateTime `json:"updated_at,omitempty" bson:"updated_at,omitempty"`
 }

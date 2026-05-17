@@ -165,3 +165,24 @@ func ValidateRefreshToken(tokenString string) (models.SignedDetails, error) {
 func respondWithJSON(c *gin.Context, status int, msg, userOrGroupID string) {
 	c.JSON(status, gin.H{"message": msg, "id": userOrGroupID})
 }
+
+// currentUsername resolves the requesting user's name from the gin
+// context. The auth middleware stores it from SignedDetails.Username,
+// which is a *string — a plain `string` type-assertion silently
+// misses it and yields "", so callers must go through this helper.
+// Returns "" when no username is present.
+func currentUsername(c *gin.Context) string {
+	v, ok := c.Get("username")
+	if !ok {
+		return ""
+	}
+	switch u := v.(type) {
+	case string:
+		return u
+	case *string:
+		if u != nil {
+			return *u
+		}
+	}
+	return ""
+}

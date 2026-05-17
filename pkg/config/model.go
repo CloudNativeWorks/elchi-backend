@@ -91,6 +91,30 @@ type AppConfig struct {
 
 	// CA Providers configuration (embedded in config instead of separate file)
 	CAProviders map[string]CAProviderConfig `mapstructure:"CA_PROVIDERS" yaml:"CA_PROVIDERS"`
+
+	// ClickHouse — read-only access to the collector's `api_events_raw`
+	// and rollup tables. Env names intentionally mirror the collector's
+	// own bootstrap (`CLICKHOUSE_URI`, `CLICKHOUSE_DATABASE`,
+	// `CLICKHOUSE_TABLE`) so a single secret set drives both services.
+	// CLICKHOUSE_URI empty → inventory_detail endpoints return 503;
+	// the controller still starts (graceful degradation).
+	ClickhouseURI               string `mapstructure:"CLICKHOUSE_URI" yaml:"CLICKHOUSE_URI"`
+	ClickhouseDatabase          string `mapstructure:"CLICKHOUSE_DATABASE" yaml:"CLICKHOUSE_DATABASE"`
+	ClickhouseTable             string `mapstructure:"CLICKHOUSE_TABLE" yaml:"CLICKHOUSE_TABLE"`
+	ClickhouseRollup1m          string `mapstructure:"CLICKHOUSE_ROLLUP_1M" yaml:"CLICKHOUSE_ROLLUP_1M"`
+	ClickhouseRollup1h          string `mapstructure:"CLICKHOUSE_ROLLUP_1H" yaml:"CLICKHOUSE_ROLLUP_1H"`
+	ClickhouseRollup1d          string `mapstructure:"CLICKHOUSE_ROLLUP_1D" yaml:"CLICKHOUSE_ROLLUP_1D"`
+	ClickhouseConnectTimeoutSec int    `mapstructure:"CLICKHOUSE_CONNECT_TIMEOUT_SEC" yaml:"CLICKHOUSE_CONNECT_TIMEOUT_SEC"`
+	ClickhouseQueryTimeoutSec   int    `mapstructure:"CLICKHOUSE_QUERY_TIMEOUT_SEC" yaml:"CLICKHOUSE_QUERY_TIMEOUT_SEC"`
+	// Connection-pool ceiling for the long-lived ClickHouse driver.
+	// Default driver values (Idle=5, Open=10) starve the inventory geo
+	// handlers — a single dashboard load can fire 5-7 parallel scans,
+	// so two concurrent users would queue under the default cap. Idle
+	// keeps a hot pool warm; Open is the hard ceiling. Lifetime
+	// recycles connections that LB / ACL hot-swaps marked stale.
+	ClickhouseMaxOpenConns       int `mapstructure:"CLICKHOUSE_MAX_OPEN_CONNS" yaml:"CLICKHOUSE_MAX_OPEN_CONNS"`
+	ClickhouseMaxIdleConns       int `mapstructure:"CLICKHOUSE_MAX_IDLE_CONNS" yaml:"CLICKHOUSE_MAX_IDLE_CONNS"`
+	ClickhouseConnMaxLifetimeMin int `mapstructure:"CLICKHOUSE_CONN_MAX_LIFETIME_MIN" yaml:"CLICKHOUSE_CONN_MAX_LIFETIME_MIN"`
 }
 
 type LoggingConfig struct {

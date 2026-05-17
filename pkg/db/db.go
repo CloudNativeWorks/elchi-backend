@@ -15,6 +15,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
+	"github.com/CloudNativeWorks/elchi-backend/pkg/clickhouse"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/config"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/errstr"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
@@ -25,6 +26,12 @@ type AppContext struct {
 	Client *mongo.Database
 	Logger *logger.Logger
 	Config *config.AppConfig
+	// Clickhouse is the read-only client used by inventory_detail
+	// endpoints. It is nil when CLICKHOUSE_URI is empty or the dial
+	// failed at startup; handlers must nil-check and return 503 in
+	// that case so the controller can run in environments without a
+	// collector backend.
+	Clickhouse *clickhouse.Client
 }
 
 var (
@@ -520,6 +527,92 @@ var CompoundIndices = map[string][]mongo.IndexModel{
 		{
 			Keys:    bson.D{{Key: "project", Value: 1}},
 			Options: options.Index().SetName("project_1"),
+		},
+	},
+	// api_inventory is written by elchi-collector. The controller does
+	// not own this collection, but it ensures the full index set on
+	// every startup for two reasons:
+	//
+	//  1. The collector's own indexes (the schema.md "Index contract"
+	//     block) are created by collector migration 001/002. If the
+	//     collection is ever dropped + recreated, the collector's
+	//     _collector_migrations tracker still marks those migrations
+	//     "applied", so the collector NEVER rebuilds them — the
+	//     contract indexes silently vanish. Declaring them here makes
+	//     the controller a safety net: createIndex is idempotent
+	//     (indexExists guard), so when the collector's indexes are
+	//     present these are pure no-ops.
+	//  2. The API-discovery endpoints sort on dimensions the
+	//     collector's indexes don't cover (first_seen, seen_count).
+	//
+	// inventory_unique is UNIQUE — if a drop+recreate ran without the
+	// index and duplicate documents slipped in, createIndex fails;
+	// collectCreateIndex logs and continues (the controller still
+	// boots) so a duplicate cleanup can run separately.
+	//
+	// Sort coverage across the discovery endpoints (whitelisted
+	// sort_by values, see parseSort):
+	//   - last_seen        → project_last_seen
+	//   - max_risk_score   → project_riskscore_lastseen
+	//   - first_seen       → project_first_seen
+	//   - seen_count       → project_seen_count
+	//
+	// project_seen_count is `(project_id, seen_count DESC)` — NOT a
+	// three-key compound with last_seen. The ESR rule (Equality,
+	// Sort, Range) means a `(project_id, last_seen, seen_count)`
+	// index can't serve a `seen_count` sort once `last_seen` is a
+	// range predicate; the two-key form serves both the sort and the
+	// `seen_count >= min` range that ListZombies applies.
+	"api_inventory": {
+		// --- Collector schema contract (schema.md → Index contract) ---
+		{
+			Keys: bson.D{
+				{Key: "project_id", Value: 1}, {Key: "listener_name", Value: 1},
+				{Key: "protocol", Value: 1}, {Key: "host", Value: 1},
+				{Key: "method", Value: 1}, {Key: "normalized_path", Value: 1},
+				{Key: "grpc_service", Value: 1}, {Key: "grpc_method", Value: 1},
+			},
+			Options: options.Index().SetName("inventory_unique").SetUnique(true),
+		},
+		{
+			Keys:    bson.D{{Key: "project_id", Value: 1}, {Key: "last_seen", Value: -1}},
+			Options: options.Index().SetName("project_last_seen"),
+		},
+		{
+			Keys:    bson.D{{Key: "project_id", Value: 1}, {Key: "risk_flags", Value: 1}, {Key: "last_seen", Value: -1}},
+			Options: options.Index().SetName("project_risk_lastseen"),
+		},
+		{
+			Keys:    bson.D{{Key: "project_id", Value: 1}, {Key: "endpoint_categories", Value: 1}},
+			Options: options.Index().SetName("project_endpoint_categories"),
+		},
+		{
+			// Multikey on pii_categories — backs PIIInventory's
+			// `$match {pii_categories non-empty}` + `$unwind`. Mirrors
+			// project_endpoint_categories for the PII dimension.
+			Keys:    bson.D{{Key: "project_id", Value: 1}, {Key: "pii_categories", Value: 1}},
+			Options: options.Index().SetName("project_pii_categories"),
+		},
+		{
+			Keys:    bson.D{{Key: "project_id", Value: 1}, {Key: "max_risk_score", Value: -1}, {Key: "last_seen", Value: -1}},
+			Options: options.Index().SetName("project_riskscore_lastseen"),
+		},
+		// --- Controller-added: API-discovery + inventory list sort coverage ---
+		{
+			Keys:    bson.D{{Key: "project_id", Value: 1}, {Key: "first_seen", Value: -1}},
+			Options: options.Index().SetName("project_first_seen"),
+		},
+		{
+			Keys:    bson.D{{Key: "project_id", Value: 1}, {Key: "seen_count", Value: -1}},
+			Options: options.Index().SetName("project_seen_count"),
+		},
+		{
+			// Backs the /inventory list "Calls" (seen_count, above) and
+			// "Latency Max" sort columns. Two-key form: project_id
+			// equality + the sort key — listener/method filters layered
+			// on top stay doc-side (ESR), the project_id leg still prunes.
+			Keys:    bson.D{{Key: "project_id", Value: 1}, {Key: "latency_max_ms", Value: -1}},
+			Options: options.Index().SetName("project_latency_max"),
 		},
 	},
 }

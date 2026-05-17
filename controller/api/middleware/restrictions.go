@@ -39,6 +39,14 @@ var AllowedEndpoints = []string{
 	"/api/v3/setting/ldap-config/test-auth",
 	"/api/v3/setting/syslog-config",
 	"/api/v3/setting/syslog-config/test",
+	"/api/v3/setting/api_discovery",
+	"/api/v3/setting/threat-intel",
+	"/api/v3/setting/threat-intel/upload",
+	"/api/v3/setting/threat-intel/:name",
+	"/api/v3/setting/geoip",
+	"/api/v3/setting/geoip/upload",
+	"/api/v3/setting/geoip/download",
+	"/api/v3/setting/geoip/:kind",
 
 	// OTP Admin endpoints (Admin/Owner only)
 	"/api/v3/setting/otp-config",
@@ -132,6 +140,24 @@ var AllowedEndpoints = []string{
 	"/api/v3/jobs/stuck",
 	"/api/v3/jobs/workers",
 	"/api/v3/jobs/stats",
+	// API Inventory (read-only over Mongo `api_inventory` + ClickHouse
+	// `api_events_*`). Per-handler project-scope auth runs inside the
+	// handlers; PathCheck only validates the URL shape here.
+	"/api/v3/inventory",
+	"/api/v3/inventory/listeners",
+	"/api/v3/inventory/geo",
+	"/api/v3/inventory/discoveries",
+	"/api/v3/inventory/auth-coverage",
+	"/api/v3/inventory/bot-scanner",
+	"/api/v3/inventory/pii",
+	"/api/v3/inventory/zombies",
+	"/api/v3/inventory/risk-summary",
+	"/api/v3/inventory/security-score",
+	"/api/v3/inventory/transport",
+	"/api/v3/inventory/errors",
+	"/api/v3/inventory/:id",
+	"/api/v3/inventory/:id/events",
+	"/api/v3/inventory/:id/stats",
 	"/api/v3/bridge/nodes/:node_id/snapshot",
 	"/api/v3/audit/logs",
 	"/api/v3/audit/stats",
@@ -184,21 +210,21 @@ var AllowedEndpoints = []string{
 	"/api/v3/acme/ca-providers",
 	"/api/v3/acme/ca-providers/:provider/validate-eab",
 	// GSLB (Global Server Load Balancing) endpoints
-	"/api/v3/setting/gslb",                // GSLB configuration (GET, PUT, DELETE)
-	"/api/v3/setting/gslb/options",        // GSLB options: failover zones + regions (GET)
-	"/api/v3/gslb",                        // GSLB records list (GET) and create (POST)
-	"/api/v3/gslb/batch",                  // GSLB bulk update (PATCH) - enable/disable multiple records
-	"/api/v3/gslb/:id",                    // GSLB record detail (GET, PUT, DELETE)
-	"/api/v3/gslb/:id/ips",                // GSLB record IP management (POST, DELETE)
-	"/api/v3/gslb/:id/ips/:ip",            // GSLB record IP detail (GET, DELETE)
-	"/api/v3/gslb/:id/ips/:ip/regions",    // GSLB IP region assignment (PUT) - Admin/Owner only
-	"/api/v3/gslb/ip/:id/history",         // Clear IP status history (DELETE) - Admin/Owner only
-	"/api/v3/gslb/nodes",                  // GSLB node tracking list (GET)
-	"/api/v3/gslb/nodes/:id",              // GSLB node delete (DELETE) - Admin/Owner only
-	"/api/v3/gslb/nodes/notify-all",       // GSLB node proxy: broadcast notify to all nodes (POST)
-	"/api/v3/gslb/nodes/:id/health",       // GSLB node proxy: health check (GET)
-	"/api/v3/gslb/nodes/:id/records",      // GSLB node proxy: records query (GET)
-	"/api/v3/gslb/nodes/:id/notify",       // GSLB node proxy: notify specific node (POST)
+	"/api/v3/setting/gslb",             // GSLB configuration (GET, PUT, DELETE)
+	"/api/v3/setting/gslb/options",     // GSLB options: failover zones + regions (GET)
+	"/api/v3/gslb",                     // GSLB records list (GET) and create (POST)
+	"/api/v3/gslb/batch",               // GSLB bulk update (PATCH) - enable/disable multiple records
+	"/api/v3/gslb/:id",                 // GSLB record detail (GET, PUT, DELETE)
+	"/api/v3/gslb/:id/ips",             // GSLB record IP management (POST, DELETE)
+	"/api/v3/gslb/:id/ips/:ip",         // GSLB record IP detail (GET, DELETE)
+	"/api/v3/gslb/:id/ips/:ip/regions", // GSLB IP region assignment (PUT) - Admin/Owner only
+	"/api/v3/gslb/ip/:id/history",      // Clear IP status history (DELETE) - Admin/Owner only
+	"/api/v3/gslb/nodes",               // GSLB node tracking list (GET)
+	"/api/v3/gslb/nodes/:id",           // GSLB node delete (DELETE) - Admin/Owner only
+	"/api/v3/gslb/nodes/notify-all",    // GSLB node proxy: broadcast notify to all nodes (POST)
+	"/api/v3/gslb/nodes/:id/health",    // GSLB node proxy: health check (GET)
+	"/api/v3/gslb/nodes/:id/records",   // GSLB node proxy: records query (GET)
+	"/api/v3/gslb/nodes/:id/notify",    // GSLB node proxy: notify specific node (POST)
 	// DNS API endpoints (CoreDNS plugin authentication via DNS secret)
 	"/dns/snapshot", // DNS snapshot for CoreDNS plugin
 	"/dns/changes",  // Incremental DNS changes (if implemented)

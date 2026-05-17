@@ -175,6 +175,24 @@ func (ar *AllResources) processExtension(ctx context.Context, extension *models.
 						ar.UpdateVhdsMetadataNodeID(vhds)
 					}
 				}
+
+				// api_discovery toggle (general.api_discovery == true)
+				// is the operator's "send my logs to elchi-collector"
+				// switch. It is a STANDALONE field on general — NOT under
+				// general.metadata — because the extension update flow
+				// ($set) does not touch general.metadata and would drop
+				// a metadata-nested flag. The flag lives on the HCM
+				// document, not on the snapshot's ConfigDiscovery
+				// wrapper, so refetch the HCM here just to read its
+				// general; fail-open if the fetch errors out — the
+				// listener still serves traffic.
+				if hcmGeneral, gerr := resources.GetResourceNGeneral(ctx, context, extension.GType.CollectionString(), extension.Name, ar.Project, ar.ResourceVersion); gerr != nil {
+					logger.Warnf("api_discovery: failed to read HCM general for %s (continuing without ALS): %v", extension.Name, gerr)
+				} else if apiDiscoveryEnabled(hcmGeneral.General) {
+					if ierr := ar.injectElchiALS(ctx, hcmConfig, context, logger); ierr != nil {
+						logger.Warnf("api_discovery: elchi-als injection skipped for HCM %s (continuing without ALS): %v", extension.Name, ierr)
+					}
+				}
 			}
 
 			typedConfigAsAny, err := anypb.New(extConfig)

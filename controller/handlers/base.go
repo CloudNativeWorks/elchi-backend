@@ -70,6 +70,7 @@ type Handler struct {
 	CAProviders  *CAProvidersHandler
 	DNS          *DNSHandler
 	GSLB         *GSLBHandler
+	Inventory    *InventoryHandler
 }
 
 // getDatabaseConnection returns the first available database connection from handlers
@@ -122,6 +123,11 @@ func NewHandler(xds *xds.AppHandler, extension *extension.AppHandler, custom *cu
 	// Initialize profile handler
 	profileLogger := logger.NewLogger("controller/profile")
 	handler.Profile = profile.NewProfileHandler(xds.Context, profileLogger)
+
+	// Initialize inventory handler (read-only over MongoDB api_inventory
+	// + optional ClickHouse client for the events/stats endpoints).
+	inventoryLogger := logger.NewLogger("controller/inventory")
+	handler.Inventory = NewInventoryHandler(xds.Context, inventoryLogger)
 
 	// Initialize snippet handler
 	handler.Snippet = NewSnippetHandler(handler)

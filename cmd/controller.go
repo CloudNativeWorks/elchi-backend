@@ -27,6 +27,7 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/pkg/acme"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/async"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/audit"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/clickhouse"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/config"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
 	pkgGslb "github.com/CloudNativeWorks/elchi-backend/pkg/gslb"
@@ -135,6 +136,26 @@ var restCmd = &cobra.Command{
 		}()
 
 		appContext := db.NewMongoDB(appConfig, false)
+
+		// Optional ClickHouse client for inventory_detail endpoints.
+		// Empty CLICKHOUSE_URI is treated as "no collector backend"; the
+		// controller still boots and inventory list (Mongo) keeps
+		// working — only the events/stats endpoints respond 503.
+		if appConfig.ClickhouseURI != "" {
+			chClient, err := clickhouse.Open(appConfig, rootLogger)
+			if err != nil {
+				rootLogger.Warnf("ClickHouse init failed, inventory_detail endpoints will be 503: %v", err)
+			} else {
+				appContext.Clickhouse = chClient
+				defer func() {
+					if cerr := chClient.Close(); cerr != nil {
+						rootLogger.Warnf("ClickHouse close: %v", cerr)
+					}
+				}()
+			}
+		} else {
+			rootLogger.Info("ClickHouse disabled (CLICKHOUSE_URI empty); inventory_detail endpoints will respond 503")
+		}
 
 		// Generate controller ID for GSLB shard ownership.
 		// Reuses the same identity the registry client publishes so a single

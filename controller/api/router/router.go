@@ -85,6 +85,7 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 	apiDNS := e.Group("/dns")                               // GSLB DNS API routes (zone-based authentication via middleware)
 	apiDNS.Use(middleware.DNSAuthMiddleware(h.XDS.Context)) // Zone-based DNS authentication
 	apiGSLB := v3.Group("/gslb")                            // GSLB CRUD API routes (handlers perform own Admin/Owner checks)
+	apiInventory := v3.Group("/inventory")                  // API inventory (read-only over Mongo + ClickHouse); per-handler project-scope auth
 
 	initAuthRoutes(apiAuth, h)
 	initSettingRoutes(apiSettings, h)
@@ -113,6 +114,7 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 	initACMERoutes(apiACME, h)               // ACME routes under /api/v3/acme
 	initDNSRoutes(apiDNS, h)                 // GSLB DNS routes under /api/v3/dns
 	initGSLBRoutes(apiGSLB, h)               // GSLB CRUD routes under /api/v3/gslb
+	initInventoryRoutes(apiInventory, h)     // API inventory routes under /api/v3/inventory
 
 	// logRoutes(e)
 	return e

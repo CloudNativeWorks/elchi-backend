@@ -89,7 +89,8 @@ func updateResource(ctx context.Context, extension *AppHandler, resource models.
 			"general.config_discovery": resource.GetConfigDiscovery(),
 			"general.updated_at":       primitive.NewDateTimeFromTime(time.Now()),
 			"general.typed_config":     resource.GetTypedConfig(),
-			"general.waf":              general.WAF, // Update WAF field (supports both set and unset)
+			"general.waf":              general.WAF,          // Update WAF field (supports both set and unset)
+			"general.api_discovery":    general.APIDiscovery, // HCM-only toggle; false-zero default is fine for non-HCM extensions
 		},
 	}
 

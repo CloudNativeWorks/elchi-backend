@@ -121,6 +121,10 @@ func createDefaults(ctx context.Context, context *AppContext, logger *logger.Log
 		logger.Infof("Default access log not created: %s", err)
 	}
 
+	if err := CreateDefaultElchiALS(ctx, context, projectID, vrs, groupID); err != nil {
+		logger.Infof("Default elchi-als not created: %s", err)
+	}
+
 	// Create default scenarios (project-independent)
 	if err := CreateDefaultScenarios(ctx, context); err != nil {
 		logger.Infof("Default scenarios not created: %s", err)
@@ -953,6 +957,117 @@ func CreateDefaultAccessLog(ctx context.Context, db *AppContext, projectID strin
 		return fmt.Errorf("failed to check for default access log: %w", err)
 	default:
 		db.Logger.Info("default access log already exists")
+	}
+
+	return nil
+}
+
+// CreateDefaultElchiALS seeds an `elchi-als` HttpGrpcAccessLogConfig
+// extension (per ELCHI_VERSION, per project) that forwards Envoy
+// access logs over the `elchi-control-plane` cluster — the same
+// cluster every project already gets for the xDS connection, so no
+// dedicated collector cluster is needed. The extension document is
+// inert by itself — the snapshot generator's processExtension hook
+// only injects it into an HCM's access_log array when that HCM has
+// `general.api_discovery == true`, so creating it for every project
+// is safe even when API discovery is off.
+//
+// Shape matches the contract the UI ships:
+//
+//	additional_request/response/trailer headers,
+//	common_config.{buffer_*, grpc_service.envoy_grpc.cluster_name,
+//	               log_name, transport_api_version}.
+//
+// Operators can edit the extension afterwards (header lists, buffer
+// size, log_name) through the standard extension CRUD — `is_default:
+// true` is preserved as a UI hint only, the snapshot generator does
+// not branch on it.
+func CreateDefaultElchiALS(ctx context.Context, db *AppContext, projectID string, vers string, groupID string) error {
+	gtype := models.HTTPGRPCAccessLog
+	collection := db.Client.Collection(gtype.CollectionString())
+	if projectID == "" {
+		return errstr.ErrProjectIDEmpty
+	}
+
+	var existing models.Resource
+	err := collection.FindOne(ctx, bson.M{
+		"general.name":    "elchi-als",
+		"general.version": vers,
+		"general.project": projectID,
+	}).Decode(&existing)
+
+	switch {
+	case errors.Is(err, mongo.ErrNoDocuments):
+		now := time.Now()
+		createdAt := primitive.NewDateTimeFromTime(now)
+		updatedAt := primitive.NewDateTimeFromTime(now)
+
+		resourceConfig := bson.M{
+			"additional_request_headers_to_log": []string{
+				"authorization", "user-agent", "x-forwarded-for", "x-request-id",
+				"accept-language", "x-api-key", "origin",
+			},
+			"additional_response_headers_to_log": []string{
+				"content-type", "grpc-status", "strict-transport-security", "location",
+				"x-content-type-options", "x-frame-options", "content-security-policy",
+				"access-control-allow-origin", "server", "x-powered-by",
+			},
+			"additional_response_trailers_to_log": []string{
+				"grpc-status", "grpc-message",
+			},
+			"common_config": bson.M{
+				"buffer_flush_interval": "1s",
+				"buffer_size_bytes":     262144,
+				"grpc_service": bson.M{
+					"envoy_grpc": bson.M{
+						"cluster_name": "elchi-control-plane",
+					},
+				},
+				"log_name":              "elchi-als",
+				"transport_api_version": "V3",
+			},
+		}
+
+		defaultALS := bson.M{
+			"general": bson.M{
+				"name":           "elchi-als",
+				"version":        vers,
+				"type":           gtype.Type(),
+				"gtype":          gtype.String(),
+				"project":        projectID,
+				"collection":     gtype.CollectionString(),
+				"canonical_name": gtype.CanonicalName(),
+				"category":       gtype.Category(),
+				"metadata": bson.M{
+					"is_default": true,
+				},
+				"permissions": bson.M{
+					"users":  []string{},
+					"groups": []string{groupID},
+				},
+				"created_at": createdAt,
+				"updated_at": updatedAt,
+			},
+			"resource": bson.M{
+				"version":  "1",
+				"resource": resourceConfig,
+			},
+		}
+
+		_, err = collection.InsertOne(ctx, defaultALS)
+		if err != nil {
+			if mongo.IsDuplicateKeyError(err) {
+				db.Logger.Infof("default elchi-als already exists: %v", err)
+			} else {
+				return fmt.Errorf("failed to create default elchi-als: %w", err)
+			}
+		} else {
+			db.Logger.Info("default elchi-als created successfully")
+		}
+	case err != nil:
+		return fmt.Errorf("failed to check for default elchi-als: %w", err)
+	default:
+		db.Logger.Info("default elchi-als already exists")
 	}
 
 	return nil

@@ -120,6 +120,28 @@ func initSettingRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		{"DELETE", "/gslb", h.DeleteGSLBConfigWithAudit},
 		{"GET", "/gslb/options", h.Settings.GetGSLBOptions},
 
+		// API Discovery — elchi-collector runtime config singleton
+		// (api_collector_config). All routes are Admin/Owner-only via
+		// InitSettingMiddleware (the whole /setting group); the write
+		// handlers re-check as defence in depth.
+		{"GET", "/api_discovery", h.Settings.GetAPIDiscoveryConfig},
+		{"PUT", "/api_discovery", h.Settings.UpdateAPIDiscoveryConfig},
+
+		// Threat-intel feeds — collector's api_collector_threatintel
+		// singleton. All routes Admin/Owner-only (InitSettingMiddleware).
+		{"GET", "/threat-intel", h.Settings.GetThreatIntel},
+		{"PUT", "/threat-intel", h.Settings.UpdateThreatIntel},
+		{"POST", "/threat-intel/upload", h.Settings.UploadThreatIntelFeed},
+		{"GET", "/threat-intel/:name", h.Settings.GetThreatIntelFeed},
+		{"DELETE", "/threat-intel/:name", h.Settings.DeleteThreatIntelFeed},
+
+		// GeoIP MMDB databases — collector's `geoip` GridFS bucket.
+		// All routes Admin/Owner-only (InitSettingMiddleware).
+		{"GET", "/geoip", h.Settings.GetGeoIP},
+		{"POST", "/geoip/upload", h.Settings.UploadGeoIP},
+		{"POST", "/geoip/download", h.Settings.DownloadGeoIP},
+		{"DELETE", "/geoip/:kind", h.Settings.DeleteGeoIP},
+
 		// Audit-log syslog forwarding (global)
 		{"GET", "/syslog-config", h.Settings.GetSyslogConfig},
 		{"POST", "/syslog-config", h.SetSyslogConfigWithAudit},
@@ -360,6 +382,41 @@ func initJobRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		{"GET", "/workers", h.GetWorkerStatus}, // GET /api/v3/jobs/workers
 	}
 
+	initRoutes(rg, routes)
+}
+
+// initInventoryRoutes mounts the read-only API inventory endpoints.
+// Project-scope authorization runs inside each handler (the
+// `api_inventory` documents have no `general.permissions` field, so
+// the standard AddSecureUserFilter pattern doesn't apply — handlers
+// call authorization.ValidateRequestProject directly).
+func initInventoryRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
+	routes := []struct {
+		method  string
+		path    string
+		handler gin.HandlerFunc
+	}{
+		{"GET", "", h.Inventory.ListInventory},                    // GET /api/v3/inventory  (flat per-endpoint list)
+		{"GET", "/listeners", h.Inventory.ListInventoryListeners}, // GET /api/v3/inventory/listeners (project listeners summary — UI default landing)
+		{"GET", "/geo", h.Inventory.GeoSummary},                   // GET /api/v3/inventory/geo (country/asn/UA/TI aggregates + optional time series)
+		// API discovery + security surfaces. All five share the
+		// inventory schema + project-scope auth pattern. Static
+		// segments are registered BEFORE the `:id` catch-all so
+		// gin's radix tree binds them correctly.
+		{"GET", "/discoveries", h.Inventory.ListDiscoveries},   // GET /api/v3/inventory/discoveries (first_seen within window)
+		{"GET", "/auth-coverage", h.Inventory.AuthCoverage},    // GET /api/v3/inventory/auth-coverage (unauth / inconsistent endpoints)
+		{"GET", "/bot-scanner", h.Inventory.BotScannerHeatmap}, // GET /api/v3/inventory/bot-scanner (CH heatmap of bot/scanner traffic)
+		{"GET", "/pii", h.Inventory.PIIInventory},              // GET /api/v3/inventory/pii (pii_categories breakdown)
+		{"GET", "/zombies", h.Inventory.ListZombies},           // GET /api/v3/inventory/zombies (old + previously popular endpoints)
+		{"GET", "/risk-summary", h.Inventory.RiskSummary},      // GET /api/v3/inventory/risk-summary (risk_flags by flag/class/severity)
+		{"GET", "/security-score", h.Inventory.SecurityScore},  // GET /api/v3/inventory/security-score (A–F posture grade)
+		{"GET", "/transport", h.Inventory.TransportPosture},    // GET /api/v3/inventory/transport (TLS/protocol posture)
+		{"GET", "/errors", h.Inventory.ErrorAnalysis},          // GET /api/v3/inventory/errors (4xx/5xx hotspots + series)
+		// Collector runtime config moved to GET/PUT /api/v3/setting/api_discovery
+		{"GET", "/:id", h.Inventory.GetInventoryItem},          // GET /api/v3/inventory/:id
+		{"GET", "/:id/events", h.Inventory.GetInventoryEvents}, // GET /api/v3/inventory/:id/events
+		{"GET", "/:id/stats", h.Inventory.GetInventoryStats},   // GET /api/v3/inventory/:id/stats
+	}
 	initRoutes(rg, routes)
 }
 
@@ -610,22 +667,22 @@ func initGSLBRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		{"PUT", "/batch", h.GSLB.BulkUpdateGSLBRecords}, // PUT /api/v3/gslb/batch (Admin/Owner only) - Bulk enable/disable
 
 		// IP Management (NEW)
-		{"GET", "/:id/ips", h.GSLB.ListIPsForRecord},          // GET /api/v3/gslb/:id/ips - List all IPs for a GSLB record
-		{"POST", "/:id/ips", h.GSLB.AddIPToRecord},            // POST /api/v3/gslb/:id/ips (Admin/Owner only)
-		{"PUT", "/:id/ips/:ip", h.GSLB.UpdateIPHealthState},           // PUT /api/v3/gslb/:id/ips/:ip (Admin/Owner only) - Manual health state control
-		{"PUT", "/:id/ips/:ip/regions", h.GSLB.UpdateIPRegions},     // PUT /api/v3/gslb/:id/ips/:ip/regions (Admin/Owner only) - Assign regions to IP
-		{"DELETE", "/:id/ips/:ip", h.GSLB.RemoveIPFromRecord},       // DELETE /api/v3/gslb/:id/ips/:ip (Admin/Owner only)
-		{"DELETE", "/ip/:id/history", h.GSLB.ClearIPHistory},  // DELETE /api/v3/gslb/ip/:id/history (Admin/Owner only) - Clear status history for specific IP health document
+		{"GET", "/:id/ips", h.GSLB.ListIPsForRecord},            // GET /api/v3/gslb/:id/ips - List all IPs for a GSLB record
+		{"POST", "/:id/ips", h.GSLB.AddIPToRecord},              // POST /api/v3/gslb/:id/ips (Admin/Owner only)
+		{"PUT", "/:id/ips/:ip", h.GSLB.UpdateIPHealthState},     // PUT /api/v3/gslb/:id/ips/:ip (Admin/Owner only) - Manual health state control
+		{"PUT", "/:id/ips/:ip/regions", h.GSLB.UpdateIPRegions}, // PUT /api/v3/gslb/:id/ips/:ip/regions (Admin/Owner only) - Assign regions to IP
+		{"DELETE", "/:id/ips/:ip", h.GSLB.RemoveIPFromRecord},   // DELETE /api/v3/gslb/:id/ips/:ip (Admin/Owner only)
+		{"DELETE", "/ip/:id/history", h.GSLB.ClearIPHistory},    // DELETE /api/v3/gslb/ip/:id/history (Admin/Owner only) - Clear status history for specific IP health document
 
 		// GSLB Node Tracking (elchi-gslb instances)
-		{"GET", "/nodes", h.GSLB.ListGSLBNodes},        // GET /api/v3/gslb/nodes?zone=X - List tracked GSLB nodes
+		{"GET", "/nodes", h.GSLB.ListGSLBNodes},         // GET /api/v3/gslb/nodes?zone=X - List tracked GSLB nodes
 		{"DELETE", "/nodes/:id", h.GSLB.DeleteGSLBNode}, // DELETE /api/v3/gslb/nodes/:id - Remove stale node entry
 
 		// GSLB Node Proxy (forward requests to elchi-gslb instances)
-		{"POST", "/nodes/notify-all", h.GSLB.ProxyNotifyAll},       // POST /api/v3/gslb/nodes/notify-all - Broadcast notify to all nodes in zone
-		{"GET", "/nodes/:id/health", h.GSLB.ProxyNodeHealth},       // GET /api/v3/gslb/nodes/:id/health - Proxy health check
-		{"GET", "/nodes/:id/records", h.GSLB.ProxyNodeRecords},     // GET /api/v3/gslb/nodes/:id/records - Proxy records query
-		{"POST", "/nodes/:id/notify", h.GSLB.ProxyNodeNotify},      // POST /api/v3/gslb/nodes/:id/notify - Notify specific node
+		{"POST", "/nodes/notify-all", h.GSLB.ProxyNotifyAll},   // POST /api/v3/gslb/nodes/notify-all - Broadcast notify to all nodes in zone
+		{"GET", "/nodes/:id/health", h.GSLB.ProxyNodeHealth},   // GET /api/v3/gslb/nodes/:id/health - Proxy health check
+		{"GET", "/nodes/:id/records", h.GSLB.ProxyNodeRecords}, // GET /api/v3/gslb/nodes/:id/records - Proxy records query
+		{"POST", "/nodes/:id/notify", h.GSLB.ProxyNodeNotify},  // POST /api/v3/gslb/nodes/:id/notify - Notify specific node
 	}
 
 	initRoutes(rg, routes)

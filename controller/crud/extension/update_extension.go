@@ -62,6 +62,11 @@ func updateResource(ctx context.Context, extension *AppHandler, resource models.
 		return nil, err
 	}
 
+	// Sync the elchi-als access_log reference with general.api_discovery
+	// BEFORE validation + DecodeSetTypedConfigs so the entry is part of
+	// the validated resource and is reflected in general.typed_config.
+	applyAPIDiscoveryALS(ctx, resource, extension.Context, extension.Logger)
+
 	// Version increment moved to control-plane GenerateSnapshot for centralized control
 	// Keep existing version without manual increment
 	newResource := resource.GetResource()

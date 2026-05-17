@@ -296,11 +296,16 @@ func (handler *AppHandler) canWriteCollectorConfig(c *gin.Context) bool {
 			return true
 		}
 	}
-	// `role` is set by the auth middleware; depending on the claim
-	// path it can arrive as models.Role or a plain string — handle
-	// both so the check is robust to either encoding.
+	// `role` is set by the auth middleware via c.Set("role", claims.Role)
+	// where claims.Role is a *models.Role — so the context value is a
+	// pointer. Older call sites also stored it as models.Role or a plain
+	// string; handle all three so the check is robust to either encoding.
 	if role, ok := c.Get("role"); ok {
 		switch r := role.(type) {
+		case *models.Role:
+			if r != nil && *r == models.RoleAdmin {
+				return true
+			}
 		case models.Role:
 			if r == models.RoleAdmin {
 				return true

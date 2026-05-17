@@ -51,6 +51,12 @@ func (extension *AppHandler) SetExtension(ctx context.Context, resource models.R
 
 	general := resource.GetGeneral()
 	resourceID := ""
+
+	// Sync the elchi-als access_log reference with general.api_discovery
+	// before PrepareResource so it is validated and indexed into
+	// general.typed_config alongside operator-defined access loggers.
+	applyAPIDiscoveryALS(ctx, resource, extension.Context, extension.Logger)
+
 	err := resources.PrepareResource(resource, requestDetails, extension.Logger, extension.ResourceService)
 	if err != nil {
 		return nil, err

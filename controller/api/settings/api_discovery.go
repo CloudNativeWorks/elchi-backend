@@ -103,8 +103,19 @@ func (handler *AppHandler) UpdateAPIDiscoveryConfig(c *gin.Context) {
 		return
 	}
 
+	// Cap the request body before binding — ShouldBindJSON unmarshals the
+	// whole payload in-memory with no streaming, so an oversized upload
+	// would OOM the controller before any validation runs.
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxCollectorConfigBytes)
+
 	var body apiDiscoveryConfigUpdate
 	if err := c.ShouldBindJSON(&body); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			c.JSON(http.StatusRequestEntityTooLarge,
+				gin.H{"message": fmt.Sprintf("request body exceeds the %d-byte limit for collector config", maxCollectorConfigBytes)})
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"message": "invalid request body: " + err.Error()})
 		return
 	}
@@ -202,12 +213,50 @@ func validateCollectorConfigUpdate(body apiDiscoveryConfigUpdate) error {
 	return nil
 }
 
+const (
+	// maxCollectorConfigBytes caps the PUT body for the collector config
+	// doc. The doc is a few KB even with generous operator lists; 1 MiB
+	// is far above any legitimate payload while bounding in-memory
+	// unmarshalling of a hostile or careless upload (ShouldBindJSON has
+	// no streaming — it reads the whole body before validation runs).
+	maxCollectorConfigBytes = 1 << 20
+
+	// maxNormalizePatterns caps how many operator path-normalization
+	// rules a config may carry — mirrors the collector's cap and bounds
+	// the combined per-placeholder alternation the collector builds.
+	maxNormalizePatterns = 64
+
+	// maxConfigRegexLength / maxConfigRegexQuantifiers bound any
+	// operator-supplied regex in the config (ingest_deny_patterns and
+	// path_normalize_patterns). Mirror the collector's maxDenyPattern*.
+	// Go's regexp is RE2 — linear-time, no catastrophic backtracking —
+	// so these are belt-and-suspenders DoS bounds, not the only defence.
+	maxConfigRegexLength      = 256
+	maxConfigRegexQuantifiers = 4
+)
+
+// allowedNormalizePlaceholders is the set an operator may target with a
+// path-normalization rule. Mirrors the collector's
+// allowedNormalizePlaceholders — the built-in placeholder tokens MINUS
+// `traversal`, which is a security signal, not an operator-selectable bucket.
+var allowedNormalizePlaceholders = map[string]struct{}{
+	"id": {}, "uuid": {}, "objectid": {}, "ulid": {}, "token": {}, "dynamic": {},
+}
+
+// normalizeBroadnessProbes are plainly-static path segments. A custom
+// normalization regex that matches two or more of them is too broad — it
+// would template real static route segments — and is rejected. Mirrors the
+// collector's normalizeBroadnessProbes.
+var normalizeBroadnessProbes = []string{"users", "api", "health", "orders", "v1", "a", "x"}
+
 // validateCollectorPolicy checks the policy sub-tree:
 //   - ingest_deny_patterns: every entry a Go-compilable regular expression
 //     (the collector compiles them at config load)
 //   - trusted_proxy_cidrs: every entry a valid CIDR prefix — mirrors the
 //     collector's runtimeconfig Doc.Validate() (netip.ParsePrefix); blank
 //     entries are skipped because the collector's Normalize() drops them
+//   - path_normalize_patterns: operator path-normalization rules — each a
+//     {regex, placeholder} pair; see validatePathNormalizePatterns
 func validateCollectorPolicy(policy bson.M) error {
 	if raw := policy["ingest_deny_patterns"]; raw != nil {
 		patterns, ok := raw.([]any)
@@ -218,6 +267,12 @@ func validateCollectorPolicy(policy bson.M) error {
 			s, ok := p.(string)
 			if !ok {
 				return fmt.Errorf("policy.ingest_deny_patterns[%d] must be a string", i)
+			}
+			if len(s) > maxConfigRegexLength {
+				return fmt.Errorf("policy.ingest_deny_patterns[%d] regex too long: %d > %d", i, len(s), maxConfigRegexLength)
+			}
+			if n := countRegexQuantifiers(s); n > maxConfigRegexQuantifiers {
+				return fmt.Errorf("policy.ingest_deny_patterns[%d] has too many quantifiers (%d > %d) — likely a DoS pattern", i, n, maxConfigRegexQuantifiers)
 			}
 			if _, err := regexp.Compile(s); err != nil {
 				return fmt.Errorf("policy.ingest_deny_patterns[%d] is not a valid regex: %v", i, err)
@@ -242,7 +297,147 @@ func validateCollectorPolicy(policy bson.M) error {
 			}
 		}
 	}
+	if raw := policy["path_normalize_patterns"]; raw != nil {
+		if err := validatePathNormalizePatterns(raw); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// validatePathNormalizePatterns mirrors the collector's path-normalization
+// rule validation (runtimeconfig Doc.Validate + validateNormalizePattern).
+// Each rule is a {regex, placeholder} pair: the regex matches a whole path
+// segment the built-in detectors left literal, and the segment collapses to
+// the chosen placeholder. Blank-regex entries are skipped — the collector's
+// Normalize() drops them. The collector remains the authority; this catches
+// the common operator mistakes BEFORE the write so they surface as a 400.
+func validatePathNormalizePatterns(raw any) error {
+	patterns, ok := raw.([]any)
+	if !ok {
+		return fmt.Errorf("policy.path_normalize_patterns must be an array")
+	}
+	if len(patterns) > maxNormalizePatterns {
+		return fmt.Errorf("policy.path_normalize_patterns: %d patterns exceeds cap %d", len(patterns), maxNormalizePatterns)
+	}
+	for i, p := range patterns {
+		obj, ok := p.(map[string]any)
+		if !ok {
+			return fmt.Errorf("policy.path_normalize_patterns[%d] must be an object", i)
+		}
+		// Type-check explicitly: a non-string regex/placeholder must be a
+		// hard 400, not silently coerced — the collector BSON-decodes the
+		// doc into []NormalizePattern and a non-string value there would
+		// fail the decode and make it reject the whole config.
+		regex, err := stringField(obj, "regex", i)
+		if err != nil {
+			return err
+		}
+		placeholder, err := stringField(obj, "placeholder", i)
+		if err != nil {
+			return err
+		}
+		regex = strings.TrimSpace(regex)
+		placeholder = strings.TrimSpace(placeholder)
+		if regex == "" {
+			continue
+		}
+		if err := validateNormalizePatternEntry(i, regex, placeholder); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// stringField extracts obj[key] as a string. An absent key yields "" with
+// no error (the caller treats a blank regex as a skip); a present key whose
+// value is not a string yields a typed error so the caller can 400.
+func stringField(obj map[string]any, key string, idx int) (string, error) {
+	v, ok := obj[key]
+	if !ok {
+		return "", nil
+	}
+	s, ok := v.(string)
+	if !ok {
+		return "", fmt.Errorf("policy.path_normalize_patterns[%d].%s must be a string", idx, key)
+	}
+	return s, nil
+}
+
+// validateNormalizePatternEntry checks one {regex, placeholder} rule: a known
+// placeholder, a regex within the length / quantifier caps that compiles in
+// the anchored form the collector runs (`^(?:body)$`), and a regex narrow
+// enough that it would not template genuine static route segments.
+func validateNormalizePatternEntry(idx int, regex, placeholder string) error {
+	if _, ok := allowedNormalizePlaceholders[placeholder]; !ok {
+		return fmt.Errorf("policy.path_normalize_patterns[%d]: placeholder %q is not one of id|uuid|objectid|ulid|token|dynamic", idx, placeholder)
+	}
+	if len(regex) > maxConfigRegexLength {
+		return fmt.Errorf("policy.path_normalize_patterns[%d]: regex too long: %d > %d", idx, len(regex), maxConfigRegexLength)
+	}
+	if n := countRegexQuantifiers(regex); n > maxConfigRegexQuantifiers {
+		return fmt.Errorf("policy.path_normalize_patterns[%d]: regex has too many quantifiers (%d > %d) — likely a DoS pattern", idx, n, maxConfigRegexQuantifiers)
+	}
+	body := stripRegexAnchors(regex)
+	if body == "" {
+		return fmt.Errorf("policy.path_normalize_patterns[%d]: regex is empty", idx)
+	}
+	re, err := regexp.Compile("^(?:" + body + ")$")
+	if err != nil {
+		return fmt.Errorf("policy.path_normalize_patterns[%d]: invalid regex: %v", idx, err)
+	}
+	hits := 0
+	for _, probe := range normalizeBroadnessProbes {
+		if re.MatchString(probe) {
+			hits++
+		}
+	}
+	if hits >= 2 {
+		return fmt.Errorf("policy.path_normalize_patterns[%d]: regex is too broad — it would template static path segments", idx)
+	}
+	return nil
+}
+
+// countRegexQuantifiers counts unescaped quantifier metacharacters (+ * ? {)
+// outside character classes — a DoS-pattern heuristic. Mirrors the
+// collector's countQuantifiers.
+func countRegexQuantifiers(p string) int {
+	n := 0
+	inClass := false
+	for i := 0; i < len(p); i++ {
+		c := p[i]
+		if c == '\\' && i+1 < len(p) {
+			i++
+			continue
+		}
+		if c == '[' {
+			inClass = true
+			continue
+		}
+		if c == ']' {
+			inClass = false
+			continue
+		}
+		if inClass {
+			continue
+		}
+		switch c {
+		case '+', '*', '?', '{':
+			n++
+		}
+	}
+	return n
+}
+
+// stripRegexAnchors drops a single leading `^` and trailing unescaped `$` —
+// the collector strips them before splicing the body into its per-placeholder
+// alternation. Mirrors the collector's stripRegexAnchors.
+func stripRegexAnchors(s string) string {
+	s = strings.TrimPrefix(s, "^")
+	if strings.HasSuffix(s, "$") && !strings.HasSuffix(s, `\$`) {
+		s = s[:len(s)-1]
+	}
+	return s
 }
 
 // validateCollectorDetection checks the detection sub-tree:

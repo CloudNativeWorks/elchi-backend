@@ -412,10 +412,16 @@ func initInventoryRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		{"GET", "/security-score", h.Inventory.SecurityScore},  // GET /api/v3/inventory/security-score (A–F posture grade)
 		{"GET", "/transport", h.Inventory.TransportPosture},    // GET /api/v3/inventory/transport (TLS/protocol posture)
 		{"GET", "/errors", h.Inventory.ErrorAnalysis},          // GET /api/v3/inventory/errors (4xx/5xx hotspots + series)
+		// Destructive cleanup — Admin/Owner only (checked in handler).
+		// cleanup-stale is a static segment so it must precede the `:id`
+		// catch-all in gin's radix tree.
+		{"POST", "/cleanup-stale", h.Inventory.CleanupStaleInventory}, // POST /api/v3/inventory/cleanup-stale?project=&days= (bulk delete stale endpoints)
 		// Collector runtime config moved to GET/PUT /api/v3/setting/api_discovery
-		{"GET", "/:id", h.Inventory.GetInventoryItem},          // GET /api/v3/inventory/:id
-		{"GET", "/:id/events", h.Inventory.GetInventoryEvents}, // GET /api/v3/inventory/:id/events
-		{"GET", "/:id/stats", h.Inventory.GetInventoryStats},   // GET /api/v3/inventory/:id/stats
+		{"GET", "/:id", h.Inventory.GetInventoryItem},                // GET /api/v3/inventory/:id
+		{"GET", "/:id/events", h.Inventory.GetInventoryEvents},       // GET /api/v3/inventory/:id/events
+		{"GET", "/:id/stats", h.Inventory.GetInventoryStats},         // GET /api/v3/inventory/:id/stats
+		{"DELETE", "/:id", h.Inventory.DeleteInventoryItem},          // DELETE /api/v3/inventory/:id (delete one endpoint)
+		{"POST", "/:id/reset", h.Inventory.ResetInventoryItem},       // POST /api/v3/inventory/:id/reset (zero counters/risk)
 	}
 	initRoutes(rg, routes)
 }

@@ -142,7 +142,13 @@ func (h *CleanupHandler) DeleteVersionResources(c *gin.Context) {
 		return
 	}
 
-	// Step 3: Delete resources from all collections
+	// Step 3: Delete resources from all collections.
+	//
+	// This list is XDS-resource collections only. The elchi-collector-owned
+	// collections (api_inventory, api_collector_config,
+	// api_collector_threatintel, api_collector_baselines) are deliberately
+	// excluded — they are collector-internal / observed-traffic data, not
+	// version-scoped XDS config, and version cleanup must not touch them.
 	collections := []string{
 		"clusters",
 		"routes",

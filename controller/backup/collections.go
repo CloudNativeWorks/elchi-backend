@@ -7,7 +7,13 @@ type CollectionMetadata struct {
 	Category string // "settings", "xds", "templates", "services"
 }
 
-// RestoreOrder defines the dependency-aware restore sequence
+// RestoreOrder defines the dependency-aware restore sequence.
+//
+// NOTE: the elchi-collector-owned collections (api_inventory,
+// api_collector_config, api_collector_threatintel, api_collector_baselines)
+// are intentionally NOT listed here. They hold collector-internal state and
+// observed-traffic data — not project configuration — so they are excluded
+// from project backup/restore by design. Do not add them.
 var RestoreOrder = []CollectionMetadata{
 	// Phase 1: Settings (1-4)
 	{Name: "projects", Order: 1, Category: "settings"},

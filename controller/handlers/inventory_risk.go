@@ -63,8 +63,14 @@ var riskFlagTaxonomy = map[string]riskFlagMeta{
 	"scanner_user_agent":             {7, "attack_pattern"},
 	"vuln_probe_path":                {7, "attack_pattern"},
 	"path_scan_suspect":              {7, "attack_pattern"},
-	"ua_mismatch":                    {4, "attack_pattern"},
 	"auth_inconsistent":              {7, "consistency"},
+	// NOTE: `ua_mismatch` was retired from the collector's catalog (it
+	// no longer fires on any new event). It is intentionally absent
+	// here: historical `api_inventory` rows may still carry it in their
+	// accumulated `risk_flags`, and per the lookup contract above an
+	// unknown flag degrades to class "unknown" / severity 0 — still
+	// visible, just unclassified — which is the desired behaviour for a
+	// retired flag.
 }
 
 // riskSeverityBucket maps a numeric severity to the catalog's named

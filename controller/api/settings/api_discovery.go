@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/netip"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -200,25 +202,44 @@ func validateCollectorConfigUpdate(body apiDiscoveryConfigUpdate) error {
 	return nil
 }
 
-// validateCollectorPolicy checks the policy sub-tree — currently only
-// ingest_deny_patterns, every entry of which must be a Go-compilable
-// regular expression (the collector compiles them at config load).
+// validateCollectorPolicy checks the policy sub-tree:
+//   - ingest_deny_patterns: every entry a Go-compilable regular expression
+//     (the collector compiles them at config load)
+//   - trusted_proxy_cidrs: every entry a valid CIDR prefix — mirrors the
+//     collector's runtimeconfig Doc.Validate() (netip.ParsePrefix); blank
+//     entries are skipped because the collector's Normalize() drops them
 func validateCollectorPolicy(policy bson.M) error {
-	raw, ok := policy["ingest_deny_patterns"]
-	if !ok || raw == nil {
-		return nil
-	}
-	patterns, ok := raw.([]any)
-	if !ok {
-		return fmt.Errorf("policy.ingest_deny_patterns must be an array")
-	}
-	for i, p := range patterns {
-		s, ok := p.(string)
+	if raw := policy["ingest_deny_patterns"]; raw != nil {
+		patterns, ok := raw.([]any)
 		if !ok {
-			return fmt.Errorf("policy.ingest_deny_patterns[%d] must be a string", i)
+			return fmt.Errorf("policy.ingest_deny_patterns must be an array")
 		}
-		if _, err := regexp.Compile(s); err != nil {
-			return fmt.Errorf("policy.ingest_deny_patterns[%d] is not a valid regex: %v", i, err)
+		for i, p := range patterns {
+			s, ok := p.(string)
+			if !ok {
+				return fmt.Errorf("policy.ingest_deny_patterns[%d] must be a string", i)
+			}
+			if _, err := regexp.Compile(s); err != nil {
+				return fmt.Errorf("policy.ingest_deny_patterns[%d] is not a valid regex: %v", i, err)
+			}
+		}
+	}
+	if raw := policy["trusted_proxy_cidrs"]; raw != nil {
+		cidrs, ok := raw.([]any)
+		if !ok {
+			return fmt.Errorf("policy.trusted_proxy_cidrs must be an array")
+		}
+		for i, c := range cidrs {
+			s, ok := c.(string)
+			if !ok {
+				return fmt.Errorf("policy.trusted_proxy_cidrs[%d] must be a string", i)
+			}
+			if strings.TrimSpace(s) == "" {
+				continue
+			}
+			if _, err := netip.ParsePrefix(strings.TrimSpace(s)); err != nil {
+				return fmt.Errorf("policy.trusted_proxy_cidrs[%d] is not a valid CIDR: %v", i, err)
+			}
 		}
 	}
 	return nil
@@ -256,6 +277,11 @@ func validateCollectorDetection(detection bson.M) error {
 		}
 		if hasW && window < 0 {
 			return fmt.Errorf("detection.%s.window_seconds cannot be negative", key)
+		}
+		// threshold_ip is the source-IP-keyed fallback threshold (brute_force);
+		// the collector's validateWindow rejects a negative value.
+		if tip, hasTIP := numericValue(win["threshold_ip"]); hasTIP && tip < 0 {
+			return fmt.Errorf("detection.%s.threshold_ip cannot be negative", key)
 		}
 		if enabled {
 			if !hasT || threshold <= 0 {

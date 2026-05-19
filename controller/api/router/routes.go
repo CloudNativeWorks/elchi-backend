@@ -412,6 +412,7 @@ func initInventoryRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		{"GET", "/security-score", h.Inventory.SecurityScore},  // GET /api/v3/inventory/security-score (A–F posture grade)
 		{"GET", "/transport", h.Inventory.TransportPosture},    // GET /api/v3/inventory/transport (TLS/protocol posture)
 		{"GET", "/errors", h.Inventory.ErrorAnalysis},          // GET /api/v3/inventory/errors (4xx/5xx hotspots + series)
+		{"GET", "/normalize-gaps", h.Inventory.ListNormalizeGaps}, // GET /api/v3/inventory/normalize-gaps (suspected un-normalized path prefixes)
 		// Destructive cleanup — Admin/Owner only (checked in handler).
 		// cleanup-stale is a static segment so it must precede the `:id`
 		// catch-all in gin's radix tree.

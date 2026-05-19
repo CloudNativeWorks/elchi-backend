@@ -189,7 +189,7 @@ func (handler *AppHandler) UpdateAPIDiscoveryConfig(c *gin.Context) {
 // different shapes and aren't in this list.
 var detectorWindowKeys = []string{
 	"bola", "brute_force", "rate_anomaly", "payment_abuse",
-	"replay", "path_scan", "geo_spread", "ip_rate",
+	"replay", "path_scan", "geo_spread", "ip_rate", "normalize_gap",
 }
 
 // validateCollectorConfigUpdate mirrors the collector's Doc.Validate()
@@ -250,55 +250,151 @@ var allowedNormalizePlaceholders = map[string]struct{}{
 var normalizeBroadnessProbes = []string{"users", "api", "health", "orders", "v1", "a", "x"}
 
 // validateCollectorPolicy checks the policy sub-tree:
-//   - ingest_deny_patterns: every entry a Go-compilable regular expression
-//     (the collector compiles them at config load)
-//   - trusted_proxy_cidrs: every entry a valid CIDR prefix — mirrors the
-//     collector's runtimeconfig Doc.Validate() (netip.ParsePrefix); blank
-//     entries are skipped because the collector's Normalize() drops them
-//   - path_normalize_patterns: operator path-normalization rules — each a
-//     {regex, placeholder} pair; see validatePathNormalizePatterns
+//   - ingest_deny_patterns: operator path-deny regexes
+//   - trusted_proxy_cidrs: NAT/CGNAT/LB egress CIDR prefixes
+//   - path_normalize_patterns: {regex, placeholder} normalization rules
+//   - exclude: six-dimension ingest-exclusion rules (policy.exclude)
+//   - raw_sample_rate: benign raw-event sampling divisor (whole, >= 0)
+//
+// Each rule mirrors the collector's runtimeconfig Doc.Validate(); the
+// collector remains the authority — this is the operator-facing subset
+// that turns a bad config into an immediate 400 instead of a silent
+// collector reject on the next poll.
 func validateCollectorPolicy(policy bson.M) error {
-	if raw := policy["ingest_deny_patterns"]; raw != nil {
-		patterns, ok := raw.([]any)
-		if !ok {
-			return fmt.Errorf("policy.ingest_deny_patterns must be an array")
-		}
-		for i, p := range patterns {
-			s, ok := p.(string)
-			if !ok {
-				return fmt.Errorf("policy.ingest_deny_patterns[%d] must be a string", i)
-			}
-			if len(s) > maxConfigRegexLength {
-				return fmt.Errorf("policy.ingest_deny_patterns[%d] regex too long: %d > %d", i, len(s), maxConfigRegexLength)
-			}
-			if n := countRegexQuantifiers(s); n > maxConfigRegexQuantifiers {
-				return fmt.Errorf("policy.ingest_deny_patterns[%d] has too many quantifiers (%d > %d) — likely a DoS pattern", i, n, maxConfigRegexQuantifiers)
-			}
-			if _, err := regexp.Compile(s); err != nil {
-				return fmt.Errorf("policy.ingest_deny_patterns[%d] is not a valid regex: %v", i, err)
-			}
-		}
+	if err := validateConfigRegexList(policy["ingest_deny_patterns"], "policy.ingest_deny_patterns"); err != nil {
+		return err
 	}
-	if raw := policy["trusted_proxy_cidrs"]; raw != nil {
-		cidrs, ok := raw.([]any)
-		if !ok {
-			return fmt.Errorf("policy.trusted_proxy_cidrs must be an array")
-		}
-		for i, c := range cidrs {
-			s, ok := c.(string)
-			if !ok {
-				return fmt.Errorf("policy.trusted_proxy_cidrs[%d] must be a string", i)
-			}
-			if strings.TrimSpace(s) == "" {
-				continue
-			}
-			if _, err := netip.ParsePrefix(strings.TrimSpace(s)); err != nil {
-				return fmt.Errorf("policy.trusted_proxy_cidrs[%d] is not a valid CIDR: %v", i, err)
-			}
-		}
+	if err := validateConfigCIDRList(policy["trusted_proxy_cidrs"], "policy.trusted_proxy_cidrs"); err != nil {
+		return err
 	}
 	if raw := policy["path_normalize_patterns"]; raw != nil {
 		if err := validatePathNormalizePatterns(raw); err != nil {
+			return err
+		}
+	}
+	if raw := policy["exclude"]; raw != nil {
+		if err := validateExcludeRules(raw); err != nil {
+			return err
+		}
+	}
+	if raw, ok := policy["raw_sample_rate"]; ok && raw != nil {
+		// raw_sample_rate: 0/1 keeps every raw event; >=2 writes only
+		// 1-in-N benign 2xx events. The collector's field is an int and
+		// it rejects a negative value — mirror both checks.
+		n, isNum := numericValue(raw)
+		if !isNum {
+			return fmt.Errorf("policy.raw_sample_rate must be a number")
+		}
+		if n != float64(int64(n)) {
+			return fmt.Errorf("policy.raw_sample_rate must be a whole number")
+		}
+		if n < 0 {
+			return fmt.Errorf("policy.raw_sample_rate must be >= 0 (< 2 keeps all raw events)")
+		}
+	}
+	return nil
+}
+
+// validateConfigRegexList validates an optional array of operator regexes
+// (ingest_deny_patterns, exclude.hosts, exclude.user_agents): each entry a
+// string within the length / quantifier caps that compiles. Blank entries
+// are skipped — the collector's Normalize() drops them. A nil raw means the
+// dimension is absent (feature off for that key).
+func validateConfigRegexList(raw any, field string) error {
+	if raw == nil {
+		return nil
+	}
+	list, ok := raw.([]any)
+	if !ok {
+		return fmt.Errorf("%s must be an array", field)
+	}
+	for i, v := range list {
+		s, ok := v.(string)
+		if !ok {
+			return fmt.Errorf("%s[%d] must be a string", field, i)
+		}
+		if strings.TrimSpace(s) == "" {
+			continue
+		}
+		if len(s) > maxConfigRegexLength {
+			return fmt.Errorf("%s[%d] regex too long: %d > %d", field, i, len(s), maxConfigRegexLength)
+		}
+		if n := countRegexQuantifiers(s); n > maxConfigRegexQuantifiers {
+			return fmt.Errorf("%s[%d] has too many quantifiers (%d > %d) — likely a DoS pattern", field, i, n, maxConfigRegexQuantifiers)
+		}
+		if _, err := regexp.Compile(s); err != nil {
+			return fmt.Errorf("%s[%d] is not a valid regex: %v", field, i, err)
+		}
+	}
+	return nil
+}
+
+// validateConfigCIDRList validates an optional array of CIDR prefixes
+// (trusted_proxy_cidrs, exclude.source_cidrs). Blank entries are skipped —
+// the collector's Normalize() drops them.
+func validateConfigCIDRList(raw any, field string) error {
+	if raw == nil {
+		return nil
+	}
+	list, ok := raw.([]any)
+	if !ok {
+		return fmt.Errorf("%s must be an array", field)
+	}
+	for i, v := range list {
+		s, ok := v.(string)
+		if !ok {
+			return fmt.Errorf("%s[%d] must be a string", field, i)
+		}
+		if strings.TrimSpace(s) == "" {
+			continue
+		}
+		if _, err := netip.ParsePrefix(strings.TrimSpace(s)); err != nil {
+			return fmt.Errorf("%s[%d] is not a valid CIDR: %v", field, i, err)
+		}
+	}
+	return nil
+}
+
+// validateConfigStringList validates an optional array of plain exact-match
+// strings (exclude.methods / listeners / projects). The collector applies
+// no content rule beyond trimming, so this only enforces the
+// array-of-strings shape.
+func validateConfigStringList(raw any, field string) error {
+	if raw == nil {
+		return nil
+	}
+	list, ok := raw.([]any)
+	if !ok {
+		return fmt.Errorf("%s must be an array", field)
+	}
+	for i, v := range list {
+		if _, ok := v.(string); !ok {
+			return fmt.Errorf("%s[%d] must be a string", field, i)
+		}
+	}
+	return nil
+}
+
+// validateExcludeRules mirrors the collector's validateExcludeRules for the
+// policy.exclude sub-tree: the host / user-agent regexes obey the regex caps
+// and compile, the source CIDRs parse, and the method / listener / project
+// entries are strings (the collector applies no further rule to those).
+func validateExcludeRules(raw any) error {
+	ex, ok := raw.(map[string]any)
+	if !ok {
+		return fmt.Errorf("policy.exclude must be an object")
+	}
+	if err := validateConfigRegexList(ex["hosts"], "policy.exclude.hosts"); err != nil {
+		return err
+	}
+	if err := validateConfigRegexList(ex["user_agents"], "policy.exclude.user_agents"); err != nil {
+		return err
+	}
+	if err := validateConfigCIDRList(ex["source_cidrs"], "policy.exclude.source_cidrs"); err != nil {
+		return err
+	}
+	for _, dim := range []string{"methods", "listeners", "projects"} {
+		if err := validateConfigStringList(ex[dim], "policy.exclude."+dim); err != nil {
 			return err
 		}
 	}

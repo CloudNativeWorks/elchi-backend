@@ -155,6 +155,7 @@ var AllowedEndpoints = []string{
 	"/api/v3/inventory/security-score",
 	"/api/v3/inventory/transport",
 	"/api/v3/inventory/errors",
+	"/api/v3/inventory/normalize-gaps",
 	"/api/v3/inventory/cleanup-stale",
 	"/api/v3/inventory/:id",
 	"/api/v3/inventory/:id/events",

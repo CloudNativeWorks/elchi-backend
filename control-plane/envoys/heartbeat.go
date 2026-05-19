@@ -72,13 +72,18 @@ func (e *EnvoyConnTracker) sendHeartbeat(ctx context.Context, db *mongo.Database
 			"envoys.nodeid": nodeID,
 		}
 
-		// Update only the matched envoy's fields
+		// Update only the matched envoy's fields. The $inc on `rev`
+		// makes this write visible to the AddOrUpdateEnvoy /
+		// DisconnectNodeIDWithCount compare-and-swap, so a concurrent
+		// whole-array $set there can never silently clobber this
+		// heartbeat (it will see the rev change and retry).
 		update := bson.M{
 			"$set": bson.M{
 				"envoys.$.lastSync":    now,
 				"envoys.$.connected":   true,
 				"envoys.$.connections": connCount,
 			},
+			"$inc": bson.M{"rev": int64(1)},
 		}
 
 		// Execute update

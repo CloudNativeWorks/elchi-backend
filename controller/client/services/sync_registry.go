@@ -387,12 +387,47 @@ func (s *ClientService) RecalculateServiceStatuses(ctx context.Context) error {
 		// Update only if status changed
 		currentStatus, _ := service["status"].(string)
 		if currentStatus != newStatus {
+			// CAS guard: commit the recomputed status only if the document
+			// is unchanged since this cursor read. If a concurrent
+			// AddOrUpdateEnvoy / DisconnectNodeIDWithCount committed in
+			// between, it already wrote a correct status from fresh state
+			// — skip rather than clobber it with this stale recomputation.
+			oldRev := int64(0)
+			switch v := service["rev"].(type) {
+			case int64:
+				oldRev = v
+			case int32:
+				oldRev = int64(v)
+			case int:
+				oldRev = int64(v)
+			}
 			filter := bson.M{"_id": service["_id"]}
-			update := bson.M{"$set": bson.M{"status": newStatus}}
-
-			if _, err := s.Context.Client.Collection("envoys").UpdateOne(ctx, filter, update); err != nil {
-				s.logger.Errorf("Failed to update status for service %v: %v", service["name"], err)
+			if oldRev == 0 {
+				// Legacy doc with no rev field yet — match it, the $inc
+				// below stamps the first rev.
+				filter["$or"] = []bson.M{
+					{"rev": int64(0)},
+					{"rev": bson.M{"$exists": false}},
+				}
 			} else {
+				filter["rev"] = oldRev
+			}
+			// $inc `rev` so the control-plane CAS observes this status
+			// write and does not overwrite it from a stale read.
+			update := bson.M{
+				"$set": bson.M{"status": newStatus},
+				"$inc": bson.M{"rev": int64(1)},
+			}
+
+			res, err := s.Context.Client.Collection("envoys").UpdateOne(ctx, filter, update)
+			switch {
+			case err != nil:
+				s.logger.Errorf("Failed to update status for service %v: %v", service["name"], err)
+			case res.MatchedCount == 0:
+				// A concurrent writer advanced rev — it owns a fresher
+				// status; leave it untouched.
+				s.logger.Debugf("Skipped status update for service %v: concurrent change", service["name"])
+			default:
 				s.logger.Debugf("Updated service %v status: %s -> %s", service["name"], currentStatus, newStatus)
 				updatedCount++
 			}
@@ -427,11 +462,15 @@ func (s *ClientService) CleanupStaleEnvoysFromDB(ctx context.Context) error {
 	}
 
 	// Update: Set connected=false for stale envoys using arrayFilters
-	// This updates ONLY the envoys that match the stale condition
+	// This updates ONLY the envoys that match the stale condition.
+	// The $inc on `rev` makes the change visible to the control-plane
+	// AddOrUpdateEnvoy/DisconnectNodeIDWithCount compare-and-swap so a
+	// concurrent whole-array $set there cannot revive a stale envoy.
 	update := bson.M{
 		"$set": bson.M{
 			"envoys.$[elem].connected": false,
 		},
+		"$inc": bson.M{"rev": int64(1)},
 	}
 
 	// ArrayFilters: Apply update only to envoys with lastSync < threshold
@@ -464,6 +503,14 @@ func (s *ClientService) CleanupStaleEnvoysFromDB(ctx context.Context) error {
 		s.logger.Debugf("ENVOY-CLEANUP-DONE: No stale envoys found (all healthy)")
 	}
 
+	// Prune orphan entries (a connection no longer part of the listener's
+	// deployment) BEFORE recalculating status, so the recalculated status
+	// reflects the cleaned array. Non-fatal: a prune failure must not stop
+	// the status recalculation below.
+	if err := s.PruneOrphanEnvoys(ctx); err != nil {
+		s.logger.Errorf("ENVOY-CLEANUP-ERROR: Failed to prune orphan envoys: %v", err)
+	}
+
 	// IMPORTANT: ALWAYS recalculate status (even if no envoys were modified)
 	// This fixes status field that was not updated by previous cleanup runs
 	// Status may be stale from old code that didn't call RecalculateServiceStatuses
@@ -474,6 +521,98 @@ func (s *ClientService) CleanupStaleEnvoysFromDB(ctx context.Context) error {
 	s.logger.Debugf("ENVOY-CLEANUP-STATUS: Recalculated service statuses")
 
 	return nil
+}
+
+// PruneOrphanEnvoys removes envoys[] entries that are no longer part of
+// the listener's deployment. An entry is an orphan when it is
+// disconnected AND its downstream_address is not among the matching
+// `services` document's clients[] — e.g. a pod that connected once from
+// an IP the listener was later moved off. The disconnect path only ever
+// flips connected:false and never removes such an entry, so without this
+// prune one stale connection pins a listener to "Partial" forever.
+//
+// Conservative by construction:
+//   - connected:true entries are never touched (the $pull requires
+//     connected:false).
+//   - a disconnected entry whose downstream IS a current deployment
+//     target (a deployed-but-down client) is kept — "Partial" stays
+//     truthful for it.
+//   - a listener with no `services` document is skipped entirely —
+//     never prune on the absence of the deploy config.
+//
+// Each prune is an atomic $pull (no read-modify-write), so it is safe
+// against the concurrent heartbeat / connect updates and idempotent
+// across controller pods.
+func (s *ClientService) PruneOrphanEnvoys(ctx context.Context) error {
+	cursor, err := s.Context.Client.Collection("envoys").Find(ctx, bson.M{})
+	if err != nil {
+		return fmt.Errorf("failed to fetch envoys for orphan prune: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	prunedDocs := 0
+	for cursor.Next(ctx) {
+		var doc bson.M
+		if err := cursor.Decode(&doc); err != nil {
+			s.logger.Errorf("ENVOY-PRUNE: Failed to decode envoys doc: %v", err)
+			continue
+		}
+		name, _ := doc["name"].(string)
+		project, _ := doc["project"].(string)
+		if name == "" || project == "" {
+			continue
+		}
+
+		// Deploy config is the source of truth for the downstreams the
+		// listener is actually deployed to. No services doc / read error
+		// → cannot decide → skip (never prune on absence).
+		var svc bson.M
+		if err := s.Context.Client.Collection("services").
+			FindOne(ctx, bson.M{"name": name, "project": project}).Decode(&svc); err != nil {
+			continue
+		}
+		deployed := []string{}
+		if clients, ok := svc["clients"].(bson.A); ok {
+			for _, c := range clients {
+				if cm, ok := c.(bson.M); ok {
+					if ds, ok := cm["downstream_address"].(string); ok && ds != "" {
+						deployed = append(deployed, ds)
+					}
+				}
+			}
+		}
+
+		// Atomic $pull: drop every disconnected entry whose downstream is
+		// not a current deployment target. The filter's $elemMatch means
+		// the write (and its rev bump) only fires when an orphan actually
+		// exists — no churn on clean documents. The $inc on `rev` makes
+		// the prune visible to the control-plane CAS so a stale-read
+		// whole-array $set there cannot re-introduce the orphan.
+		orphanCond := bson.M{
+			"connected":          false,
+			"downstream_address": bson.M{"$nin": deployed},
+		}
+		res, err := s.Context.Client.Collection("envoys").UpdateOne(ctx,
+			bson.M{"_id": doc["_id"], "envoys": bson.M{"$elemMatch": orphanCond}},
+			bson.M{
+				"$pull": bson.M{"envoys": orphanCond},
+				"$inc":  bson.M{"rev": int64(1)},
+			},
+		)
+		if err != nil {
+			s.logger.Errorf("ENVOY-PRUNE: Failed to prune orphans for listener %s: %v", name, err)
+			continue
+		}
+		if res.ModifiedCount > 0 {
+			prunedDocs++
+			s.logger.Infof("ENVOY-PRUNE: Removed orphan envoy entr(ies) from listener %s", name)
+		}
+	}
+
+	if prunedDocs > 0 {
+		s.logger.Infof("ENVOY-PRUNE-DONE: Pruned orphan envoys from %d listener(s)", prunedDocs)
+	}
+	return cursor.Err()
 }
 
 // StartPeriodicSync starts periodic sync between DB and registry

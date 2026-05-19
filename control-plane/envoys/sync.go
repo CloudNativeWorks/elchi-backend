@@ -65,6 +65,44 @@ func determineStatus(downstreams []bson.M, logger *logger.Logger) string {
 	return status
 }
 
+// maxEnvoyWriteAttempts bounds the optimistic-concurrency retry loop in
+// AddOrUpdateEnvoy / DisconnectNodeIDWithCount. A conflict only occurs
+// when a concurrent heartbeat / cleanup / prune commits between this
+// writer's read and write; a couple of retries is always enough.
+const maxEnvoyWriteAttempts = 5
+
+// envoyDocRev reads the optimistic-concurrency revision from an envoys
+// document. A doc written before the `rev` field existed has none — it
+// is treated as 0, and withRevGuard then matches it via {$exists:false}.
+func envoyDocRev(doc bson.M) int64 {
+	switch v := doc["rev"].(type) {
+	case int64:
+		return v
+	case int32:
+		return int64(v)
+	case int:
+		return int64(v)
+	}
+	return 0
+}
+
+// withRevGuard builds the compare-and-swap filter: the guarded write
+// commits only if the document's `rev` still equals the value read.
+// rev==0 also matches a legacy document that has no `rev` field yet —
+// its first guarded write stamps one via the accompanying $inc.
+func withRevGuard(name, project string, rev int64) bson.M {
+	f := bson.M{"name": name, "project": project}
+	if rev == 0 {
+		f["$or"] = []bson.M{
+			{"rev": int64(0)},
+			{"rev": bson.M{"$exists": false}},
+		}
+	} else {
+		f["rev"] = rev
+	}
+	return f
+}
+
 func (e *EnvoyConnTracker) AddOrUpdateEnvoy(ctx context.Context, dbClient *mongo.Database, sourceAddress, nodeID, version, downstreamAddress, clientName, clientID string, connCount int, logger *logger.Logger) {
 	if downstreamAddress == "" {
 		return
@@ -73,25 +111,57 @@ func (e *EnvoyConnTracker) AddOrUpdateEnvoy(ctx context.Context, dbClient *mongo
 	name, project, _ := GetNodeIDParts(nodeID)
 	filter := bson.M{"name": name, "project": project}
 
-	var existing bson.M
-	err := collection.FindOne(ctx, filter).Decode(&existing)
-	if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
-		logger.Errorf("Error reading envoys stream: %v", err)
-		return
-	}
+	// Optimistic-concurrency (CAS) loop. The whole-array $set below would
+	// otherwise clobber a concurrent heartbeat / cleanup / prune write
+	// (all of which now $inc `rev`). The guarded write commits only when
+	// `rev` is unchanged since the read; on a conflict we re-read and
+	// recompute, so no concurrent update is ever lost.
+	for attempt := 1; attempt <= maxEnvoyWriteAttempts; attempt++ {
+		var existing bson.M
+		err := collection.FindOne(ctx, filter).Decode(&existing)
+		notFound := errors.Is(err, mongo.ErrNoDocuments)
+		if err != nil && !notFound {
+			logger.Errorf("Error reading envoys stream: %v", err)
+			return
+		}
 
-	updateFields := bson.M{}
-	downstreams := getDownstreams(existing)
-	downstreams = e.updateDownstreamsWithCount(downstreams, downstreamAddress, nodeID, version, clientName, clientID, sourceAddress, connCount, false, logger)
-	updateFields["envoys"] = downstreams
-	updateFields["status"] = determineStatus(downstreams, logger)
+		downstreams := getDownstreams(existing)
+		downstreams = e.updateDownstreamsWithCount(downstreams, downstreamAddress, nodeID, version, clientName, clientID, sourceAddress, connCount, false, logger)
+		setFields := bson.M{"envoys": downstreams, "status": determineStatus(downstreams, logger)}
 
-	update := bson.M{"$set": updateFields}
-	opts := options.Update().SetUpsert(true)
-	_, err = collection.UpdateOne(ctx, filter, update, opts)
-	if err != nil {
-		logger.Errorf("Error adding or updating envoys stream: %v", err)
+		if notFound {
+			// First write for this listener — insert with rev=1. The
+			// single processDBOperations goroutine serializes connect /
+			// disconnect, so a concurrent first-create cannot occur.
+			res, uerr := collection.UpdateOne(ctx, filter,
+				bson.M{"$set": setFields, "$setOnInsert": bson.M{"rev": int64(1)}},
+				options.Update().SetUpsert(true))
+			if uerr != nil {
+				logger.Errorf("Error creating envoys stream: %v", uerr)
+				return
+			}
+			if res.UpsertedCount == 1 {
+				return
+			}
+			// The document already existed (lost a create race) — retry
+			// as a guarded update so the final state stays consistent.
+			continue
+		}
+
+		oldRev := envoyDocRev(existing)
+		res, uerr := collection.UpdateOne(ctx, withRevGuard(name, project, oldRev),
+			bson.M{"$set": setFields, "$inc": bson.M{"rev": int64(1)}})
+		if uerr != nil {
+			logger.Errorf("Error adding or updating envoys stream: %v", uerr)
+			return
+		}
+		if res.MatchedCount == 1 {
+			return
+		}
+		// rev advanced under us — a concurrent writer committed; retry.
+		logger.Debugf("DEBUG: AddOrUpdateEnvoy - rev conflict for nodeID %s (attempt %d), retrying\n", nodeID, attempt)
 	}
+	logger.Warnf("AddOrUpdateEnvoy: gave up after %d attempts (rev conflict) for nodeID %s", maxEnvoyWriteAttempts, nodeID)
 }
 
 func (e *EnvoyConnTracker) updateDownstreamsWithCount(downstreams []bson.M, downstreamAddress, nodeID, version, clientName, clientID, sourceAddress string, connCount int, isUndeploy bool, logger *logger.Logger) []bson.M {
@@ -225,6 +295,37 @@ func (e *EnvoyConnTracker) updateDownstreamsWithCount(downstreams []bson.M, down
 		downstreams = append(downstreams, entry)
 	}
 
+	// Supersede stale siblings: a client runs exactly one Envoy per
+	// listener, so any OTHER entry carrying this same client_id is a
+	// ghost of a prior connection — the pod reconnected under a new
+	// downstream IP (hence a new nodeID) after a restart. The disconnect
+	// path only ever flips `connected:false`; it never removes the dead
+	// entry, so left in place a single live client reports as "Partial"
+	// forever (determineStatus sees 1 connected of 2). Prune it here, at
+	// the point the live entry is recorded. clientID is non-empty only on
+	// the connect path (AddOrUpdateEnvoy) — the disconnect / undeploy
+	// paths pass "", so this never fires there. The current node's own
+	// entry (nodeid == nodeID) is always kept.
+	if clientID != "" {
+		kept := downstreams[:0]
+		for _, m := range downstreams {
+			mClientID, cidOK := m["client_id"].(string)
+			mNodeID, nidOK := m["nodeid"].(string)
+			// Prune ONLY a positively-identified superseded sibling: both
+			// fields readable as strings, same client_id, a different
+			// nodeID. An entry whose fields cannot be parsed is KEPT — a
+			// destructive prune must never act on an entry it failed to
+			// read. The current node's own entry (mNodeID == nodeID) is
+			// likewise kept.
+			if cidOK && nidOK && mClientID == clientID && mNodeID != nodeID {
+				logger.Printf("DEBUG: pruning superseded envoy entry nodeID=%s client_id=%s (replaced by nodeID=%s)\n", mNodeID, mClientID, nodeID)
+				continue
+			}
+			kept = append(kept, m)
+		}
+		downstreams = kept
+	}
+
 	logger.Printf("DEBUG: updateDownstreamsWithCount - final result count: %d\n", len(downstreams))
 	return downstreams
 }
@@ -245,28 +346,44 @@ func (e *EnvoyConnTracker) DisconnectNodeIDWithCount(ctx context.Context, dbClie
 	collection := dbClient.Collection("envoys")
 	filter := bson.M{"name": name, "project": project}
 
-	var existing bson.M
-	err := collection.FindOne(ctx, filter).Decode(&existing)
-	if err != nil {
-		logger.Debugf("DEBUG: DisconnectNodeIDWithCount - error reading envoys: %v\n", err)
-		logger.Errorf("Error reading envoys stream: %v", err)
-		return
-	}
+	// Optimistic-concurrency (CAS) loop — same rationale as
+	// AddOrUpdateEnvoy. This also serialises against the synchronous
+	// TrackUndeploy path: whichever guarded write loses the rev race
+	// simply re-reads and retries.
+	for attempt := 1; attempt <= maxEnvoyWriteAttempts; attempt++ {
+		var existing bson.M
+		err := collection.FindOne(ctx, filter).Decode(&existing)
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			// No envoys document — nothing to disconnect.
+			logger.Debugf("DEBUG: DisconnectNodeIDWithCount - no envoys doc for %s/%s, skipping\n", name, project)
+			return
+		}
+		if err != nil {
+			logger.Debugf("DEBUG: DisconnectNodeIDWithCount - error reading envoys: %v\n", err)
+			logger.Errorf("Error reading envoys stream: %v", err)
+			return
+		}
 
-	updateFields := bson.M{}
-	downstreams := getDownstreams(existing)
-	downstreams = e.updateDownstreamsWithCount(downstreams, downstreamAddress, nodeID, "", "", "", "", connCount, isUndeploy, logger)
-	updateFields["envoys"] = downstreams
-	updateFields["status"] = determineStatus(downstreams, logger)
+		downstreams := getDownstreams(existing)
+		downstreams = e.updateDownstreamsWithCount(downstreams, downstreamAddress, nodeID, "", "", "", "", connCount, isUndeploy, logger)
+		setFields := bson.M{"envoys": downstreams, "status": determineStatus(downstreams, logger)}
 
-	update := bson.M{"$set": updateFields}
-	_, err = collection.UpdateOne(ctx, filter, update)
-	if err != nil {
-		logger.Debugf("DEBUG: DisconnectNodeIDWithCount - error updating: %v\n", err)
-		logger.Errorf("Error removing node ID: %v", err)
-	} else {
-		logger.Debugf("DEBUG: DisconnectNodeIDWithCount - successfully updated MongoDB\n")
+		oldRev := envoyDocRev(existing)
+		res, uerr := collection.UpdateOne(ctx, withRevGuard(name, project, oldRev),
+			bson.M{"$set": setFields, "$inc": bson.M{"rev": int64(1)}})
+		if uerr != nil {
+			logger.Debugf("DEBUG: DisconnectNodeIDWithCount - error updating: %v\n", uerr)
+			logger.Errorf("Error removing node ID: %v", uerr)
+			return
+		}
+		if res.MatchedCount == 1 {
+			logger.Debugf("DEBUG: DisconnectNodeIDWithCount - successfully updated MongoDB\n")
+			return
+		}
+		// rev advanced under us — a concurrent writer committed; retry.
+		logger.Debugf("DEBUG: DisconnectNodeIDWithCount - rev conflict for nodeID %s (attempt %d), retrying\n", nodeID, attempt)
 	}
+	logger.Warnf("DisconnectNodeIDWithCount: gave up after %d attempts (rev conflict) for nodeID %s", maxEnvoyWriteAttempts, nodeID)
 }
 
 // Legacy InsertError function removed - using enhanced error system only

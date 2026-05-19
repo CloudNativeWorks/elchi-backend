@@ -221,16 +221,29 @@ func (p *UnDeployResponser) removeServiceFromEnvoys(serviceName, projectName, cl
 
 	p.Logger.Debugf("removeServiceFromEnvoys - Found service in envoys collection with %d envoys", len(envoys.Envoys))
 
+	entryMatch := bson.M{
+		"client_name":        clientName,
+		"downstream_address": downstreamAddress,
+	}
 	update := bson.M{
-		"$pull": bson.M{
-			"envoys": bson.M{
-				"client_name":        clientName,
-				"downstream_address": downstreamAddress,
-			},
-		},
+		"$pull": bson.M{"envoys": entryMatch},
+		// $inc `rev` so the control-plane AddOrUpdateEnvoy /
+		// DisconnectNodeIDWithCount compare-and-swap sees this removal
+		// and cannot revive the pulled entry from a stale read.
+		"$inc": bson.M{"rev": int64(1)},
 	}
 
-	result, err := envoysCollection.UpdateOne(context.Background(), filter, update)
+	// $elemMatch guard: the write (and its rev bump) only fires when the
+	// entry is actually present, so ModifiedCount == 0 still means "the
+	// client was not in the array" — the $inc would otherwise make every
+	// call report a modification.
+	pullFilter := bson.M{
+		"name":    serviceName,
+		"project": projectName,
+		"envoys":  bson.M{"$elemMatch": entryMatch},
+	}
+
+	result, err := envoysCollection.UpdateOne(context.Background(), pullFilter, update)
 	if err != nil {
 		p.Logger.Errorf("removeServiceFromEnvoys - Error while removing client from envoys: %v", err)
 		return fmt.Errorf("error while removing client from envoys: %w", err)

@@ -122,6 +122,23 @@ var registryCmd = &cobra.Command{
 			snapshotter.StartReader(electionCtx, pollInterval)
 		})
 
+		// Start as a snapshot reader BEFORE the election loop runs.
+		//
+		// The election callback only fires on a leadership *transition*
+		// (atomic.Bool CompareAndSwap in registry/leader.tickOnce). An
+		// instance that joins while a leader already holds the lease
+		// stays at the initial not-leader state forever — no transition,
+		// no callback, no StartReader → its in-memory store would never
+		// be hydrated from the snapshot doc and would drift indefinitely
+		// from the leader's view.
+		//
+		// Pre-starting the reader makes "standby" the correct default
+		// regardless of whether the initial-state callback ever fires.
+		// StartReader is documented idempotent and the promotion branch
+		// above calls StopReader before StartWriter, so the lifecycle
+		// stays correct on every later transition.
+		snapshotter.StartReader(electionCtx, pollInterval)
+
 		// Drive elections in the background.
 		go election.Run(electionCtx)
 

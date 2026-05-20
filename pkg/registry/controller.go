@@ -38,6 +38,16 @@ type RegistryClient struct {
 	// Registration tracking
 	isRegistered bool
 	regMutex     sync.RWMutex
+
+	// getConnectedClients snapshots the live set of connected client IDs.
+	// Set once by StartHealthMonitor; consumed by clientListUpdateLoop's
+	// periodic tick AND by ConnectAndRegister's post-register state push.
+	// Without the post-register push the controller's view in the registry
+	// stays stale for up to 30s after every reconnect — same gap the
+	// control-plane manager already closes by sending an initial empty
+	// node list + SyncAllNodesWithRegistry right after re-registration.
+	getConnectedClients func() []string
+	getClientsMu        sync.RWMutex
 }
 
 type Config struct {
@@ -424,6 +434,13 @@ func (r *RegistryClient) IsConnected() bool {
 
 // StartHealthMonitor starts enhanced health monitoring with continuous reconnect capability
 func (r *RegistryClient) StartHealthMonitor(getConnectedClients func() []string) {
+	// Stash the snapshot fn so ConnectAndRegister can push state on every
+	// reconnect — closing the asymmetry with the control-plane manager
+	// which already sends an initial node list right after re-register.
+	r.getClientsMu.Lock()
+	r.getConnectedClients = getConnectedClients
+	r.getClientsMu.Unlock()
+
 	// Start continuous reconnect loop
 	r.wg.Add(1)
 	go r.continuousReconnectLoop()
@@ -433,6 +450,21 @@ func (r *RegistryClient) StartHealthMonitor(getConnectedClients func() []string)
 	go r.clientListUpdateLoop(getConnectedClients)
 
 	r.logger.Infof("Enhanced health monitor started with continuous reconnect capability")
+}
+
+// snapshotConnectedClients returns the live client-id set if a provider
+// has been installed (via StartHealthMonitor) or nil otherwise. Nil is
+// the cue for ConnectAndRegister to skip the post-register push — the
+// very first ConnectAndRegister at boot runs BEFORE StartHealthMonitor
+// is wired up, and pushing an empty list there would wipe the (empty
+// anyway) registry view without buying anything.
+func (r *RegistryClient) snapshotConnectedClients() []string {
+	r.getClientsMu.RLock()
+	defer r.getClientsMu.RUnlock()
+	if r.getConnectedClients == nil {
+		return nil
+	}
+	return r.getConnectedClients()
 }
 
 // continuousReconnectLoop provides continuous reconnection capability
@@ -505,6 +537,24 @@ func (r *RegistryClient) ConnectAndRegister() error {
 	}
 
 	r.logger.Infof("Controller registered successfully with registry")
+
+	// Push live client list to the registry immediately after a successful
+	// (re)registration so its view is fresh without waiting for the 30s
+	// periodic tick. Mirrors what ControlPlaneManager already does post-
+	// register (control_plane_manager.go:196). Skip if no snapshot fn is
+	// installed yet — that is the very first boot-time call, before
+	// StartHealthMonitor wires the provider up.
+	connectedClients := r.snapshotConnectedClients()
+	if connectedClients != nil {
+		r.logger.Infof("Pushing initial client list after registration: %d clients", len(connectedClients))
+		if err := r.UpdateClientList(connectedClients); err != nil {
+			// Soft failure: registration itself succeeded, the periodic
+			// loop will retry on the next tick. Log + continue.
+			r.logger.Warnf("Initial client list push failed after registration: %v", err)
+		} else {
+			r.logger.Infof("Initial client list push completed: %d clients", len(connectedClients))
+		}
+	}
 	return nil
 }
 

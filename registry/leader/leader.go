@@ -203,10 +203,19 @@ func (e *Election) tryAcquireOrRenew(ctx context.Context) (bool, error) {
 	return got.HolderID == e.holderID, nil
 }
 
-func (e *Election) releaseIfHeld(ctx context.Context) {
+func (e *Election) releaseIfHeld(parent context.Context) {
 	if !e.leader.CompareAndSwap(true, false) {
 		return
 	}
+	// Bound the shutdown release to 3s. Run.go's callers pass either the
+	// cancelled election ctx (which would skip the delete entirely with
+	// a context error) or context.Background() (no deadline at all). The
+	// latter risks an indefinite hang if Mongo is unreachable during
+	// shutdown — and systemd will SIGKILL us at TimeoutStopSec=30s, so
+	// standbys would wait the full 30s TTL before promotion instead of
+	// acquiring on the next renewal tick.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
 	col := e.db.Collection(CollectionName)
 	_, err := col.DeleteOne(ctx, bson.M{"_id": LockKey, "holder_id": e.holderID})
 	if err != nil {
@@ -215,6 +224,7 @@ func (e *Election) releaseIfHeld(ctx context.Context) {
 		e.logger.Infof("registry leader: released lock (holder=%s)", e.holderID)
 	}
 	e.fireCallbacks(false)
+	_ = parent // parent ctx is informational; we use a bounded local ctx instead
 }
 
 func (e *Election) fireCallbacks(isLeader bool) {

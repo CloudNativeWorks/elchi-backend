@@ -513,7 +513,18 @@ func (p *ExternalProcessorServer) isEnvoyADSStream(path string) bool {
 // when both are nil the registry runs single-node (always SERVING, no guards).
 // When supplied, the registry registers a grpc.health.v1 service whose status
 // flips with leadership and rejects RPCs on standby instances.
+//
+// ctx drives graceful shutdown: when ctx is cancelled (typically by a SIGTERM
+// handler in cmd/registry.go) the server calls grpc.Server.GracefulStop, which
+// stops accepting new RPCs and waits for in-flight ones to finish. This is
+// the only path that lets the election loop's `releaseIfHeld` actually run
+// before the process exits — without it, SIGTERM terminates the Go runtime
+// immediately, deferred releases never fire, and the Mongo lock doc stays
+// behind for the full TTL (default 30s). A restarted single-node registry
+// then sits as standby for ~30s rejecting RPCs with "not the active leader",
+// which is what we observed in local restarts.
 func StartGRPCServer(
+	ctx context.Context,
 	address string,
 	controllerRoutingService *service.ControllerRoutingService,
 	controlPlaneRoutingService *service.RoutingService,
@@ -561,6 +572,16 @@ func StartGRPCServer(
 		hs := NewHealthServer(observer, logger)
 		grpc_health_v1.RegisterHealthServer(grpcServer, hs)
 	}
+
+	// Wire ctx cancellation to a graceful shutdown of the gRPC server.
+	// GracefulStop sends GOAWAY to existing connections, drains in-flight
+	// RPCs and only then returns — letting deferred Mongo work (snapshot
+	// save, lock release) finish before the binary exits.
+	go func() {
+		<-ctx.Done()
+		logger.Infof("shutdown signal received, gracefully stopping gRPC server")
+		grpcServer.GracefulStop()
+	}()
 
 	logger.Infof("gRPC server starting on address %s (Controller + Control-Plane + ExternalProcessor + Metrics + Health services)", address)
 

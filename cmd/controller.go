@@ -202,7 +202,7 @@ var restCmd = &cobra.Command{
 		clientHandler := client.NewClientHandler(appContext, xdsHandler, openstackHandler, clientService)
 		discoveryHandler := discovery.NewDiscoveryHandler(appContext, &bridgeHandler.Poke)
 		jobHandler := handlers.NewJobHandler(appContext, &bridgeHandler.Poke, rootLogger, clientHandler.Handler)
-		registryHandler := handlers.NewRegistryHandler(registryClient, rootLogger)
+		registryHandler := handlers.NewRegistryHandler(registryClient, appContext, rootLogger)
 
 		// Initialize upgrade handler (will be set after jobHandler starts async system)
 		var upgradeHandler *handlers.UpgradeHandler

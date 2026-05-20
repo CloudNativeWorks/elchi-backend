@@ -11,7 +11,7 @@ on:
       envoy_versions:
         description: 'Control Plane versions (comma separated). One AMD64 binary built per version.'
         required: true
-        default: 'v0.13.4-envoy1.35.3'
+        default: 'v0.14.0-envoy1.35.3,v0.14.0-envoy1.36.2'
         type: string
 
 env:

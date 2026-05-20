@@ -270,17 +270,27 @@ func (s *InMemoryRoutingStorage) ExportAll() ([]*models.ControlPlane, []*models.
 // ImportAll replaces the in-memory state with the supplied snapshot.
 // Used by the snapshot reader (standby) to stay warm with the leader's state.
 // Existing entries are dropped — this is a full overwrite.
+//
+// Defensive nil-skip: see InMemoryStorage.ImportAll for full rationale —
+// a panic here would kill the snapshot readerLoop and freeze this standby
+// on stale state until restart.
 func (s *InMemoryRoutingStorage) ImportAll(controlPlanes []*models.ControlPlane, mappings []*models.NodeMapping) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.controlPlanes = make(map[string]*models.ControlPlane, len(controlPlanes))
 	for _, c := range controlPlanes {
+		if c == nil {
+			continue
+		}
 		cp := *c
 		s.controlPlanes[cp.ID] = &cp
 	}
 	s.nodeMappings = make(map[string]*models.NodeMapping, len(mappings))
 	for _, m := range mappings {
+		if m == nil {
+			continue
+		}
 		mp := *m
 		key := fmt.Sprintf("%s:%s", mp.NodeID, mp.Version)
 		s.nodeMappings[key] = &mp

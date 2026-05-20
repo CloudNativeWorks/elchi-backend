@@ -194,7 +194,19 @@ var registryCmd = &cobra.Command{
 		snapshotter.StartReader(electionCtx, pollInterval)
 
 		// Drive elections in the background.
-		go election.Run(electionCtx)
+		// electionDone closes when election.Run returns (after releaseIfHeld
+		// finishes). Main goroutine waits on this AFTER StartGRPCServer
+		// returns — without that wait, SIGTERM → ctx cancel → StartGRPCServer
+		// returns → main exits → election goroutine is killed mid-flight and
+		// the 3s releaseIfHeld deadline never gets its chance. The whole
+		// point of K2 (timeout) + the signal handler was to release the
+		// Mongo lock cleanly so a restarted instance becomes leader in <1s
+		// instead of waiting out the full 30s TTL.
+		electionDone := make(chan struct{})
+		go func() {
+			election.Run(electionCtx)
+			close(electionDone)
+		}()
 
 		// Start HTTP metrics server (port 9091)
 		httpMetricsServer := server.NewHTTPMetricsServer(metricsAggregator, 9091, metricsLogger)
@@ -251,6 +263,17 @@ var registryCmd = &cobra.Command{
 		rootLogger.WithField("address", fullAddress).Info("Starting gRPC server")
 		if err := server.StartGRPCServer(electionCtx, fullAddress, controllerRoutingService, controlPlaneRoutingService, metricsAggregator, rootLogger, appConfig, election, election); err != nil {
 			rootLogger.WithError(err).Fatal("gRPC server error")
+		}
+
+		// gRPC server returned — block until election loop has finished
+		// releaseIfHeld. Bounded by a 5s safety timer in case Mongo hangs
+		// (the in-loop releaseIfHeld already has its own 3s deadline; this
+		// outer guard catches any deadlock above that layer).
+		select {
+		case <-electionDone:
+			rootLogger.Info("election loop drained cleanly")
+		case <-time.After(5 * time.Second):
+			rootLogger.Warn("election loop drain timed out after 5s; exiting anyway")
 		}
 	},
 }

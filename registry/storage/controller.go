@@ -300,17 +300,29 @@ func (s *InMemoryStorage) ExportAll() ([]*models.ControllerInfo, []*models.Clien
 // ImportAll replaces the in-memory state with the supplied snapshot.
 // Used by the snapshot reader (standby) to stay warm with the leader's state.
 // Existing entries are dropped — this is a full overwrite.
+//
+// Defensive nil-skip: a malformed/partially-decoded snapshot doc could in
+// principle return a slice containing a nil pointer. Dereferencing it
+// would panic and kill the readerLoop, leaving the standby frozen on
+// whatever state it last loaded. The cost of the per-entry nil check is
+// negligible vs. the failure mode it prevents.
 func (s *InMemoryStorage) ImportAll(controllers []*models.ControllerInfo, mappings []*models.ClientMapping) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.controllers = make(map[string]*models.ControllerInfo, len(controllers))
 	for _, c := range controllers {
+		if c == nil {
+			continue
+		}
 		cp := *c
 		s.controllers[cp.ID] = &cp
 	}
 	s.clientMappings = make(map[string]*models.ClientMapping, len(mappings))
 	for _, m := range mappings {
+		if m == nil {
+			continue
+		}
 		mp := *m
 		key := fmt.Sprintf("%s:%s", mp.ClientID, mp.Version)
 		s.clientMappings[key] = &mp

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/bridge"
@@ -15,8 +16,17 @@ import (
 )
 
 type RegistryClient struct {
-	conn             *grpc.ClientConn
-	controllerClient bridge.ControllerRoutingServiceClient
+	conn *grpc.ClientConn
+	// controllerClient is the gRPC stub. Wrapped in atomic.Pointer so it
+	// can be swapped during reconnect without racing with concurrent RPC
+	// callers. Interfaces in Go are two-word values; assigning one across
+	// goroutines without synchronization can publish a half-written value
+	// (type word from the new stub, data word from the old) — race detector
+	// catches it, and on rare occasions the half-published value segfaults.
+	// atomic.Pointer[T] guarantees a single tagged-pointer load/store so
+	// RPC callers see either the old stub OR the new stub, never a torn
+	// mix. Helper getControllerClient() centralises Load + nil-check.
+	controllerClient atomic.Pointer[bridge.ControllerRoutingServiceClient]
 	controllerID     string
 	version          string
 	grpcAddress      string
@@ -96,10 +106,12 @@ func NewRegistryClientWithConfig(config *Config, logger *logger.Logger, appConfi
 
 // Connect establishes gRPC connection to registry.
 //
-// Pairs with Disconnect: both hold connectionMutex around the conn
-// pointer mutation so the {conn, controllerClient} pair stays
-// consistent. setConnectionState is called OUTSIDE the lock to avoid
-// re-entering the same mutex (RWMutex isn't re-entrant in Go).
+// Pairs with Disconnect: connectionMutex guards the conn pointer; the
+// controllerClient stub is published atomically via atomic.Pointer so
+// concurrent RPC callers see either the old stub or the new stub but
+// never a half-written interface value. setConnectionState is called
+// OUTSIDE the lock to avoid re-entering the same mutex (RWMutex isn't
+// re-entrant in Go).
 func (r *RegistryClient) Connect() error {
 	// Use shared gRPC dial options for consistency
 	conn, err := grpc.NewClient(r.registryAddr, GetDefaultGRPCDialOptions(r.appConfig)...)
@@ -107,13 +119,26 @@ func (r *RegistryClient) Connect() error {
 		return fmt.Errorf("failed to create connection: %w", err)
 	}
 
+	stub := bridge.NewControllerRoutingServiceClient(conn)
 	r.connectionMutex.Lock()
 	r.conn = conn
-	r.controllerClient = bridge.NewControllerRoutingServiceClient(conn)
+	r.controllerClient.Store(&stub)
 	r.connectionMutex.Unlock()
 
 	r.setConnectionState(ControllerStateConnected)
 	return nil
+}
+
+// getControllerClient returns the current gRPC stub or nil if no
+// connection has been established. Callers must nil-check the returned
+// value; an atomic.Pointer load that returns nil means the conn was
+// either never set or Disconnect just cleared it.
+func (r *RegistryClient) getControllerClient() bridge.ControllerRoutingServiceClient {
+	p := r.controllerClient.Load()
+	if p == nil {
+		return nil
+	}
+	return *p
 }
 
 // Disconnect closes the gRPC connection.
@@ -130,6 +155,11 @@ func (r *RegistryClient) Disconnect() error {
 	}
 	err := r.conn.Close()
 	r.conn = nil
+	// Clear the stub so getControllerClient returns nil on next read.
+	// In-flight RPCs that already loaded the stub will fail on the
+	// now-closed conn with codes.Unavailable, which the caller treats
+	// as a reconnect trigger — same recovery path as before.
+	r.controllerClient.Store(nil)
 	return err
 }
 
@@ -190,7 +220,11 @@ func (r *RegistryClient) RegisterController() error {
 		Timestamp:    timestamppb.New(time.Now()),
 	}
 
-	resp, err := r.controllerClient.RegisterController(ctx, req)
+	client := r.getControllerClient()
+	if client == nil {
+		return fmt.Errorf("registry client not connected")
+	}
+	resp, err := client.RegisterController(ctx, req)
 	if err != nil {
 		return fmt.Errorf("failed to register controller: %w", err)
 	}
@@ -222,7 +256,11 @@ func (r *RegistryClient) NotifyClientConnected(clientID string) error {
 		Timestamp:    timestamppb.New(time.Now()),
 	}
 
-	resp, err := r.controllerClient.NotifyClientConnected(ctx, req)
+	client := r.getControllerClient()
+	if client == nil {
+		return fmt.Errorf("registry client not connected")
+	}
+	resp, err := client.NotifyClientConnected(ctx, req)
 	if err != nil {
 		// Mark as disconnected on error to trigger reconnection
 		r.setConnectionState(ControllerStateDisconnected)
@@ -255,7 +293,11 @@ func (r *RegistryClient) NotifyClientDisconnected(clientID string) error {
 		Timestamp:    timestamppb.New(time.Now()),
 	}
 
-	resp, err := r.controllerClient.NotifyClientDisconnected(ctx, req)
+	client := r.getControllerClient()
+	if client == nil {
+		return fmt.Errorf("registry client not connected")
+	}
+	resp, err := client.NotifyClientDisconnected(ctx, req)
 	if err != nil {
 		// Mark as disconnected on error to trigger reconnection
 		r.setConnectionState(ControllerStateDisconnected)
@@ -293,7 +335,11 @@ func (r *RegistryClient) UpdateClientList(clientIDs []string) error {
 		Timestamp:    timestamppb.New(time.Now()),
 	}
 
-	resp, err := r.controllerClient.UpdateClientList(ctx, req)
+	client := r.getControllerClient()
+	if client == nil {
+		return fmt.Errorf("registry client not connected")
+	}
+	resp, err := client.UpdateClientList(ctx, req)
 	if err != nil {
 		return fmt.Errorf("failed to update client list: %w", err)
 	}
@@ -319,7 +365,11 @@ func (r *RegistryClient) GetClientLocation(clientID string) (*bridge.GetControll
 		Timestamp: timestamppb.New(time.Now()),
 	}
 
-	resp, err := r.controllerClient.GetControllerCluster(ctx, req)
+	client := r.getControllerClient()
+	if client == nil {
+		return nil, fmt.Errorf("registry client not connected")
+	}
+	resp, err := client.GetControllerCluster(ctx, req)
 	if err != nil {
 		r.logger.Errorf("Registry GetControllerCluster failed: %v", err)
 		return nil, fmt.Errorf("failed to get client location: %w", err)
@@ -336,15 +386,23 @@ func (r *RegistryClient) GetClientLocation(clientID string) (*bridge.GetControll
 
 // GetRegistryData returns all registry data via gRPC
 func (r *RegistryClient) GetRegistryData(ctx context.Context) (map[string]any, error) {
-	if r.conn == nil {
+	// Snapshot the conn pointer under the mutex so a concurrent
+	// Disconnect/Connect cycle cannot turn `r.conn` into nil between the
+	// check and the NewClient calls below. Without this snapshot the read
+	// races with Disconnect's `r.conn = nil` write — best case stale stub,
+	// worst case nil-deref panic.
+	r.connectionMutex.RLock()
+	conn := r.conn
+	r.connectionMutex.RUnlock()
+	if conn == nil {
 		return nil, fmt.Errorf("registry connection not available")
 	}
 
 	// Get controller data from controller routing service
-	controllerClient := bridge.NewControllerRoutingServiceClient(r.conn)
+	controllerClient := bridge.NewControllerRoutingServiceClient(conn)
 
 	// Get control plane data from control plane routing service
-	controlPlaneClient := bridge.NewEnvoyRoutingServiceClient(r.conn)
+	controlPlaneClient := bridge.NewEnvoyRoutingServiceClient(conn)
 
 	// Get all controller registry data
 	controllerDataReq := &bridge.GetAllControllerRegistryDataRequest{}
@@ -405,7 +463,11 @@ func (r *RegistryClient) DeleteController(controllerID string) error {
 		ControllerId: controllerID,
 	}
 
-	resp, err := r.controllerClient.DeleteController(ctx, req)
+	client := r.getControllerClient()
+	if client == nil {
+		return fmt.Errorf("registry client not connected")
+	}
+	resp, err := client.DeleteController(ctx, req)
 	if err != nil {
 		return fmt.Errorf("failed to call DeleteController: %w", err)
 	}
@@ -423,8 +485,16 @@ func (r *RegistryClient) DeleteControlPlane(controlPlaneID string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	// Snapshot the conn under the mutex (see GetRegistryData for rationale).
+	r.connectionMutex.RLock()
+	conn := r.conn
+	r.connectionMutex.RUnlock()
+	if conn == nil {
+		return fmt.Errorf("registry connection not available")
+	}
+
 	// Use control-plane routing service client
-	controlPlaneClient := bridge.NewEnvoyRoutingServiceClient(r.conn)
+	controlPlaneClient := bridge.NewEnvoyRoutingServiceClient(conn)
 
 	req := &bridge.DeleteControlPlaneRequest{
 		ControlPlaneId: controlPlaneID,
@@ -445,7 +515,10 @@ func (r *RegistryClient) DeleteControlPlane(controlPlaneID string) error {
 
 // IsConnected checks if the gRPC connection is established
 func (r *RegistryClient) IsConnected() bool {
-	return r.conn != nil && r.controllerClient != nil
+	r.connectionMutex.RLock()
+	connOK := r.conn != nil
+	r.connectionMutex.RUnlock()
+	return connOK && r.controllerClient.Load() != nil
 }
 
 // StartHealthMonitor starts enhanced health monitoring with continuous reconnect capability

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/grpc"
@@ -15,15 +16,27 @@ import (
 )
 
 type ControlPlaneRegistryClient struct {
-	// connMu guards conn/client pointer mutation in Connect/Disconnect so
-	// a concurrent reconnect cycle cannot double-close. Matches the
-	// connectionMutex pattern in RegistryClient (controller-side).
+	// connMu guards conn pointer mutation in Connect/Disconnect so a
+	// concurrent reconnect cycle cannot double-close. The client stub is
+	// published via atomic.Pointer so RPC callers never see a torn
+	// interface value during reconnect (see controller.go for full
+	// rationale of the same pattern).
 	connMu       sync.Mutex
 	conn         *grpc.ClientConn
-	client       bridge.EnvoyRoutingServiceClient
+	client       atomic.Pointer[bridge.EnvoyRoutingServiceClient]
 	registryAddr string
 	appConfig    *config.AppConfig // retained for TLS dial decisions on (re)connect
 	logger       *logger.Logger
+}
+
+// getClient returns the current gRPC stub or nil if no connection has
+// been established. Callers must nil-check before invoking RPCs.
+func (r *ControlPlaneRegistryClient) getClient() bridge.EnvoyRoutingServiceClient {
+	p := r.client.Load()
+	if p == nil {
+		return nil
+	}
+	return *p
 }
 
 type ControlPlaneConfig struct {
@@ -58,7 +71,8 @@ func NewControlPlaneRegistryClient(cpConfig *ControlPlaneConfig, logger *logger.
 }
 
 // Connect establishes gRPC connection to registry.
-// connMu guards the pointer mutation; see Disconnect for the pair.
+// connMu guards the conn pointer; the stub is published atomically so
+// concurrent RPC callers never see a half-written interface value.
 func (r *ControlPlaneRegistryClient) Connect() error {
 	// Use shared gRPC dial options for consistency
 	conn, err := grpc.NewClient(r.registryAddr, GetDefaultGRPCDialOptions(r.appConfig)...)
@@ -66,16 +80,18 @@ func (r *ControlPlaneRegistryClient) Connect() error {
 		return fmt.Errorf("failed to create connection: %w", err)
 	}
 
+	stub := bridge.NewEnvoyRoutingServiceClient(conn)
 	r.connMu.Lock()
 	r.conn = conn
-	r.client = bridge.NewEnvoyRoutingServiceClient(conn)
+	r.client.Store(&stub)
 	r.connMu.Unlock()
 
 	return nil
 }
 
 // Disconnect closes the gRPC connection.
-// nil-check + nil-out so a second Disconnect is a no-op.
+// nil-check + nil-out so a second Disconnect is a no-op. Clears the
+// atomic stub too so getClient() returns nil once disconnected.
 func (r *ControlPlaneRegistryClient) Disconnect() error {
 	r.connMu.Lock()
 	defer r.connMu.Unlock()
@@ -84,6 +100,7 @@ func (r *ControlPlaneRegistryClient) Disconnect() error {
 	}
 	err := r.conn.Close()
 	r.conn = nil
+	r.client.Store(nil)
 	return err
 }
 
@@ -98,7 +115,11 @@ func (r *ControlPlaneRegistryClient) RegisterControlPlane(config *ControlPlaneCo
 		Timestamp:      timestamppb.New(time.Now().UTC()),
 	}
 
-	response, err := r.client.RegisterControlPlane(ctx, request)
+	client := r.getClient()
+	if client == nil {
+		return fmt.Errorf("control-plane registry client not connected")
+	}
+	response, err := client.RegisterControlPlane(ctx, request)
 	if err != nil {
 		return fmt.Errorf("failed to register control-plane: %w", err)
 	}
@@ -123,7 +144,11 @@ func (r *ControlPlaneRegistryClient) NotifySnapshotDelivered(controlPlaneID, nod
 		Timestamp:      timestamppb.New(time.Now().UTC()),
 	}
 
-	response, err := r.client.NotifySnapshotDelivered(ctx, request)
+	client := r.getClient()
+	if client == nil {
+		return fmt.Errorf("control-plane registry client not connected")
+	}
+	response, err := client.NotifySnapshotDelivered(ctx, request)
 	if err != nil {
 		return fmt.Errorf("failed to notify snapshot delivery: %w", err)
 	}
@@ -180,7 +205,11 @@ func (r *ControlPlaneRegistryClient) UpdateNodeList(controlPlaneID string, nodes
 		Version:        version, // Add version for auto-registration
 	}
 
-	response, err := r.client.UpdateNodeList(ctx, request)
+	client := r.getClient()
+	if client == nil {
+		return fmt.Errorf("control-plane registry client not connected")
+	}
+	response, err := client.UpdateNodeList(ctx, request)
 	if err != nil {
 		return fmt.Errorf("failed to update node list: %w", err)
 	}
@@ -202,7 +231,11 @@ func (r *ControlPlaneRegistryClient) HealthCheck() error {
 		Service: "control-plane",
 	}
 
-	response, err := r.client.HealthCheck(ctx, request)
+	client := r.getClient()
+	if client == nil {
+		return fmt.Errorf("control-plane registry client not connected")
+	}
+	response, err := client.HealthCheck(ctx, request)
 	if err != nil {
 		return fmt.Errorf("health check failed: %w", err)
 	}
@@ -292,7 +325,11 @@ func (r *ControlPlaneRegistryClient) DeleteControlPlane(controlPlaneID string) e
 		ControlPlaneId: controlPlaneID,
 	}
 
-	resp, err := r.client.DeleteControlPlane(ctx, req)
+	client := r.getClient()
+	if client == nil {
+		return fmt.Errorf("control-plane registry client not connected")
+	}
+	resp, err := client.DeleteControlPlane(ctx, req)
 	if err != nil {
 		return fmt.Errorf("failed to call DeleteControlPlane: %w", err)
 	}

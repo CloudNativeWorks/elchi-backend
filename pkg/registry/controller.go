@@ -94,7 +94,12 @@ func NewRegistryClientWithConfig(config *Config, logger *logger.Logger, appConfi
 }
 
 
-// Connect establishes gRPC connection to registry
+// Connect establishes gRPC connection to registry.
+//
+// Pairs with Disconnect: both hold connectionMutex around the conn
+// pointer mutation so the {conn, controllerClient} pair stays
+// consistent. setConnectionState is called OUTSIDE the lock to avoid
+// re-entering the same mutex (RWMutex isn't re-entrant in Go).
 func (r *RegistryClient) Connect() error {
 	// Use shared gRPC dial options for consistency
 	conn, err := grpc.NewClient(r.registryAddr, GetDefaultGRPCDialOptions(r.appConfig)...)
@@ -102,19 +107,30 @@ func (r *RegistryClient) Connect() error {
 		return fmt.Errorf("failed to create connection: %w", err)
 	}
 
+	r.connectionMutex.Lock()
 	r.conn = conn
 	r.controllerClient = bridge.NewControllerRoutingServiceClient(conn)
+	r.connectionMutex.Unlock()
 
 	r.setConnectionState(ControllerStateConnected)
 	return nil
 }
 
-// Disconnect closes the gRPC connection
+// Disconnect closes the gRPC connection.
+//
+// Holds connectionMutex + nil-checks the conn before closing so a race
+// between continuousReconnectLoop calling Disconnect and a peer goroutine
+// reaching for r.conn cannot cause a double-close. After Close we also
+// nil out r.conn so a subsequent Disconnect is a no-op.
 func (r *RegistryClient) Disconnect() error {
-	if r.conn != nil {
-		return r.conn.Close()
+	r.connectionMutex.Lock()
+	defer r.connectionMutex.Unlock()
+	if r.conn == nil {
+		return nil
 	}
-	return nil
+	err := r.conn.Close()
+	r.conn = nil
+	return err
 }
 
 // Connection state management
@@ -509,10 +525,20 @@ func (r *RegistryClient) attemptReconnection() {
 	}
 }
 
+// connectAndRegisterTimeout bounds a single connect+register attempt.
+// Lowered from 5m to 2m: at 5m a network partition would keep the client
+// in StateConnecting for the full window, and attemptReconnection's
+// "already connecting" guard would silently block any new retry — so a
+// transient partition could hold the controller out of the registry for
+// minutes after the partition healed. 2m is long enough to absorb a
+// Mongo PRIMARY election + retry sequence, short enough that recovery
+// kicks in promptly (~135s worst case: 120s timeout + 15s reconnect
+// loop tick).
+const connectAndRegisterTimeout = 2 * time.Minute
+
 // ConnectAndRegister performs connection and registration with extended timeout
 func (r *RegistryClient) ConnectAndRegister() error {
-	// Extended timeout for better reliability
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), connectAndRegisterTimeout)
 	defer cancel()
 
 	r.logger.Infof("Attempting to connect controller to registry at %s...", r.registryAddr)

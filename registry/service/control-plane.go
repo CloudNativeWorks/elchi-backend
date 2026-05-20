@@ -14,6 +14,10 @@ import (
 type RoutingService struct {
 	storage storage.RoutingStorage
 	logger  *logger.Logger
+
+	// onChange — see ControllerRoutingService.onChange for rationale.
+	// Wired to Snapshotter.Touch in cmd/registry.go.
+	onChange func()
 }
 
 // NewRoutingService creates a new routing service
@@ -21,6 +25,18 @@ func NewRoutingService(storage storage.RoutingStorage, logger *logger.Logger) *R
 	return &RoutingService{
 		storage: storage,
 		logger:  logger,
+	}
+}
+
+// SetOnChange installs the state-change hook (e.g. Snapshotter.Touch).
+// See ControllerRoutingService.SetOnChange for details.
+func (s *RoutingService) SetOnChange(fn func()) {
+	s.onChange = fn
+}
+
+func (s *RoutingService) fireOnChange() {
+	if s.onChange != nil {
+		s.onChange()
 	}
 }
 
@@ -36,7 +52,11 @@ func (s *RoutingService) RegisterControlPlane(ctx context.Context, controlPlane 
 		return fmt.Errorf("version cannot be empty")
 	}
 
-	return s.storage.RegisterControlPlane(ctx, controlPlane)
+	if err := s.storage.RegisterControlPlane(ctx, controlPlane); err != nil {
+		return err
+	}
+	s.fireOnChange()
+	return nil
 }
 
 // GetControlPlaneCluster finds the appropriate control plane for a node
@@ -127,21 +147,19 @@ func (s *RoutingService) NotifySnapshotDelivered(ctx context.Context, controlPla
 	// Check if control plane exists
 	_, err := s.storage.GetControlPlane(ctx, controlPlaneID)
 	if err != nil {
-		// Control plane not found, try to register it
+		// Control plane not found, auto-register through the service
+		// method so fireOnChange runs (so the snapshot writer picks it
+		// up immediately). See controller.go NotifyClientConnected for
+		// the matching rationale.
 		s.logger.Warnf("Control plane %s not found during snapshot notification, attempting to register it", controlPlaneID)
-
-		// Create and register control plane
 		controlPlane := &models.ControlPlane{
 			ID:       controlPlaneID,
 			Version:  version,
 			LastSeen: time.Now(),
 		}
-
-		if err := s.storage.RegisterControlPlane(ctx, controlPlane); err != nil {
-			return fmt.Errorf("failed to register control plane %s: %w", controlPlaneID, err)
+		if err := s.RegisterControlPlane(ctx, controlPlane); err != nil {
+			return fmt.Errorf("failed to auto-register control plane %s: %w", controlPlaneID, err)
 		}
-
-		s.logger.Infof("Successfully registered control plane %s with version %s", controlPlaneID, version)
 	}
 
 	// Update or create node mapping
@@ -152,7 +170,11 @@ func (s *RoutingService) NotifySnapshotDelivered(ctx context.Context, controlPla
 		LastSeen:       time.Now(),
 	}
 
-	return s.storage.SetNodeMapping(ctx, mapping)
+	if err := s.storage.SetNodeMapping(ctx, mapping); err != nil {
+		return err
+	}
+	s.fireOnChange()
+	return nil
 }
 
 // UpdateNodeList updates the list of nodes for a control plane with version information for auto-registration
@@ -166,7 +188,9 @@ func (s *RoutingService) UpdateNodeList(ctx context.Context, controlPlaneID stri
 	// Check if control plane exists
 	_, err := s.storage.GetControlPlane(ctx, controlPlaneID)
 	if err != nil {
-		// Control plane not found, try to register it
+		// Control plane not found, auto-register through the service
+		// method (which fires the onChange hook so the snapshot writer
+		// picks it up immediately).
 		s.logger.Warnf("Control plane %s not found, attempting to register it", controlPlaneID)
 
 		// Use version from request parameter for auto-registration
@@ -182,18 +206,14 @@ func (s *RoutingService) UpdateNodeList(ctx context.Context, controlPlaneID stri
 			return nil // Don't fail, just skip the update
 		}
 
-		// Create and register control plane
 		controlPlane := &models.ControlPlane{
 			ID:       controlPlaneID,
 			Version:  version,
 			LastSeen: time.Now(),
 		}
-
-		if err := s.storage.RegisterControlPlane(ctx, controlPlane); err != nil {
-			return fmt.Errorf("failed to register control plane %s: %w", controlPlaneID, err)
+		if err := s.RegisterControlPlane(ctx, controlPlane); err != nil {
+			return fmt.Errorf("failed to auto-register control plane %s: %w", controlPlaneID, err)
 		}
-
-		s.logger.Infof("Successfully registered control plane %s with version %s", controlPlaneID, version)
 	} else {
 		// Control plane exists, update its last seen
 		if err := s.storage.UpdateControlPlaneLastSeen(ctx, controlPlaneID); err != nil {
@@ -201,7 +221,11 @@ func (s *RoutingService) UpdateNodeList(ctx context.Context, controlPlaneID stri
 		}
 	}
 
-	return s.storage.UpdateNodeList(ctx, controlPlaneID, nodes)
+	if err := s.storage.UpdateNodeList(ctx, controlPlaneID, nodes); err != nil {
+		return err
+	}
+	s.fireOnChange()
+	return nil
 }
 
 // findControlPlaneForVersion finds the best control plane for a given version
@@ -292,6 +316,9 @@ func (s *RoutingService) CleanupStaleData(ctx context.Context, maxAge time.Durat
 	cleanedCount := len(controlPlanes) - len(controlPlanesAfter)
 	if cleanedCount > 0 {
 		s.logger.Infof("Cleanup completed: %d control planes removed", cleanedCount)
+		// Touch the snapshot writer only when we actually changed state;
+		// see controller.go CleanupStaleData for matching rationale.
+		s.fireOnChange()
 	} else {
 		s.logger.Debug("No stale data found during cleanup")
 	}
@@ -349,6 +376,7 @@ func (s *RoutingService) DeleteControlPlane(ctx context.Context, controlPlaneID 
 	}
 
 	s.logger.Infof("Successfully deleted control plane %s and its associated nodes", controlPlaneID)
+	s.fireOnChange()
 	return nil
 }
 

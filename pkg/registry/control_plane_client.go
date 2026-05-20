@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc"
@@ -14,6 +15,10 @@ import (
 )
 
 type ControlPlaneRegistryClient struct {
+	// connMu guards conn/client pointer mutation in Connect/Disconnect so
+	// a concurrent reconnect cycle cannot double-close. Matches the
+	// connectionMutex pattern in RegistryClient (controller-side).
+	connMu       sync.Mutex
 	conn         *grpc.ClientConn
 	client       bridge.EnvoyRoutingServiceClient
 	registryAddr string
@@ -52,7 +57,8 @@ func NewControlPlaneRegistryClient(cpConfig *ControlPlaneConfig, logger *logger.
 	return client, nil
 }
 
-// Connect establishes gRPC connection to registry
+// Connect establishes gRPC connection to registry.
+// connMu guards the pointer mutation; see Disconnect for the pair.
 func (r *ControlPlaneRegistryClient) Connect() error {
 	// Use shared gRPC dial options for consistency
 	conn, err := grpc.NewClient(r.registryAddr, GetDefaultGRPCDialOptions(r.appConfig)...)
@@ -60,18 +66,25 @@ func (r *ControlPlaneRegistryClient) Connect() error {
 		return fmt.Errorf("failed to create connection: %w", err)
 	}
 
+	r.connMu.Lock()
 	r.conn = conn
 	r.client = bridge.NewEnvoyRoutingServiceClient(conn)
+	r.connMu.Unlock()
 
 	return nil
 }
 
-// Disconnect closes the gRPC connection
+// Disconnect closes the gRPC connection.
+// nil-check + nil-out so a second Disconnect is a no-op.
 func (r *ControlPlaneRegistryClient) Disconnect() error {
-	if r.conn != nil {
-		return r.conn.Close()
+	r.connMu.Lock()
+	defer r.connMu.Unlock()
+	if r.conn == nil {
+		return nil
 	}
-	return nil
+	err := r.conn.Close()
+	r.conn = nil
+	return err
 }
 
 // RegisterControlPlane registers this control-plane with registry

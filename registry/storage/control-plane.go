@@ -287,8 +287,12 @@ func (s *InMemoryRoutingStorage) ImportAll(controlPlanes []*models.ControlPlane,
 	}
 }
 
-// CleanupStaleData removes stale control planes and node mappings
-// This should be called periodically (e.g., every 5 minutes) for long-running services
+// CleanupStaleData removes stale control planes and node mappings.
+//
+// Two-pass cascade — see InMemoryStorage.CleanupStaleData for the full
+// rationale. Without it, a removed control plane could leave its
+// node mappings behind, and standbys would load orphan state via the
+// snapshot.
 func (s *InMemoryRoutingStorage) CleanupStaleData(ctx context.Context, maxAge time.Duration) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -298,22 +302,25 @@ func (s *InMemoryRoutingStorage) CleanupStaleData(ctx context.Context, maxAge ti
 	defer s.mu.Unlock()
 
 	cutoff := time.Now().Add(-maxAge)
-	cleanedControlPlanes := 0
-	cleanedNodeMappings := 0
 
-	// Cleanup stale control planes
+	// Pass 1: collect stale control-plane IDs, delete from controlPlanes map.
+	removedControlPlanes := make(map[string]struct{})
 	for id, cp := range s.controlPlanes {
 		if cp.LastSeen.Before(cutoff) {
 			delete(s.controlPlanes, id)
-			cleanedControlPlanes++
+			removedControlPlanes[id] = struct{}{}
 		}
 	}
 
-	// Cleanup stale node mappings
+	// Pass 2: cascade-delete mappings tied to removed control planes,
+	// then drop standalone-stale mappings.
 	for key, mapping := range s.nodeMappings {
+		if _, parentGone := removedControlPlanes[mapping.ControlPlaneID]; parentGone {
+			delete(s.nodeMappings, key)
+			continue
+		}
 		if mapping.LastSeen.Before(cutoff) {
 			delete(s.nodeMappings, key)
-			cleanedNodeMappings++
 		}
 	}
 

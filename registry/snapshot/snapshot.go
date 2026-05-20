@@ -28,7 +28,18 @@ const (
 	DocumentID = "current"
 
 	// DefaultWriteInterval is how often the leader persists state.
-	DefaultWriteInterval = 5 * time.Minute
+	// Was 5m; lowered to 30s for two reasons:
+	//   1. UI / GetRegistryDataFromSnapshot serve the snapshot doc, so
+	//      this interval is the upper bound on observable staleness
+	//      (hostname rename, new client registration, etc.). 5 min made
+	//      the registry-data view look broken after every restart.
+	//   2. It is symmetric with DefaultPollInterval — a standby that
+	//      reads every 30 s but a leader that writes every 5 min means
+	//      9 out of 10 reads return the same already-cached doc; only
+	//      the 1-in-10 read sees fresh data. 30/30 is honest.
+	// The cost is one tiny ReplaceOne per 30 s on a singleton doc; on
+	// a 3-node deployment that's <1% of MongoDB write capacity.
+	DefaultWriteInterval = 30 * time.Second
 	// DefaultPollInterval is how often standbys reload state.
 	DefaultPollInterval = 30 * time.Second
 )
@@ -55,6 +66,15 @@ type Snapshotter struct {
 	stopMu     sync.Mutex
 	stopWriter chan struct{}
 	stopReader chan struct{}
+
+	// dirtyCh receives a signal whenever a state-changing RPC mutates one
+	// of the in-memory stores (Register/Delete/UpdateClientList etc.).
+	// The writer loop drains it and triggers an immediate Save so UI reads
+	// (which go straight to the snapshot doc) reflect the change without
+	// having to wait for the next 30s tick. Buffered=1 + non-blocking
+	// send in Touch() debounces bursts — multiple changes within one tick
+	// coalesce into a single Save.
+	dirtyCh chan struct{}
 }
 
 // New constructs a Snapshotter. writerID is used to mark snapshots in the
@@ -66,6 +86,21 @@ func New(db *mongo.Database, ctrlStore *storage.InMemoryStorage, cpStore *storag
 		cpStore:   cpStore,
 		writerID:  writerID,
 		logger:    log,
+		dirtyCh:   make(chan struct{}, 1),
+	}
+}
+
+// Touch signals the writer loop that the in-memory state changed and a
+// fresh Save is wanted as soon as possible. Safe to call from any RPC
+// handler; non-blocking — if a signal is already pending it is coalesced
+// with this one (the Save the writer is about to do covers both).
+// On standbys (no active writer) Touch is a no-op aside from filling the
+// 1-slot buffer; the buffer is drained whenever a writer eventually
+// starts via the immediate Save in writerLoop.
+func (s *Snapshotter) Touch() {
+	select {
+	case s.dirtyCh <- struct{}{}:
+	default:
 	}
 }
 
@@ -176,8 +211,21 @@ func (s *Snapshotter) writerLoop(ctx context.Context, stop <-chan struct{}, inte
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	// Write once immediately so failover state is fresh shortly after promotion.
+	// Then drain ALL stale dirtyCh signals that may have piled up while the
+	// writer was stopped (the buffer is size-1 so at most one survives, but
+	// the loop is the same code irrespective of buffer size — staying
+	// defensive in case anyone bumps the buffer later or a future caller
+	// fans Touch out from multiple goroutines).
 	if err := s.Save(ctx); err != nil {
 		s.logger.Warnf("registry snapshot: initial save failed: %v", err)
+	}
+drainStale:
+	for {
+		select {
+		case <-s.dirtyCh:
+		default:
+			break drainStale
+		}
 	}
 	for {
 		select {
@@ -188,6 +236,15 @@ func (s *Snapshotter) writerLoop(ctx context.Context, stop <-chan struct{}, inte
 		case <-ticker.C:
 			if err := s.Save(ctx); err != nil {
 				s.logger.Errorf("registry snapshot: save failed: %v", err)
+			}
+		case <-s.dirtyCh:
+			// State-changing RPC fired; persist immediately so UI reads
+			// see the change in the next request rather than waiting
+			// up to `interval` for the next ticker fire. This is the
+			// difference between "Controller registered" log line and
+			// "Controllers: 1 active" appearing in the UI on refresh.
+			if err := s.Save(ctx); err != nil {
+				s.logger.Errorf("registry snapshot: dirty save failed: %v", err)
 			}
 		}
 	}

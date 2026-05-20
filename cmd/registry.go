@@ -105,6 +105,16 @@ var registryCmd = &cobra.Command{
 		writeInterval := parseDurationOr(appConfig.RegistrySnapshotInterval, snapshot.DefaultWriteInterval)
 		pollInterval := parseDurationOr(appConfig.RegistrySnapshotPollInterval, snapshot.DefaultPollInterval)
 
+		// Wire each routing service to nudge the snapshotter whenever its
+		// in-memory state changes (Register/Notify/UpdateList/Delete/
+		// CleanupStaleData with effect). The next snapshot Save lands on
+		// the next goroutine hop, not the next 30s ticker fire — that is
+		// the difference between "Controller registered" log and the row
+		// actually appearing in the UI on the very next refresh.
+		// Touch is non-blocking and coalescing; safe to call from any RPC.
+		controllerRoutingService.SetOnChange(snapshotter.Touch)
+		controlPlaneRoutingService.SetOnChange(snapshotter.Touch)
+
 		// signal.NotifyContext wires SIGINT/SIGTERM into ctx cancellation.
 		// Both `election.Run` and `StartGRPCServer` watch this ctx and run
 		// their graceful-shutdown paths (lock release, Mongo snapshot save,
@@ -141,6 +151,23 @@ var registryCmd = &cobra.Command{
 					if err := snapshotter.Load(electionCtx); err != nil {
 						snapshotLogger.Warnf("snapshot load on promotion failed: %v", err)
 					}
+					// Sweep out stale entries hydrated from the snapshot BEFORE the
+					// writer takes its first immediate Save. Otherwise the just-
+					// loaded snapshot — which can carry controllers/CPs that died
+					// 4–5 min ago (the previous leader hadn't run a cleanup tick
+					// before going down) — gets re-persisted verbatim, and stays
+					// alive until the periodic 5-min cleanup tick. UI reads the
+					// snapshot through GetRegistryDataFromSnapshot and sees ghost
+					// entries (e.g. an old hostname after a rename). Cleanup
+					// threshold matches the periodic tick (2 min lastSeen window).
+					cleanupCtx, cleanupCancel := context.WithTimeout(electionCtx, 5*time.Second)
+					if err := controlPlaneRoutingService.CleanupStaleData(cleanupCtx, 2*time.Minute); err != nil {
+						rootLogger.WithError(err).Warn("post-promotion control-plane cleanup failed")
+					}
+					if err := controllerRoutingService.CleanupStaleData(cleanupCtx, 2*time.Minute); err != nil {
+						rootLogger.WithError(err).Warn("post-promotion controller cleanup failed")
+					}
+					cleanupCancel()
 					snapshotter.StartWriter(electionCtx, writeInterval)
 					return
 				}
@@ -177,11 +204,21 @@ var registryCmd = &cobra.Command{
 			}
 		}()
 
-		// Start cleanup goroutine for stale data (every 5 minutes).
+		// Start cleanup goroutine for stale data (every 30 seconds).
 		// Only the leader cleans up — standbys must not delete entries that
 		// the leader is still tracking.
+		//
+		// 5min → 30s rationale: cleanup runs in lockstep with snapshot writes
+		// (also 30s). With the previous 5-min cadence, a controller/CP that
+		// went down was visible in the snapshot for as long as 7 min
+		// (2 min staleness threshold + up to 5 min tick wait). Worse, every
+		// 30-s snapshot write in between would re-persist the dead entry
+		// from in-memory, so UI/admin reads kept showing ghosts. With 30 s
+		// cleanup the upper bound is 2 m 30 s, and any snapshot the writer
+		// captures right after cleanup is guaranteed ghost-free.
+		// Cost: ~2 tiny Mongo deletes per tick on a 3-node cluster — free.
 		go func() {
-			ticker := time.NewTicker(5 * time.Minute)
+			ticker := time.NewTicker(30 * time.Second)
 			defer ticker.Stop()
 
 			for range ticker.C {

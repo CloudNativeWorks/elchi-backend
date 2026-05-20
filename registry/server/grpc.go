@@ -143,6 +143,15 @@ func (p *ExternalProcessorServer) Process(stream ext.ExternalProcessor_ProcessSe
 	}
 
 	for {
+		// Re-check leadership BEFORE every Recv. ext_proc streams can stay
+		// open for minutes; a leadership flip mid-stream would otherwise
+		// keep us silently routing on stale in-memory state. IsLeader is
+		// an atomic.Bool.Load — cost-free. Envoy will pick up the closed
+		// stream and reconnect, hitting the new leader.
+		if p.leader != nil && !p.leader.IsLeader() {
+			return status.Error(codes.Unavailable, "no longer leader, closing stream for re-routing")
+		}
+
 		req, err := stream.Recv()
 		if err != nil {
 			if err.Error() == "EOF" {

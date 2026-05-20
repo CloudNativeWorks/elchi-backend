@@ -18,6 +18,14 @@ import (
 type ControllerRoutingService struct {
 	storage storage.Storage
 	logger  *logger.Logger
+
+	// onChange is fired after any state-mutating call (Register, Notify,
+	// UpdateClientList, Delete, CleanupStaleData). Wired by cmd/registry.go
+	// to Snapshotter.Touch so the snapshot doc is persisted within ~one
+	// goroutine hop after the change instead of waiting up to 30s for the
+	// next writer tick. Nil-safe: optional hook, the service works without
+	// it (single-node / tests).
+	onChange func()
 }
 
 // NewControllerRoutingService creates a new controller routing service
@@ -25,6 +33,23 @@ func NewControllerRoutingService(storage storage.Storage, logger *logger.Logger)
 	return &ControllerRoutingService{
 		storage: storage,
 		logger:  logger,
+	}
+}
+
+// SetOnChange installs a hook that fires after every state-mutating
+// call. Typically wired to Snapshotter.Touch by cmd/registry.go.
+// Replace-only (no slice): a single hook is enough for the snapshot
+// use case and avoids ordering / partial-failure ambiguity.
+func (s *ControllerRoutingService) SetOnChange(fn func()) {
+	s.onChange = fn
+}
+
+// fireOnChange runs the hook if installed. Kept inline (no goroutine)
+// because Touch is non-blocking by design — pushing a goroutine here
+// would only add scheduler overhead for the same effect.
+func (s *ControllerRoutingService) fireOnChange() {
+	if s.onChange != nil {
+		s.onChange()
 	}
 }
 
@@ -46,7 +71,11 @@ func (s *ControllerRoutingService) RegisterController(ctx context.Context, contr
 	}
 
 	// Store the controller with its actual gRPC address
-	return s.storage.RegisterController(ctx, controller)
+	if err := s.storage.RegisterController(ctx, controller); err != nil {
+		return err
+	}
+	s.fireOnChange()
+	return nil
 }
 
 // GetControllerCluster finds the appropriate controller for a client
@@ -133,22 +162,21 @@ func (s *ControllerRoutingService) NotifyClientConnected(ctx context.Context, co
 	// Check if controller exists
 	_, err := s.storage.GetController(ctx, controllerID)
 	if err != nil {
-		// Controller not found, try to register it
+		// Controller not found, auto-register through the service method
+		// so fireOnChange runs even if the follow-up SetClientMapping call
+		// errors out (otherwise an auto-registered controller could land
+		// in memory but never reach the snapshot — standbys would never
+		// see it and a failover would lose the registration).
 		s.logger.Warnf("Controller %s not found during client notification, attempting to register it", controllerID)
-
-		// Create and register controller
 		controller := &models.ControllerInfo{
 			ID:          controllerID,
 			Version:     version,
 			HTTPAddress: pkgregistry.ResolveControllerHTTPAddress(controllerID, httpPort, namespace),
 			LastSeen:    time.Now(),
 		}
-
-		if err := s.storage.RegisterController(ctx, controller); err != nil {
-			return fmt.Errorf("failed to register controller %s: %w", controllerID, err)
+		if err := s.RegisterController(ctx, controller); err != nil {
+			return fmt.Errorf("failed to auto-register controller %s: %w", controllerID, err)
 		}
-
-		s.logger.Infof("Successfully registered controller %s with version %s", controllerID, version)
 	}
 
 	// Update or create client mapping
@@ -159,7 +187,11 @@ func (s *ControllerRoutingService) NotifyClientConnected(ctx context.Context, co
 		LastSeen:     time.Now(),
 	}
 
-	return s.storage.SetClientMapping(ctx, mapping)
+	if err := s.storage.SetClientMapping(ctx, mapping); err != nil {
+		return err
+	}
+	s.fireOnChange()
+	return nil
 }
 
 // NotifyClientDisconnected removes client mapping when client disconnects
@@ -185,6 +217,7 @@ func (s *ControllerRoutingService) NotifyClientDisconnected(ctx context.Context,
 	}
 
 	s.logger.Infof("Client mapping removed from registry: %s:%s", clientID, version)
+	s.fireOnChange()
 	return nil
 }
 
@@ -200,7 +233,10 @@ func (s *ControllerRoutingService) UpdateClientList(ctx context.Context, control
 	// Check if controller exists
 	_, err := s.storage.GetController(ctx, controllerID)
 	if err != nil {
-		// Controller not found, try to register it
+		// Controller not found, auto-register through the service method
+		// (which fires the onChange hook so the snapshot writer picks it
+		// up immediately). See NotifyClientConnected for the matching
+		// rationale.
 		s.logger.Warnf("Controller %s not found, attempting to register it", controllerID)
 
 		// Extract version from clients (assuming all clients have same version)
@@ -211,19 +247,15 @@ func (s *ControllerRoutingService) UpdateClientList(ctx context.Context, control
 			return fmt.Errorf("cannot register controller without version information")
 		}
 
-		// Create and register controller
 		controller := &models.ControllerInfo{
 			ID:          controllerID,
 			Version:     version,
 			HTTPAddress: pkgregistry.ResolveControllerHTTPAddress(controllerID, httpPort, namespace),
 			LastSeen:    time.Now(),
 		}
-
-		if err := s.storage.RegisterController(ctx, controller); err != nil {
-			return fmt.Errorf("failed to register controller %s: %w", controllerID, err)
+		if err := s.RegisterController(ctx, controller); err != nil {
+			return fmt.Errorf("failed to auto-register controller %s: %w", controllerID, err)
 		}
-
-		s.logger.Infof("Successfully registered controller %s with version %s", controllerID, version)
 	} else {
 		// Controller exists, update its last seen
 		if err := s.storage.UpdateControllerLastSeen(ctx, controllerID); err != nil {
@@ -231,7 +263,11 @@ func (s *ControllerRoutingService) UpdateClientList(ctx context.Context, control
 		}
 	}
 
-	return s.storage.UpdateClientList(ctx, controllerID, clients)
+	if err := s.storage.UpdateClientList(ctx, controllerID, clients); err != nil {
+		return err
+	}
+	s.fireOnChange()
+	return nil
 }
 
 // CleanupStaleData removes stale controllers and client mappings with logging
@@ -262,6 +298,9 @@ func (s *ControllerRoutingService) CleanupStaleData(ctx context.Context, maxAge 
 	cleanedCount := len(controllers) - len(controllersAfter)
 	if cleanedCount > 0 {
 		s.logger.Infof("Cleanup completed: %d controllers removed", cleanedCount)
+		// Fire only when we actually removed something — a no-op tick
+		// shouldn't churn the snapshot writer every 30 s.
+		s.fireOnChange()
 	} else {
 		s.logger.Debug("No stale data found during cleanup")
 	}
@@ -426,5 +465,6 @@ func (s *ControllerRoutingService) DeleteController(ctx context.Context, control
 	}
 
 	s.logger.Infof("Successfully deleted controller %s and its associated client mappings", controllerID)
+	s.fireOnChange()
 	return nil
 }

@@ -158,10 +158,11 @@ func (m *ControlPlaneManager) attemptReconnection() {
 	}
 }
 
-// connectAndRegister performs connection and registration with extended timeout
+// connectAndRegister performs connection and registration with extended timeout.
+// Uses the same 2m bound as the controller-side ConnectAndRegister — see
+// connectAndRegisterTimeout (controller.go) for the rationale.
 func (m *ControlPlaneManager) connectAndRegister() error {
-	// Extended timeout for better reliability
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), connectAndRegisterTimeout)
 	defer cancel()
 
 	m.logger.Infof("🔗 Attempting to connect to registry at %s...", m.Config.RegistryAddress)
@@ -438,8 +439,9 @@ func (m *ControlPlaneManager) GetAllNodes() []ControlPlaneNodeInfo {
 	statusKeys := m.snapshotContext.Cache.Cache.GetStatusKeys()
 	var nodes []ControlPlaneNodeInfo
 
-	m.NodesMutex.RLock()
-	defer m.NodesMutex.RUnlock()
+	// NOTE: no NodesMutex here — resolveNodeVersion now manages its own
+	// locking. Holding RLock around the call used to cause an RLock-held-
+	// during-write race when the fallback path wrote NodeVersions.
 
 	for _, nodeID := range statusKeys {
 		status := m.snapshotContext.Cache.Cache.GetStatusInfo(nodeID)
@@ -464,10 +466,20 @@ func (m *ControlPlaneManager) GetAllNodes() []ControlPlaneNodeInfo {
 	return nodes
 }
 
-// resolveNodeVersion provides robust version resolution for nodes with context-aware logging
+// resolveNodeVersion provides robust version resolution for nodes with
+// context-aware logging. Holds its own locking — callers MUST NOT hold
+// NodesMutex when invoking this. Earlier versions read+wrote the map
+// while callers (GetAllNodes/GetConnectedNodes) held an RLock; that
+// race-traps the Go race detector and risks map corruption on a
+// missed-version fallback. The pattern below: bounded RLock for the
+// read, then a separate Lock for the cache write so no upgrade is ever
+// attempted on the same RWMutex (sync.RWMutex is not re-entrant).
 func (m *ControlPlaneManager) resolveNodeVersion(nodeID string, isConnected bool) string {
 	// 1. Primary: Use stored version from NotifySnapshotDelivered (most reliable)
-	if storedVersion, exists := m.NodeVersions[nodeID]; exists && storedVersion != "" {
+	m.NodesMutex.RLock()
+	storedVersion, exists := m.NodeVersions[nodeID]
+	m.NodesMutex.RUnlock()
+	if exists && storedVersion != "" {
 		return storedVersion
 	}
 
@@ -481,8 +493,10 @@ func (m *ControlPlaneManager) resolveNodeVersion(nodeID string, isConnected bool
 			// Disconnected nodes might not have version, less critical
 			m.logger.Warnf("No reliable version for node %s, falling back to control-plane version: %s", nodeID, m.Config.Version)
 		}
-		// Store fallback version
+		// Store fallback version — separate Lock cycle, no RLock→Lock upgrade.
+		m.NodesMutex.Lock()
 		m.NodeVersions[nodeID] = m.Config.Version
+		m.NodesMutex.Unlock()
 		return m.Config.Version
 	}
 
@@ -495,8 +509,9 @@ func (m *ControlPlaneManager) resolveNodeVersion(nodeID string, isConnected bool
 func (m *ControlPlaneManager) GetConnectedNodes() []ControlPlaneNodeInfo {
 	connectedNodes := m.snapshotContext.GetConnectedNodes()
 
-	m.NodesMutex.RLock()
-	defer m.NodesMutex.RUnlock()
+	// NOTE: no NodesMutex here — see GetAllNodes for rationale. The
+	// underlying snapshotContext provides its own synchronization, and
+	// resolveNodeVersion handles NodeVersions locking internally.
 
 	// Convert to ControlPlaneNodeInfo slice
 	var nodes []ControlPlaneNodeInfo

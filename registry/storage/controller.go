@@ -317,7 +317,22 @@ func (s *InMemoryStorage) ImportAll(controllers []*models.ControllerInfo, mappin
 	}
 }
 
-// CleanupStaleData removes stale controllers and client mappings
+// CleanupStaleData removes stale controllers and client mappings.
+//
+// Cleanup runs in two passes so we never leave orphan client mappings
+// behind (mappings that reference a controller we just deleted):
+//
+//   Pass 1: scan controllers, collect IDs whose LastSeen is older than
+//           cutoff, delete them from the controllers map.
+//   Pass 2: scan client mappings; delete a mapping if EITHER its parent
+//           controller was just removed in pass 1 (cascade) OR the
+//           mapping itself is older than cutoff.
+//
+// Without the cascade, the writer would persist mappings whose parent
+// no longer exists; standbys then load that ghost state and UI/admin
+// views show entries that look "active" but cannot be routed.
+// DeleteController already cascades; this brings CleanupStaleData
+// behaviour in line with it.
 func (s *InMemoryStorage) CleanupStaleData(ctx context.Context, maxAge time.Duration) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -327,22 +342,25 @@ func (s *InMemoryStorage) CleanupStaleData(ctx context.Context, maxAge time.Dura
 	defer s.mu.Unlock()
 
 	cutoff := time.Now().Add(-maxAge)
-	cleanedControllers := 0
-	cleanedClientMappings := 0
 
-	// Cleanup stale controllers
+	// Pass 1: collect stale controller IDs, delete from controllers map.
+	removedControllers := make(map[string]struct{})
 	for id, ctrl := range s.controllers {
 		if ctrl.LastSeen.Before(cutoff) {
 			delete(s.controllers, id)
-			cleanedControllers++
+			removedControllers[id] = struct{}{}
 		}
 	}
 
-	// Cleanup stale client mappings
+	// Pass 2: cascade-delete mappings pointing at removed controllers,
+	// then drop standalone-stale mappings.
 	for key, mapping := range s.clientMappings {
+		if _, parentGone := removedControllers[mapping.ControllerID]; parentGone {
+			delete(s.clientMappings, key)
+			continue
+		}
 		if mapping.LastSeen.Before(cutoff) {
 			delete(s.clientMappings, key)
-			cleanedClientMappings++
 		}
 	}
 

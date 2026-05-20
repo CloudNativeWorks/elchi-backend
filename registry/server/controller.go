@@ -82,11 +82,18 @@ func (s *ControllerGRPCServer) RegisterController(ctx context.Context, req *brid
 	}, nil
 }
 
-// GetControllerCluster handles controller cluster routing requests
+// GetControllerCluster handles controller cluster routing requests.
+//
+// Read-only: served from local in-memory storage which standbys keep
+// in sync from the snapshot doc. We intentionally do NOT rejectIfStandby
+// here — a standby can return a view that's at most ~30s stale (snapshot
+// poll interval) which is far better than the Unavailable error the
+// previous guard produced during the brief failover window when the
+// healthy-leader pin briefly resolves to no endpoints. Same applies to
+// ListControllers / ListClientsByController / GetAllRegistryData (none
+// of which were ever guarded). State-mutating RPCs above and below still
+// reject on standby — only this read-only path was over-restrictive.
 func (s *ControllerGRPCServer) GetControllerCluster(ctx context.Context, req *bridge.GetControllerClusterRequest) (*bridge.GetControllerClusterResponse, error) {
-	if err := s.rejectIfStandby(); err != nil {
-		return nil, err
-	}
 	if req == nil || req.ClientId == "" {
 		return nil, status.Error(codes.InvalidArgument, "client ID cannot be empty")
 	}

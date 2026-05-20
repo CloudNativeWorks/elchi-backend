@@ -143,7 +143,12 @@ func (e *Election) tickOnce(ctx context.Context) {
 	if err != nil {
 		e.logger.Errorf("registry leader: acquire/renew failed: %v", err)
 		// On error, we cannot claim leadership; if we held it, drop.
+		// Surface the demotion explicitly — without this log, an operator
+		// chasing "why did the controllers re-register?" only sees the
+		// generic acquire/renew error and has to infer the leadership
+		// transition from downstream callback effects.
 		if e.leader.CompareAndSwap(true, false) {
+			e.logger.Warnf("registry leader: lost leadership due to error: %v", err)
 			e.fireCallbacks(false)
 		}
 		return

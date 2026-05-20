@@ -75,11 +75,13 @@ func (s *ControlPlaneGRPCServer) RegisterControlPlane(ctx context.Context, req *
 	}, nil
 }
 
-// GetControlPlaneCluster handles routing requests from Envoy
+// GetControlPlaneCluster handles routing requests from Envoy.
+//
+// Read-only: see controller.go GetControllerCluster for the standby-
+// allow rationale. Snapshot-backed view is at most ~30s stale and that
+// beats failing the lookup outright during the brief leader-transition
+// window. State-mutating RPCs in this file still reject on standby.
 func (s *ControlPlaneGRPCServer) GetControlPlaneCluster(ctx context.Context, req *bridge.GetControlPlaneClusterRequest) (*bridge.GetControlPlaneClusterResponse, error) {
-	if err := s.rejectIfStandby(); err != nil {
-		return nil, err
-	}
 	if req == nil || req.NodeId == "" || req.Version == "" {
 		return nil, status.Error(codes.InvalidArgument, "node ID and version cannot be empty")
 	}

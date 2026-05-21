@@ -597,6 +597,15 @@ var CompoundIndices = map[string][]mongo.IndexModel{
 			Keys:    bson.D{{Key: "project_id", Value: 1}, {Key: "max_risk_score", Value: -1}, {Key: "last_seen", Value: -1}},
 			Options: options.Index().SetName("project_riskscore_lastseen"),
 		},
+		{
+			// project_host_path — backs the path-grouped read view: fetch
+			// every operation (method) of one (project, host, normalized_path)
+			// in a single indexed query. Required by the operation-centric
+			// model where methods[] was removed and a path's methods are
+			// reassembled read-side. (schema.md → Index contract)
+			Keys:    bson.D{{Key: "project_id", Value: 1}, {Key: "host", Value: 1}, {Key: "normalized_path", Value: 1}},
+			Options: options.Index().SetName("project_host_path"),
+		},
 		// --- Controller-added: API-discovery + inventory list sort coverage ---
 		{
 			Keys:    bson.D{{Key: "project_id", Value: 1}, {Key: "first_seen", Value: -1}},

@@ -209,7 +209,8 @@ func (h *InventoryHandler) querySecurityEndpointCounts(ctx context.Context, proj
 	coll := h.Context.Client.Collection(inventoryCollection)
 	writeMatch := bson.M{"method": bson.M{"$in": writeMethods}}
 	pipeline := []bson.M{
-		{"$match": bson.M{"project_id": projectID}},
+		// confirmed:true = security score over real endpoints only.
+		{"$match": bson.M{"project_id": projectID, "confirmed": true}},
 		{"$facet": bson.M{
 			"total": []bson.M{{"$count": "n"}},
 			"write": []bson.M{{"$match": writeMatch}, {"$count": "n"}},

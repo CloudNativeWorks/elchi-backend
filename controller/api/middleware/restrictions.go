@@ -145,6 +145,9 @@ var AllowedEndpoints = []string{
 	// `api_events_*`). Per-handler project-scope auth runs inside the
 	// handlers; PathCheck only validates the URL shape here.
 	"/api/v3/inventory",
+	"/api/v3/inventory/operations",
+	"/api/v3/inventory/attack-surface",
+	"/api/v3/inventory/openapi",
 	"/api/v3/inventory/listeners",
 	"/api/v3/inventory/geo",
 	"/api/v3/inventory/discoveries",

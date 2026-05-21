@@ -118,6 +118,7 @@ func (h *InventoryHandler) ListDiscoveries(c *gin.Context) {
 
 	filter := bson.M{
 		"project_id": projectID,
+		"confirmed":  true, // new-discovery feed shows real endpoints only
 		"first_seen": bson.M{"$gte": cutoff},
 	}
 	if v := strings.TrimSpace(c.Query("listener_name")); v != "" {
@@ -216,7 +217,7 @@ func (h *InventoryHandler) AuthCoverage(c *gin.Context) {
 		mode = "inconsistent"
 	}
 
-	filter := bson.M{"project_id": projectID}
+	filter := bson.M{"project_id": projectID, "confirmed": true} // auth posture over real endpoints only
 	// auth_observed / noauth_observed are written as BSON booleans by
 	// elchi-collector. The CH `api_events_raw.auth_observed` column is
 	// a uint8, so a future collector revision could switch the
@@ -394,6 +395,7 @@ func (h *InventoryHandler) PIIInventory(c *gin.Context) {
 
 	filter := bson.M{
 		"project_id": projectID,
+		"confirmed":  true, // PII inventory over real endpoints only
 		// $not + $size:0 matches both missing-field AND empty-array
 		// documents on Mongo — `{pii_categories: {$ne: []}}` alone
 		// would still return docs with the field absent on older
@@ -632,6 +634,7 @@ func (h *InventoryHandler) ListZombies(c *gin.Context) {
 
 	filter := bson.M{
 		"project_id": projectID,
+		"confirmed":  true, // zombie = stale REAL endpoints, not dormant scanner probes
 		"last_seen":  bson.M{"$lt": cutoff},
 		"seen_count": bson.M{"$gte": minSeen},
 	}

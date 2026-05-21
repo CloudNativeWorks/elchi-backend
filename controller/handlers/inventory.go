@@ -144,7 +144,9 @@ func (h *InventoryHandler) ListInventoryListeners(c *gin.Context) {
 
 	f := parseInventoryListFilter(c)
 
-	matchStage := bson.M{"project_id": projectID}
+	// confirmed:true = real endpoints only (listener catalog excludes
+	// scanner/attack-surface noise).
+	matchStage := bson.M{"project_id": projectID, "confirmed": true}
 	applyInventoryListFilter(matchStage, f)
 
 	// Pipeline:
@@ -377,7 +379,10 @@ func (h *InventoryHandler) ListInventory(c *gin.Context) {
 
 	f := parseInventoryListFilter(c)
 
-	mongoFilter := bson.M{"project_id": projectID}
+	// confirmed:true = clean endpoint catalog only. Scanner / attack-surface
+	// noise (confirmed:false) is excluded here and surfaced separately via
+	// the /attack-surface view.
+	mongoFilter := bson.M{"project_id": projectID, "confirmed": true}
 	applyInventoryListFilter(mongoFilter, f)
 
 	// CH-side cross filter: country / asn / source_ip / user_agent
@@ -468,6 +473,230 @@ func (h *InventoryHandler) ListInventory(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, buildPaginationResponse(items, total, f.Limit, f.Offset))
+}
+
+// ListAttackSurface handles GET /api/v3/inventory/attack-surface.
+//
+// The inverse of ListInventory's clean catalog: returns the endpoints the
+// collector marked `confirmed=false` — scanner / attack-surface noise such as
+// /.env probes, /cgi-bin scans, and SPA-fallback paths that returned 200 to a
+// vuln-probe. Uses `$ne: true` (not `false`) so a doc missing the field is
+// still treated as unconfirmed — defensive, even though post-wipe every doc
+// carries the boolean.
+//
+// Same flat filters + sort + pagination as ListInventory, minus the
+// ClickHouse country/asn cross-filter (geo enrichment is irrelevant for the
+// noise view and would only add latency).
+func (h *InventoryHandler) ListAttackSurface(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), mongoQueryTimeout)
+	defer cancel()
+
+	userDetails, err := GetUserDetails(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
+		return
+	}
+	projectID := authorization.ExtractProjectFromRequest(c)
+	if projectID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "project query parameter is required"})
+		return
+	}
+	if err := authorization.ValidateRequestProject(ctx, h.Context.Client, userDetails, projectID); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
+	f := parseInventoryListFilter(c)
+	mongoFilter := bson.M{"project_id": projectID, "confirmed": bson.M{"$ne": true}}
+	applyInventoryListFilter(mongoFilter, f)
+
+	coll := h.Context.Client.Collection(inventoryCollection)
+	findOpts := options.Find().
+		SetLimit(f.Limit).
+		SetSkip(f.Offset).
+		SetSort(bson.D{{Key: f.SortBy, Value: f.SortOrder}})
+
+	var (
+		total int64
+		items = []bson.M{}
+	)
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		n, err := coll.CountDocuments(gctx, mongoFilter)
+		if err != nil {
+			return fmt.Errorf("count: %w", err)
+		}
+		total = n
+		return nil
+	})
+	g.Go(func() error {
+		cur, err := coll.Find(gctx, mongoFilter, findOpts)
+		if err != nil {
+			return fmt.Errorf("find: %w", err)
+		}
+		defer cur.Close(gctx)
+		if err := cur.All(gctx, &items); err != nil {
+			return fmt.Errorf("decode: %w", err)
+		}
+		return nil
+	})
+	if err := g.Wait(); err != nil {
+		h.Logger.Errorf("attack-surface list failed: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to query attack surface"})
+		return
+	}
+
+	c.JSON(http.StatusOK, buildPaginationResponse(items, total, f.Limit, f.Offset))
+}
+
+// ListInventoryOperations handles GET /api/v3/inventory/operations.
+//
+// Path-grouped view: the operation-centric model stores one doc per
+// (…, method, normalized_path, …) and dropped the old methods[] array, so a
+// path's full method set must be reassembled read-side. This endpoint groups
+// by (host, normalized_path) and nests each path's operations (methods) with
+// their per-method stats, plus path-level rollups. Backed by the
+// project_host_path index for the project_id+host+normalized_path match.
+//
+// confirmed:true — clean catalog only (attack-surface noise has its own view).
+func (h *InventoryHandler) ListInventoryOperations(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), mongoQueryTimeout)
+	defer cancel()
+
+	userDetails, err := GetUserDetails(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
+		return
+	}
+	projectID := authorization.ExtractProjectFromRequest(c)
+	if projectID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "project query parameter is required"})
+		return
+	}
+	if err := authorization.ValidateRequestProject(ctx, h.Context.Client, userDetails, projectID); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
+	f := parseInventoryListFilter(c)
+	matchStage := bson.M{"project_id": projectID, "confirmed": true}
+	applyInventoryListFilter(matchStage, f)
+
+	// Sort whitelist for the grouped result — all exist in the $project
+	// output. Anything else falls back to last_seen.
+	opSortBy, opSortOrder := parseSort(c,
+		[]string{"last_seen", "total_seen", "max_risk_score", "operation_count"}, "last_seen")
+
+	pipeline := mongo.Pipeline{
+		{{Key: "$match", Value: matchStage}},
+		{{Key: "$group", Value: bson.M{
+			"_id": bson.M{
+				"host":            "$host",
+				"normalized_path": "$normalized_path",
+			},
+			// One entry per operation (method) under this path, carrying the
+			// per-method stats the UI shows when a path row is expanded.
+			"operations": bson.M{"$push": bson.M{
+				"method":              "$method",
+				"protocol":            "$protocol",
+				"grpc_service":        "$grpc_service",
+				"grpc_method":         "$grpc_method",
+				"listener_name":       "$listener_name",
+				"seen_count":          "$seen_count",
+				"max_risk_score":      "$max_risk_score",
+				"risk_flags":          "$risk_flags",
+				"pii_categories":      "$pii_categories",
+				"endpoint_categories": "$endpoint_categories",
+				"auth_observed":       "$auth_observed",
+				"noauth_observed":     "$noauth_observed",
+				// auth_schemes[] (jwt|mtls|apikey|none) — additive collector
+				// field, present only when EXTRACT_CONSUMER_FINGERPRINT is on.
+				// Carried per-operation so the UI can show an auth-type badge;
+				// absent docs simply omit it (no $ifNull needed — the push
+				// tolerates a missing field as null).
+				"auth_schemes":   "$auth_schemes",
+				"latency_max_ms": "$latency_max_ms",
+				"last_seen":      "$last_seen",
+			}},
+			"methods": bson.M{"$addToSet": "$method"},
+			// listeners (set, not $first): the group key is (host,
+			// normalized_path) but listener_name is part of the unique key,
+			// so the same path can exist under multiple listeners. $first
+			// would surface a random one and mislabel the row; $addToSet
+			// returns the full set. Per-operation listener_name is still
+			// carried inside operations[] for drill-down.
+			"listeners":       bson.M{"$addToSet": "$listener_name"},
+			"total_seen":      bson.M{"$sum": "$seen_count"},
+			"max_risk_score":  bson.M{"$max": "$max_risk_score"},
+			"first_seen":      bson.M{"$min": "$first_seen"},
+			"last_seen":       bson.M{"$max": "$last_seen"},
+			"operation_count": bson.M{"$sum": 1},
+		}}},
+		{{Key: "$project", Value: bson.M{
+			"_id":             0,
+			"host":            "$_id.host",
+			"normalized_path": "$_id.normalized_path",
+			"listeners":       1,
+			"methods":         1,
+			"operations":      1,
+			"total_seen":      1,
+			"max_risk_score":  1,
+			"operation_count": 1,
+			"first_seen":      1,
+			"last_seen":       1,
+		}}},
+		{{Key: "$sort", Value: bson.M{opSortBy: opSortOrder}}},
+		{{Key: "$facet", Value: bson.M{
+			"data": []bson.M{
+				{"$skip": f.Offset},
+				{"$limit": f.Limit},
+			},
+			"meta": []bson.M{
+				{"$count": "total"},
+			},
+		}}},
+	}
+
+	coll := h.Context.Client.Collection(inventoryCollection)
+	cur, err := coll.Aggregate(ctx, pipeline, options.Aggregate().SetAllowDiskUse(true))
+	if err != nil {
+		h.Logger.Errorf("inventory operations aggregate failed: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to aggregate operations"})
+		return
+	}
+	defer cur.Close(ctx)
+
+	type facetResult struct {
+		Data []bson.M `bson:"data"`
+		Meta []struct {
+			Total int64 `bson:"total"`
+		} `bson:"meta"`
+	}
+	var facets []facetResult
+	if err := cur.All(ctx, &facets); err != nil {
+		h.Logger.Errorf("inventory operations decode failed: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to decode operations"})
+		return
+	}
+
+	var (
+		data  []bson.M
+		total int64
+	)
+	if len(facets) > 0 {
+		data = facets[0].Data
+		if len(facets[0].Meta) > 0 {
+			total = facets[0].Meta[0].Total
+		}
+	}
+	if data == nil {
+		data = []bson.M{}
+	}
+
+	resp := buildPaginationResponse(data, total, f.Limit, f.Offset)
+	resp["sort_by"] = opSortBy
+	resp["sort_order"] = sortOrderLabel(opSortOrder)
+	c.JSON(http.StatusOK, resp)
 }
 
 // GetInventoryItem handles GET /api/v3/inventory/:id.
@@ -946,7 +1175,11 @@ func parseInventoryListFilter(c *gin.Context) listFilter {
 	}
 
 	f.ListenerName = c.Query("listener_name")
-	f.Host = c.Query("host")
+	// Normalize the host filter the same way the collector normalizes it at
+	// write time (default-port strip + lowercase). Without this, a UI value
+	// like "api.example.com:443" or "API.example.com" would never prefix-match
+	// the stored "api.example.com".
+	f.Host = clickhouse.NormalizeHost(c.Query("host"))
 	f.NormalizedPath = c.Query("normalized_path")
 
 	if v := c.Query("method"); v != "" {

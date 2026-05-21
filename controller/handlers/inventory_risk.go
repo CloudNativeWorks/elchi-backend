@@ -138,7 +138,9 @@ func (h *InventoryHandler) RiskSummary(c *gin.Context) {
 		return
 	}
 
-	baseFilter := bson.M{"project_id": projectID}
+	// confirmed:true = risk summary over real endpoints only; scanner noise
+	// would otherwise inflate every risk bucket.
+	baseFilter := bson.M{"project_id": projectID, "confirmed": true}
 	if v := strings.TrimSpace(c.Query("listener_name")); v != "" {
 		baseFilter["listener_name"] = bson.M{"$regex": "^" + escapeRegex(v)}
 	}

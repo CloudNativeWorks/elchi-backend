@@ -72,7 +72,7 @@ type AppConfig struct {
 	// for x-target-cluster routing.
 	// Default (K8s):     hostname (StatefulSet pod name).
 	// Default (non-K8s): "<hostname>-controlplane-<version>"
-	//                    (e.g. "m2host-controlplane-1.38.0").
+	//                    (e.g. "m2host-controlplane-1.36.2").
 	// Set this when running multiple control-plane binaries on the same host
 	// and you want to publish a custom name in /etc/hosts and Envoy clusters.
 	ControlPlaneID string `mapstructure:"CONTROL_PLANE_ID" yaml:"CONTROL_PLANE_ID"`

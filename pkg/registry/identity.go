@@ -32,8 +32,8 @@ func cleanHostname() string {
 }
 
 // cleanVersion strips a leading "v" from build-time injected strings such as
-// "v1.38.0" so the resulting ID is "<host>-controlplane-1.38.0" rather than
-// "<host>-controlplane-v1.38.0".
+// "v1.36.2" so the resulting ID is "<host>-controlplane-1.36.2" rather than
+// "<host>-controlplane-v1.36.2".
 func cleanVersion(v string) string {
 	if v == "" {
 		return "unknown"
@@ -87,10 +87,10 @@ func ResolveControlPlaneID(cfg *config.AppConfig, version string) string {
 // (cross-controller forwarder, registry storage) use to reach a controller's
 // REST endpoint.
 //
-//   Kubernetes:     "<pod>.<svc>-headless.<ns>.svc:<port>" (StatefulSet DNS)
-//   Non-Kubernetes: "<controllerID>:<port>"                (resolved via the
-//                                                           operator's /etc/hosts
-//                                                           or real DNS)
+//	Kubernetes:     "<pod>.<svc>-headless.<ns>.svc:<port>" (StatefulSet DNS)
+//	Non-Kubernetes: "<controllerID>:<port>"                (resolved via the
+//	                                                        operator's /etc/hosts
+//	                                                        or real DNS)
 //
 // port==0 falls back to 8099 to preserve the historical default.
 func ResolveControllerHTTPAddress(controllerID string, port uint, namespace string) string {

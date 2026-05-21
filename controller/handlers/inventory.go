@@ -596,7 +596,12 @@ func (h *InventoryHandler) ListInventoryOperations(c *gin.Context) {
 			},
 			// One entry per operation (method) under this path, carrying the
 			// per-method stats the UI shows when a path row is expanded.
+			// _id is the api_inventory document ObjectID — needed so the UI
+			// can deep-link each operation row to GET /inventory/:id
+			// (and /:id/events, /:id/stats). primitive.ObjectID marshals to
+			// a hex string in the JSON response, which :id accepts directly.
 			"operations": bson.M{"$push": bson.M{
+				"_id":                 "$_id",
 				"method":              "$method",
 				"protocol":            "$protocol",
 				"grpc_service":        "$grpc_service",

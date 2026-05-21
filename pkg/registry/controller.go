@@ -623,6 +623,12 @@ func (r *RegistryClient) ConnectAndRegister() error {
 
 	// Connect with retry - now includes real connectivity test
 	if err := r.ConnectWithRetry(ctx); err != nil {
+		// Force Disconnected so continuousReconnectLoop will retry. Connect()
+		// flips state to Connected on a successful (lazy) gRPC dial; if a
+		// later step fails we MUST roll it back, otherwise the reconnect loop
+		// sees Connected and never re-attempts — the controller stays wedged
+		// out of the registry until the pod is recreated.
+		r.setConnectionState(ControllerStateDisconnected)
 		r.logger.Errorf("Controller registry connection failed: %v", err)
 		return fmt.Errorf("failed to connect to registry: %w", err)
 	}
@@ -631,6 +637,15 @@ func (r *RegistryClient) ConnectAndRegister() error {
 
 	// Register with retry
 	if err := r.RegisterControllerWithRetry(ctx); err != nil {
+		// CRITICAL: Connect() above already set state to Connected (gRPC dial
+		// is lazy and "succeeds" before the real TCP connect). If registration
+		// then fails — e.g. transient network EPERM during pod startup before
+		// the CNI is ready, or "not the active leader" during a failover — we
+		// must roll state back to Disconnected. Otherwise continuousReconnect-
+		// Loop only fires on Disconnected and would never retry, leaving the
+		// controller permanently unregistered (observed: 14 attempts → 2m
+		// timeout → silent give-up until manual pod delete).
+		r.setConnectionState(ControllerStateDisconnected)
 		r.logger.Errorf("Controller registration failed: %v", err)
 		return fmt.Errorf("failed to register controller: %w", err)
 	}

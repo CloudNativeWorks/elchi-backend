@@ -99,6 +99,10 @@ func (e *Election) IsLeader() bool { return e.leader.Load() }
 // HolderID returns this instance's unique identifier (hostname-uuid8).
 func (e *Election) HolderID() string { return e.holderID }
 
+// Hostname returns the OS hostname this instance resolved at startup.
+// Used by the instance registry to label heartbeat docs.
+func (e *Election) Hostname() string { return e.hostname }
+
 // OnLeadershipChange registers a callback fired when leadership flips.
 // Callbacks must not block. They run in the election loop goroutine.
 func (e *Election) OnLeadershipChange(fn func(isLeader bool)) {

@@ -108,6 +108,7 @@ var AllowedEndpoints = []string{
 	"/api/v3/scenario/import",
 	"/api/v3/scenario/export",
 	"/api/v3/registry/data",
+	"/api/v3/registry/instances",
 	"/api/v3/registry/controller/:id",
 	"/api/v3/registry/control-plane/:id",
 	"/api/op/clients",

@@ -325,6 +325,7 @@ func initRegistryRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		handler gin.HandlerFunc
 	}{
 		{"GET", "/data", h.Registry.GetRegistryData},
+		{"GET", "/instances", h.Registry.GetRegistryInstances},
 		{"DELETE", "/controller/:id", h.Registry.DeleteController},
 		{"DELETE", "/control-plane/:id", h.Registry.DeleteControlPlane},
 	}

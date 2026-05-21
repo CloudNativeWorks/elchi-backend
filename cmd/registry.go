@@ -14,6 +14,8 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/pkg/config"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/version"
+	"github.com/CloudNativeWorks/elchi-backend/registry/instances"
 	"github.com/CloudNativeWorks/elchi-backend/registry/leader"
 	"github.com/CloudNativeWorks/elchi-backend/registry/metrics"
 	"github.com/CloudNativeWorks/elchi-backend/registry/server"
@@ -193,6 +195,30 @@ var registryCmd = &cobra.Command{
 		// stays correct on every later transition.
 		snapshotter.StartReader(electionCtx, pollInterval)
 
+		// Instance registry: every instance (leader or standby) heartbeats
+		// its presence into registry_instances so the controller can surface
+		// the full HA topology (which registries exist, which is leader). The
+		// _id matches election.HolderID() so the controller joins this with
+		// the registry_leader lock doc to flag the leader. grpc_addr uses the
+		// resolved hostname + port (not the 0.0.0.0 bind address) so the UI
+		// shows a reachable endpoint.
+		instanceLogger := logger.NewLogger("registry/instances")
+		instanceRegistry := instances.New(
+			appContext.Client,
+			election.HolderID(),
+			election.Hostname(),
+			version.GetVersion(),
+			fmt.Sprintf("%s:%d", election.Hostname(), registryPort),
+			election.IsLeader,
+			instanceLogger,
+		)
+		// Start spawns the heartbeat goroutine (which also ensures the TTL
+		// index off the startup path so it can't delay leader election).
+		// Graceful removal is handled explicitly in the shutdown sequence
+		// below — not on ctx.Done inside the goroutine — so the delete is
+		// guaranteed to run before the process exits.
+		instanceRegistry.Start(electionCtx, instances.DefaultHeartbeatInterval)
+
 		// Drive elections in the background.
 		// electionDone closes when election.Run returns (after releaseIfHeld
 		// finishes). Main goroutine waits on this AFTER StartGRPCServer
@@ -263,6 +289,16 @@ var registryCmd = &cobra.Command{
 		rootLogger.WithField("address", fullAddress).Info("Starting gRPC server")
 		if err := server.StartGRPCServer(electionCtx, fullAddress, controllerRoutingService, controlPlaneRoutingService, metricsAggregator, rootLogger, appConfig, election, election); err != nil {
 			rootLogger.WithError(err).Fatal("gRPC server error")
+		}
+
+		// Await the instance heartbeat goroutine's clean exit (it removes its
+		// own doc on the way out). Bounded so a hung Mongo can't block
+		// shutdown — TTL is the fallback if removal doesn't complete.
+		select {
+		case <-instanceRegistry.Stopped():
+			rootLogger.Info("registry instance heartbeat stopped cleanly")
+		case <-time.After(5 * time.Second):
+			rootLogger.Warn("registry instance heartbeat stop timed out after 5s; exiting anyway")
 		}
 
 		// gRPC server returned — block until election loop has finished

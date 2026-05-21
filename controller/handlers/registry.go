@@ -169,3 +169,46 @@ func (h *RegistryHandler) GetRegistryData(c *gin.Context) {
 		"data":    registryData,
 	})
 }
+
+// GetRegistryInstances returns the registry HA topology: every live registry
+// instance (leader + standbys), which one currently holds the leader lease,
+// and lease/heartbeat timing. Read straight from MongoDB
+// (registry_instances + registry_leader) — there is no gRPC equivalent and a
+// direct read avoids the split-routing problem the gRPC aggregation has.
+//
+// Requires the Mongo context. Unlike GetRegistryData there is no gRPC
+// fallback: instance presence is only recorded in Mongo, so without the DB
+// there is simply nothing to return.
+func (h *RegistryHandler) GetRegistryInstances(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	if h.registryClient == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"message": "Registry client not available",
+			"data":    nil,
+		})
+		return
+	}
+	if h.dbContext == nil || h.dbContext.Client == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"message": "Registry instance view requires database access",
+			"data":    nil,
+		})
+		return
+	}
+
+	data, err := h.registryClient.GetRegistryInstances(ctx, h.dbContext.Client)
+	if err != nil {
+		h.logger.Errorf("Failed to get registry instances: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"message": fmt.Sprintf("Failed to get registry instances: %v", err),
+			"data":    nil,
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "OK",
+		"data":    data,
+	})
+}

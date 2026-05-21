@@ -192,6 +192,20 @@ var detectorWindowKeys = []string{
 	"replay", "path_scan", "geo_spread", "ip_rate", "normalize_gap",
 }
 
+// distinctTrackerWindowKeys are the detectors whose threshold counts distinct
+// values in the collector's fixed-size DistinctTracker ring. A threshold above
+// the ring size can never fire, so the collector rejects the config. We mirror
+// that cap here for an immediate 400.
+var distinctTrackerWindowKeys = map[string]bool{
+	"path_scan":     true,
+	"geo_spread":    true,
+	"normalize_gap": true,
+}
+
+// distinctTrackerThresholdMax is the DistinctTracker ring size (collector
+// v0.1.5). Keep in sync with the collector if it ever changes.
+const distinctTrackerThresholdMax = 128
+
 // validateCollectorConfigUpdate mirrors the collector's Doc.Validate()
 // well enough to catch the common operator mistakes BEFORE the write,
 // so a bad config returns 400 instead of being silently rejected by
@@ -565,6 +579,16 @@ func validateCollectorDetection(detection bson.M) error {
 		window, hasW := numericValue(win["window_seconds"])
 		if hasT && threshold < 0 {
 			return fmt.Errorf("detection.%s.threshold cannot be negative", key)
+		}
+		// DistinctTracker-backed detectors (path_scan / geo_spread /
+		// normalize_gap) count distinct values in a fixed 128-slot ring
+		// (collector v0.1.5). A threshold above the ring size can NEVER
+		// fire — the collector rejects the whole doc and keeps running on
+		// the old config (runtime_config_poll_failures_total++). Reject it
+		// here so the operator gets an immediate 400 instead of a silently
+		// dropped update.
+		if hasT && threshold > distinctTrackerThresholdMax && distinctTrackerWindowKeys[key] {
+			return fmt.Errorf("detection.%s.threshold cannot exceed %d (collector DistinctTracker ring size)", key, distinctTrackerThresholdMax)
 		}
 		if hasW && window < 0 {
 			return fmt.Errorf("detection.%s.window_seconds cannot be negative", key)

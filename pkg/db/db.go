@@ -598,6 +598,14 @@ var CompoundIndices = map[string][]mongo.IndexModel{
 			Options: options.Index().SetName("project_riskscore_lastseen"),
 		},
 		{
+			// project_posture_lastseen — EXPOSURE axis sort (collector v0.1.5
+			// two-axis scoring). max_posture_score is config-hygiene exposure,
+			// distinct from max_risk_score (threat). Backs "most exposed"
+			// catalog ordering the same way riskscore backs "most dangerous".
+			Keys:    bson.D{{Key: "project_id", Value: 1}, {Key: "max_posture_score", Value: -1}, {Key: "last_seen", Value: -1}},
+			Options: options.Index().SetName("project_posture_lastseen"),
+		},
+		{
 			// project_host_path — backs the path-grouped read view: fetch
 			// every operation (method) of one (project, host, normalized_path)
 			// in a single indexed query. Required by the operation-centric

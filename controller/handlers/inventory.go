@@ -585,7 +585,7 @@ func (h *InventoryHandler) ListInventoryOperations(c *gin.Context) {
 	// Sort whitelist for the grouped result — all exist in the $project
 	// output. Anything else falls back to last_seen.
 	opSortBy, opSortOrder := parseSort(c,
-		[]string{"last_seen", "total_seen", "max_risk_score", "operation_count"}, "last_seen")
+		[]string{"last_seen", "total_seen", "max_risk_score", "max_posture_score", "operation_count"}, "last_seen")
 
 	pipeline := mongo.Pipeline{
 		{{Key: "$match", Value: matchStage}},
@@ -619,9 +619,12 @@ func (h *InventoryHandler) ListInventoryOperations(c *gin.Context) {
 				// Carried per-operation so the UI can show an auth-type badge;
 				// absent docs simply omit it (no $ifNull needed — the push
 				// tolerates a missing field as null).
-				"auth_schemes":   "$auth_schemes",
-				"latency_max_ms": "$latency_max_ms",
-				"last_seen":      "$last_seen",
+				"auth_schemes": "$auth_schemes",
+				// max_posture_score — EXPOSURE axis (config hygiene), distinct
+				// from max_risk_score (THREAT). Per-operation for drill-down.
+				"max_posture_score": "$max_posture_score",
+				"latency_max_ms":    "$latency_max_ms",
+				"last_seen":         "$last_seen",
 			}},
 			"methods": bson.M{"$addToSet": "$method"},
 			// listeners (set, not $first): the group key is (host,
@@ -630,25 +633,27 @@ func (h *InventoryHandler) ListInventoryOperations(c *gin.Context) {
 			// would surface a random one and mislabel the row; $addToSet
 			// returns the full set. Per-operation listener_name is still
 			// carried inside operations[] for drill-down.
-			"listeners":       bson.M{"$addToSet": "$listener_name"},
-			"total_seen":      bson.M{"$sum": "$seen_count"},
-			"max_risk_score":  bson.M{"$max": "$max_risk_score"},
-			"first_seen":      bson.M{"$min": "$first_seen"},
-			"last_seen":       bson.M{"$max": "$last_seen"},
-			"operation_count": bson.M{"$sum": 1},
+			"listeners":         bson.M{"$addToSet": "$listener_name"},
+			"total_seen":        bson.M{"$sum": "$seen_count"},
+			"max_risk_score":    bson.M{"$max": "$max_risk_score"},
+			"max_posture_score": bson.M{"$max": "$max_posture_score"},
+			"first_seen":        bson.M{"$min": "$first_seen"},
+			"last_seen":         bson.M{"$max": "$last_seen"},
+			"operation_count":   bson.M{"$sum": 1},
 		}}},
 		{{Key: "$project", Value: bson.M{
-			"_id":             0,
-			"host":            "$_id.host",
-			"normalized_path": "$_id.normalized_path",
-			"listeners":       1,
-			"methods":         1,
-			"operations":      1,
-			"total_seen":      1,
-			"max_risk_score":  1,
-			"operation_count": 1,
-			"first_seen":      1,
-			"last_seen":       1,
+			"_id":               0,
+			"host":              "$_id.host",
+			"normalized_path":   "$_id.normalized_path",
+			"listeners":         1,
+			"methods":           1,
+			"operations":        1,
+			"total_seen":        1,
+			"max_risk_score":    1,
+			"max_posture_score": 1,
+			"operation_count":   1,
+			"first_seen":        1,
+			"last_seen":         1,
 		}}},
 		{{Key: "$sort", Value: bson.M{opSortBy: opSortOrder}}},
 		{{Key: "$facet", Value: bson.M{
@@ -1222,19 +1227,28 @@ func parseInventoryListFilter(c *gin.Context) listFilter {
 	// Sort whitelist: every entry must be backed by a project-scoped
 	// compound index so a busy project can't trigger a collection
 	// scan. Coverage:
-	//   last_seen      → project_last_seen
-	//   max_risk_score → project_riskscore_lastseen
-	//   seen_count     → project_seen_count
-	//   latency_max_ms → project_latency_max
-	// All four are ensured on startup (pkg/db/db.go CompoundIndices).
+	//   last_seen        → project_last_seen
+	//   max_risk_score   → project_riskscore_lastseen   (THREAT axis)
+	//   max_posture_score→ project_posture_lastseen      (EXPOSURE axis)
+	//   seen_count       → project_seen_count
+	//   latency_max_ms   → project_latency_max
+	// All are ensured on startup (pkg/db/db.go CompoundIndices).
 	// A listener_name / method / risk_flag filter applied alongside
 	// the sort means the index only partially covers the query (ESR),
 	// but the project_id leg still prunes and the typical call is
 	// project-scoped — acceptable. Unknown sort_by falls through to
 	// last_seen (no 400).
+	//
+	// Two-axis scoring (collector v0.1.5): max_risk_score is THREAT-only
+	// (active findings — BOLA/brute-force/scanner/PII), max_posture_score
+	// is config-hygiene EXPOSURE (anonymous/plaintext/missing-header/
+	// CORS/weak-TTL). "Most dangerous" sorts by risk; "most exposed" by
+	// posture.
 	switch c.Query("sort_by") {
 	case "max_risk_score":
 		f.SortBy = "max_risk_score"
+	case "max_posture_score":
+		f.SortBy = "max_posture_score"
 	case "seen_count":
 		f.SortBy = "seen_count"
 	case "latency_max_ms":

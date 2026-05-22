@@ -418,3 +418,90 @@ type ErrorSeriesPoint struct {
 	Error4xx int64     `json:"error_4xx"`
 	Error5xx int64     `json:"error_5xx"`
 }
+
+// ---------------------------------------------------------------------
+// Consumer (identity) behaviour analytics
+// ---------------------------------------------------------------------
+
+// ConsumerFilter scopes the consumer aggregation over api_events_raw.
+// Project + time window are required; Top caps the leaderboard size in
+// QueryConsumerTop (independent of Limit/Offset which page the handler
+// response).
+type ConsumerFilter struct {
+	ProjectID string
+	From      time.Time
+	To        time.Time
+	Top       int
+}
+
+// ConsumerSummary is the payload of GET /inventory/consumers. The
+// anonymous bucket (events whose consumer_hash is empty) is reported as
+// a single aggregate count rather than mixed into TopConsumers — those
+// events have no stable identity to pivot on.
+type ConsumerSummary struct {
+	TotalEvents     int64                 `json:"total_events"`
+	AnonymousEvents int64                 `json:"anonymous_events"`
+	TopConsumers    []ConsumerAggregation `json:"top_consumers"`
+}
+
+// ConsumerAggregation is one row of the consumer leaderboard. RiskScore
+// is the max observed (raw events carry no risk_flags — only inventory
+// does — so threat signal here is max risk_score + ti_hits). Percentage
+// is share of non-anonymous events, computed backend-side.
+type ConsumerAggregation struct {
+	ConsumerHash      string    `json:"consumer_hash" ch:"consumer_hash"`
+	Events            int64     `json:"events" ch:"events"`
+	MaxRiskScore      int64     `json:"max_risk_score" ch:"max_risk"`
+	DistinctIPs       int64     `json:"distinct_ips" ch:"distinct_ips"`
+	DistinctEndpoints int64     `json:"distinct_endpoints" ch:"distinct_endpoints"`
+	TIHits            int64     `json:"ti_hits" ch:"ti_hits"`
+	FirstSeen         time.Time `json:"first_seen" ch:"first_seen"`
+	LastSeen          time.Time `json:"last_seen" ch:"last_seen"`
+	Percentage        float64   `json:"percentage"`
+}
+
+// ConsumerDetail is the payload of GET /inventory/consumers/:hash — the
+// investigation pivot. MethodDist / StatusDist are keyed by the method
+// string and the textual status code; TopEndpoints lists the operations
+// this identity touched most. Geo* fields are a best-effort snapshot
+// (any() over the window) for quick attribution.
+type ConsumerDetail struct {
+	ConsumerHash      string             `json:"consumer_hash"`
+	TotalEvents       int64              `json:"total_events"`
+	DistinctEndpoints int64              `json:"distinct_endpoints"`
+	DistinctIPs       int64              `json:"distinct_ips"`
+	MaxRiskScore      int64              `json:"max_risk_score"`
+	CriticalEvents    int64              `json:"critical_events"`
+	TIHits            int64              `json:"ti_hits"`
+	FirstSeen         time.Time          `json:"first_seen"`
+	LastSeen          time.Time          `json:"last_seen"`
+	GeoCountry        string             `json:"geo_country"`
+	GeoASN            string             `json:"geo_asn"`
+	GeoASNOrg         string             `json:"geo_asn_org"`
+	MethodDist        map[string]int64   `json:"method_dist"`
+	StatusDist        map[string]int64   `json:"status_dist"`
+	TopEndpoints      []ConsumerEndpoint `json:"top_endpoints"`
+	TopSourceIPs      []ConsumerSourceIP `json:"top_source_ips"`
+}
+
+// ConsumerSourceIP is one source address the consumer was seen from.
+// Hash (source_ip_hash) is always present; IP carries the raw textual
+// address only when the collector is configured to persist it
+// (Policy.StoreRawSourceIP) — otherwise IP is empty and the UI falls
+// back to the hash.
+type ConsumerSourceIP struct {
+	IP    string `json:"ip"`
+	Hash  string `json:"hash"`
+	Count int64  `json:"count"`
+}
+
+// ConsumerEndpoint is one row of ConsumerDetail.TopEndpoints — an
+// operation the consumer hit, with its event count and worst observed
+// risk score.
+type ConsumerEndpoint struct {
+	ListenerName   string `json:"listener_name" ch:"listener_name"`
+	NormalizedPath string `json:"normalized_path" ch:"normalized_path"`
+	Method         string `json:"method" ch:"method"`
+	Count          int64  `json:"count" ch:"count"`
+	MaxRiskScore   int64  `json:"max_risk_score" ch:"max_risk"`
+}

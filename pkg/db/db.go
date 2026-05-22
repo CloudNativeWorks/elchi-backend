@@ -632,6 +632,36 @@ var CompoundIndices = map[string][]mongo.IndexModel{
 			Options: options.Index().SetName("project_latency_max"),
 		},
 	},
+	// api_inventory_snapshots stores doc-per-operation point-in-time
+	// captures of the drift-relevant inventory surface (see
+	// pkg/inventory/snapshot.go). Drift detection diffs the live
+	// api_inventory against the most recent snapshot at-or-before a
+	// caller-supplied `since`.
+	"api_inventory_snapshots": {
+		{
+			// project_snapshot_at — baseline lookup: find the newest
+			// snapshot at-or-before `since` for a project (sort
+			// snapshot_at desc, limit 1). Same key serves the snapshot
+			// listing endpoint (group by snapshot_id, sorted by recency).
+			Keys:    bson.D{{Key: "project_id", Value: 1}, {Key: "snapshot_at", Value: -1}},
+			Options: options.Index().SetName("snap_project_snapshot_at"),
+		},
+		{
+			// snapshot_project — fetch every operation doc of a chosen
+			// snapshot run for one project (the baseline op set the diff
+			// walks). snapshot_id is the run identifier (date or uuid).
+			Keys:    bson.D{{Key: "snapshot_id", Value: 1}, {Key: "project_id", Value: 1}},
+			Options: options.Index().SetName("snap_snapshot_project"),
+		},
+		{
+			// TTL on snapshot_at — 30-day auto-cleanup. Single-field TTL
+			// (Mongo requirement); the value is always set at write time
+			// so every snapshot doc is eligible. Mirrors the audit_logs /
+			// background_jobs SetExpireAfterSeconds pattern.
+			Keys:    bson.D{{Key: "snapshot_at", Value: 1}},
+			Options: options.Index().SetName("snap_snapshot_at_ttl").SetExpireAfterSeconds(60 * 60 * 24 * 30),
+		},
+	},
 }
 
 // BackgroundJobIndices defines specialized indexes for background_jobs.

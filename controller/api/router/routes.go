@@ -397,36 +397,46 @@ func initInventoryRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		path    string
 		handler gin.HandlerFunc
 	}{
-		{"GET", "", h.Inventory.ListInventory},                       // GET /api/v3/inventory  (flat per-endpoint list, confirmed only)
-		{"GET", "/operations", h.Inventory.ListInventoryOperations},  // GET /api/v3/inventory/operations (path-grouped: methods nested under (host, normalized_path))
-		{"GET", "/attack-surface", h.Inventory.ListAttackSurface},    // GET /api/v3/inventory/attack-surface (scanner/probe noise — confirmed:false)
-		{"GET", "/openapi", h.Inventory.ExportOpenAPI},               // GET /api/v3/inventory/openapi?format=yaml|json (download OpenAPI 3.0.3 skeleton from confirmed endpoints)
-		{"GET", "/listeners", h.Inventory.ListInventoryListeners},    // GET /api/v3/inventory/listeners (project listeners summary — UI default landing)
-		{"GET", "/geo", h.Inventory.GeoSummary},                      // GET /api/v3/inventory/geo (country/asn/UA/TI aggregates + optional time series)
+		{"GET", "", h.Inventory.ListInventory},                      // GET /api/v3/inventory  (flat per-endpoint list, confirmed only)
+		{"GET", "/operations", h.Inventory.ListInventoryOperations}, // GET /api/v3/inventory/operations (path-grouped: methods nested under (host, normalized_path))
+		{"GET", "/attack-surface", h.Inventory.ListAttackSurface},   // GET /api/v3/inventory/attack-surface (scanner/probe noise — confirmed:false)
+		{"GET", "/openapi", h.Inventory.ExportOpenAPI},              // GET /api/v3/inventory/openapi?format=yaml|json (download OpenAPI 3.0.3 skeleton from confirmed endpoints)
+		{"GET", "/listeners", h.Inventory.ListInventoryListeners},   // GET /api/v3/inventory/listeners (project listeners summary — UI default landing)
+		{"GET", "/geo", h.Inventory.GeoSummary},                     // GET /api/v3/inventory/geo (country/asn/UA/TI aggregates + optional time series)
 		// API discovery + security surfaces. All five share the
 		// inventory schema + project-scope auth pattern. Static
 		// segments are registered BEFORE the `:id` catch-all so
 		// gin's radix tree binds them correctly.
-		{"GET", "/discoveries", h.Inventory.ListDiscoveries},   // GET /api/v3/inventory/discoveries (first_seen within window)
-		{"GET", "/auth-coverage", h.Inventory.AuthCoverage},    // GET /api/v3/inventory/auth-coverage (unauth / inconsistent endpoints)
-		{"GET", "/bot-scanner", h.Inventory.BotScannerHeatmap}, // GET /api/v3/inventory/bot-scanner (CH heatmap of bot/scanner traffic)
-		{"GET", "/pii", h.Inventory.PIIInventory},              // GET /api/v3/inventory/pii (pii_categories breakdown)
-		{"GET", "/zombies", h.Inventory.ListZombies},           // GET /api/v3/inventory/zombies (old + previously popular endpoints)
-		{"GET", "/risk-summary", h.Inventory.RiskSummary},      // GET /api/v3/inventory/risk-summary (risk_flags by flag/class/severity)
-		{"GET", "/security-score", h.Inventory.SecurityScore},  // GET /api/v3/inventory/security-score (A–F posture grade)
-		{"GET", "/transport", h.Inventory.TransportPosture},    // GET /api/v3/inventory/transport (TLS/protocol posture)
-		{"GET", "/errors", h.Inventory.ErrorAnalysis},          // GET /api/v3/inventory/errors (4xx/5xx hotspots + series)
+		{"GET", "/discoveries", h.Inventory.ListDiscoveries},      // GET /api/v3/inventory/discoveries (first_seen within window)
+		{"GET", "/auth-coverage", h.Inventory.AuthCoverage},       // GET /api/v3/inventory/auth-coverage (unauth / inconsistent endpoints)
+		{"GET", "/bot-scanner", h.Inventory.BotScannerHeatmap},    // GET /api/v3/inventory/bot-scanner (CH heatmap of bot/scanner traffic)
+		{"GET", "/pii", h.Inventory.PIIInventory},                 // GET /api/v3/inventory/pii (pii_categories breakdown)
+		{"GET", "/zombies", h.Inventory.ListZombies},              // GET /api/v3/inventory/zombies (old + previously popular endpoints)
+		{"GET", "/risk-summary", h.Inventory.RiskSummary},         // GET /api/v3/inventory/risk-summary (risk_flags by flag/class/severity)
+		{"GET", "/security-score", h.Inventory.SecurityScore},     // GET /api/v3/inventory/security-score (A–F posture grade)
+		{"GET", "/transport", h.Inventory.TransportPosture},       // GET /api/v3/inventory/transport (TLS/protocol posture)
+		{"GET", "/errors", h.Inventory.ErrorAnalysis},             // GET /api/v3/inventory/errors (4xx/5xx hotspots + series)
 		{"GET", "/normalize-gaps", h.Inventory.ListNormalizeGaps}, // GET /api/v3/inventory/normalize-gaps (suspected un-normalized path prefixes)
+		// Consumer (identity) behaviour analytics — ClickHouse
+		// consumer_hash aggregation. Static `/consumers` precedes the
+		// `:id` catch-all; `/consumers/:hash` validates a 64-hex digest.
+		{"GET", "/consumers", h.Inventory.ListConsumers},           // GET /api/v3/inventory/consumers (top consumers + anonymous bucket)
+		{"GET", "/consumers/:hash", h.Inventory.GetConsumerDetail}, // GET /api/v3/inventory/consumers/:hash (endpoints/methods/status/geo/risk)
+		// API drift / change detection — diffs live inventory against a
+		// baseline snapshot. Static segments precede the `:id` catch-all.
+		{"GET", "/changes", h.Inventory.ListChanges},       // GET /api/v3/inventory/changes?since= (field-level drift signals)
+		{"GET", "/snapshots", h.Inventory.ListSnapshots},   // GET /api/v3/inventory/snapshots (available baselines)
+		{"POST", "/snapshots", h.Inventory.CreateSnapshot}, // POST /api/v3/inventory/snapshots (manual capture — Admin/Owner)
 		// Destructive cleanup — Admin/Owner only (checked in handler).
 		// cleanup-stale is a static segment so it must precede the `:id`
 		// catch-all in gin's radix tree.
 		{"POST", "/cleanup-stale", h.Inventory.CleanupStaleInventory}, // POST /api/v3/inventory/cleanup-stale?project=&days= (bulk delete stale endpoints)
 		// Collector runtime config moved to GET/PUT /api/v3/setting/api_discovery
-		{"GET", "/:id", h.Inventory.GetInventoryItem},                // GET /api/v3/inventory/:id
-		{"GET", "/:id/events", h.Inventory.GetInventoryEvents},       // GET /api/v3/inventory/:id/events
-		{"GET", "/:id/stats", h.Inventory.GetInventoryStats},         // GET /api/v3/inventory/:id/stats
-		{"DELETE", "/:id", h.Inventory.DeleteInventoryItem},          // DELETE /api/v3/inventory/:id (delete one endpoint)
-		{"POST", "/:id/reset", h.Inventory.ResetInventoryItem},       // POST /api/v3/inventory/:id/reset (zero counters/risk)
+		{"GET", "/:id", h.Inventory.GetInventoryItem},          // GET /api/v3/inventory/:id
+		{"GET", "/:id/events", h.Inventory.GetInventoryEvents}, // GET /api/v3/inventory/:id/events
+		{"GET", "/:id/stats", h.Inventory.GetInventoryStats},   // GET /api/v3/inventory/:id/stats
+		{"DELETE", "/:id", h.Inventory.DeleteInventoryItem},    // DELETE /api/v3/inventory/:id (delete one endpoint)
+		{"POST", "/:id/reset", h.Inventory.ResetInventoryItem}, // POST /api/v3/inventory/:id/reset (zero counters/risk)
 	}
 	initRoutes(rg, routes)
 }

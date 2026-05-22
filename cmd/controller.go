@@ -33,6 +33,7 @@ import (
 	pkgGslb "github.com/CloudNativeWorks/elchi-backend/pkg/gslb"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/helper"
 	server "github.com/CloudNativeWorks/elchi-backend/pkg/httpserver"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/inventory"
 	licensepkg "github.com/CloudNativeWorks/elchi-backend/pkg/license"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/registry"
@@ -245,6 +246,17 @@ var restCmd = &cobra.Command{
 		// Initialize audit service
 		auditLogger := logger.NewLogger("controller/audit")
 		auditService := audit.NewService(appContext, auditLogger)
+
+		// Start the API inventory snapshot scheduler (leader-elected via
+		// MongoDB scheduler_locks). Daily snapshots give the drift
+		// detection endpoint baselines to diff the live inventory
+		// against. Mongo-only — runs regardless of ClickHouse.
+		inventorySnapshotLogger := logger.NewLogger("controller/inventory-snapshot")
+		inventorySnapshotScheduler := inventory.NewSnapshotScheduler(appContext.Client, inventorySnapshotLogger)
+		if err := inventorySnapshotScheduler.Start(context.Background()); err != nil {
+			rootLogger.Errorf("Failed to start inventory snapshot scheduler: %v", err)
+		}
+		defer inventorySnapshotScheduler.Stop()
 
 		// Initialize settings handler
 		userHandler := settings.NewUserHandler(appContext)

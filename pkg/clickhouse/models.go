@@ -484,6 +484,53 @@ type ConsumerDetail struct {
 	TopSourceIPs      []ConsumerSourceIP `json:"top_source_ips"`
 }
 
+// ---------------------------------------------------------------------
+// Current posture (drift "current vs ever") — Task 3 Phase 1
+// ---------------------------------------------------------------------
+
+// CurrentPostureFilter scopes a single operation's recent posture lookup.
+// It carries the FULL inventory operation key (the same 8 fields the
+// collector upserts on) so the ClickHouse lookup matches exactly one
+// operation — host / protocol / grpc_* are included because the rollup
+// tables drop host (so they would over-aggregate across virtual hosts and
+// mis-attribute risk); querying raw with the full key is host-precise AND
+// sampling-safe (the sampler only sheds benign events — risky ones are
+// always kept). WindowDays bounds "current" (default 7, raw retention).
+type CurrentPostureFilter struct {
+	ProjectID      string
+	ListenerName   string
+	Host           string
+	Protocol       string
+	Method         string
+	NormalizedPath string
+	GRPCService    string
+	GRPCMethod     string
+	WindowDays     int
+}
+
+// CurrentPosture is the ClickHouse-derived "what is this operation doing
+// NOW" snapshot, the counterpart to the monotonic "_ever" values stored
+// on the inventory doc. Active is false when no traffic was seen in the
+// window (dormant) — the handler then returns current as null so the UI
+// can distinguish "clean because quiet" from "clean because remediated".
+//
+// NOTE: there is no current EXPOSURE score here — the collector does not
+// ship posture_score to ClickHouse (only risk_score), so max_posture_score
+// is available as "_ever" only. MaxRiskScore comes from the 1h rollup
+// (maxMerge — sampling-safe, may exceed raw retention); the flag/PII/auth
+// detail comes from raw and is bounded by the ~7d raw retention.
+type CurrentPosture struct {
+	Active         bool      `json:"active"`
+	WindowDays     int       `json:"window_days"`
+	MaxRiskScore   int64     `json:"max_risk_score"`
+	RiskFlags      []string  `json:"risk_flags"`
+	PIICategories  []string  `json:"pii_categories"`
+	AuthObserved   bool      `json:"auth_observed"`   // any authenticated request in window
+	NoauthObserved bool      `json:"noauth_observed"` // any UNauthenticated request in window
+	EventCount     int64     `json:"event_count"`
+	LastActive     time.Time `json:"last_active"`
+}
+
 // ConsumerSourceIP is one source address the consumer was seen from.
 // Hash (source_ip_hash) is always present; IP carries the raw textual
 // address only when the collector is configured to persist it

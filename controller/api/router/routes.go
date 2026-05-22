@@ -430,13 +430,15 @@ func initInventoryRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		// Destructive cleanup — Admin/Owner only (checked in handler).
 		// cleanup-stale is a static segment so it must precede the `:id`
 		// catch-all in gin's radix tree.
-		{"POST", "/cleanup-stale", h.Inventory.CleanupStaleInventory}, // POST /api/v3/inventory/cleanup-stale?project=&days= (bulk delete stale endpoints)
+		{"POST", "/cleanup-stale", h.Inventory.CleanupStaleInventory},         // POST /api/v3/inventory/cleanup-stale?project=&days= (bulk delete stale endpoints)
+		{"POST", "/rebaseline-scores", h.Inventory.RebaselineInventoryScores}, // POST /api/v3/inventory/rebaseline-scores?project= (bulk reset max_risk/posture — Admin/Owner)
 		// Collector runtime config moved to GET/PUT /api/v3/setting/api_discovery
-		{"GET", "/:id", h.Inventory.GetInventoryItem},          // GET /api/v3/inventory/:id
-		{"GET", "/:id/events", h.Inventory.GetInventoryEvents}, // GET /api/v3/inventory/:id/events
-		{"GET", "/:id/stats", h.Inventory.GetInventoryStats},   // GET /api/v3/inventory/:id/stats
-		{"DELETE", "/:id", h.Inventory.DeleteInventoryItem},    // DELETE /api/v3/inventory/:id (delete one endpoint)
-		{"POST", "/:id/reset", h.Inventory.ResetInventoryItem}, // POST /api/v3/inventory/:id/reset (zero counters/risk)
+		{"GET", "/:id", h.Inventory.GetInventoryItem},                           // GET /api/v3/inventory/:id
+		{"GET", "/:id/events", h.Inventory.GetInventoryEvents},                  // GET /api/v3/inventory/:id/events
+		{"GET", "/:id/stats", h.Inventory.GetInventoryStats},                    // GET /api/v3/inventory/:id/stats
+		{"GET", "/:id/current-posture", h.Inventory.GetInventoryCurrentPosture}, // GET /api/v3/inventory/:id/current-posture (current vs ever)
+		{"DELETE", "/:id", h.Inventory.DeleteInventoryItem},                     // DELETE /api/v3/inventory/:id (delete one endpoint)
+		{"POST", "/:id/reset", h.Inventory.ResetInventoryItem},                  // POST /api/v3/inventory/:id/reset (zero counters/risk)
 	}
 	initRoutes(rg, routes)
 }

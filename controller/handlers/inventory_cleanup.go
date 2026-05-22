@@ -117,14 +117,19 @@ var inventoryResetFields = bson.M{
 	"response_bytes_total": int64(0),
 	"response_bytes_max":   int64(0),
 	"latency_max_ms":       int64(0),
-	"max_risk_score":       int32(0),
-	"latency_buckets":      bson.M{},
-	"status_dist":          bson.M{},
-	"risk_flags":           bson.A{},
-	"pii_categories":       bson.A{},
-	"endpoint_categories":  bson.A{},
-	"consumers":            bson.A{},
-	"sample_event_ids":     bson.A{},
+	// Both monotonic ($max) score axes must be cleared. max_posture_score
+	// (EXPOSURE) was previously omitted here, so a reset cleared the THREAT
+	// axis but left the posture/exposure score stale-high — the collector
+	// re-accumulates the correct value on the next event.
+	"max_risk_score":      int32(0),
+	"max_posture_score":   int32(0),
+	"latency_buckets":     bson.M{},
+	"status_dist":         bson.M{},
+	"risk_flags":          bson.A{},
+	"pii_categories":      bson.A{},
+	"endpoint_categories": bson.A{},
+	"consumers":           bson.A{},
+	"sample_event_ids":    bson.A{},
 }
 
 // ResetInventoryItem handles POST /api/v3/inventory/:id/reset.
@@ -253,5 +258,69 @@ func (h *InventoryHandler) CleanupStaleInventory(c *gin.Context) {
 		"days":          days,
 		"cutoff":        cutoff,
 		"warning":       "endpoints still receiving traffic are recreated by the collector on the next request",
+	})
+}
+
+// RebaselineInventoryScores handles POST /api/v3/inventory/rebaseline-scores.
+//
+// Bulk-resets the two monotonic ($max) score axes — max_risk_score AND
+// max_posture_score — to 0 across a project. The collector re-accumulates
+// the correct values from the next event onward.
+//
+// Why this exists: the collector's scoring changed (THREAT/POSTURE axis
+// split + max-anchored risk_score), but inventory scores are sticky `$max`
+// and never self-lower — existing endpoints keep showing inflated/stale
+// danger. The collector cannot fix this; this read-side bulk reset is the
+// fleet-wide consistency fix (per-endpoint ResetInventoryItem only does one
+// row at a time). Project-scoped, Admin/Owner only — mirrors
+// CleanupStaleInventory but UpdateMany + $set instead of DeleteMany.
+func (h *InventoryHandler) RebaselineInventoryScores(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), mongoQueryTimeout)
+	defer cancel()
+
+	userDetails, err := GetUserDetails(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
+		return
+	}
+	if !inventoryWriteAllowed(userDetails) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only Admin or Owner can rebaseline inventory scores"})
+		return
+	}
+
+	projectID := authorization.ExtractProjectFromRequest(c)
+	if projectID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "project is required"})
+		return
+	}
+	if err := authorization.ValidateRequestProject(ctx, h.Context.Client, userDetails, projectID); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
+	filter := bson.M{"project_id": projectID}
+	update := bson.M{"$set": bson.M{
+		"max_risk_score":    int32(0),
+		"max_posture_score": int32(0),
+	}}
+
+	audit.SetAuditAction(c, "UPDATE")
+	audit.SetAuditResource(c, inventoryCollection, "", "rebaseline-scores", projectID)
+	audit.SetAuditChanges(c, map[string]any{"operation": "rebaseline_scores"})
+
+	res, err := h.Context.Client.Collection(inventoryCollection).UpdateMany(ctx, filter, update)
+	if err != nil {
+		h.Logger.Errorf("inventory score rebaseline failed for project %s: %v", projectID, err)
+		audit.SetAuditError(c, err.Error())
+		audit.SetAuditSuccess(c, false)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to rebaseline inventory scores"})
+		return
+	}
+
+	audit.SetAuditSuccess(c, true)
+	c.JSON(http.StatusOK, gin.H{
+		"message":        "inventory risk/posture scores reset; collector re-accumulates from the next event",
+		"matched_count":  res.MatchedCount,
+		"modified_count": res.ModifiedCount,
 	})
 }

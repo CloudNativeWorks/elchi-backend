@@ -79,12 +79,18 @@ type listFilter struct {
 	PIICategories  []string
 	MinRiskScore   int
 	MaxRiskScore   int
-	LastSeenFrom   time.Time
-	LastSeenTo     time.Time
-	SortBy         string
-	SortOrder      int // 1 / -1
-	Limit          int64
-	Offset         int64
+	// MinSeen is the read-side maturity threshold (FP reduction). When > 0
+	// the clean catalog hides operations seen fewer than MinSeen times —
+	// route-aware `confirmed` promotes on a single match, so a one-off
+	// scanner hit against a real route can enter the catalog; this gate
+	// filters it out. Opt-in (0 = no gate); operator-tunable per request.
+	MinSeen      int64
+	LastSeenFrom time.Time
+	LastSeenTo   time.Time
+	SortBy       string
+	SortOrder    int // 1 / -1
+	Limit        int64
+	Offset       int64
 	// CH-cross filters. When ANY of these is set, the handler hits
 	// ClickHouse first to discover the (listener_name,
 	// normalized_path) pairs that match in the time window, and
@@ -148,6 +154,12 @@ func (h *InventoryHandler) ListInventoryListeners(c *gin.Context) {
 	// scanner/attack-surface noise).
 	matchStage := bson.M{"project_id": projectID, "confirmed": true}
 	applyInventoryListFilter(matchStage, f)
+	// Read-side maturity gate (opt-in): exclude barely-seen operations from
+	// the per-listener summary so one-off scanner hits don't inflate a
+	// listener's path count. Applied pre-group on the raw seen_count.
+	if f.MinSeen > 0 {
+		matchStage["seen_count"] = bson.M{"$gte": f.MinSeen}
+	}
 
 	// Pipeline:
 	//   1. $match  — project + optional flat filters; uses
@@ -384,6 +396,11 @@ func (h *InventoryHandler) ListInventory(c *gin.Context) {
 	// the /attack-surface view.
 	mongoFilter := bson.M{"project_id": projectID, "confirmed": true}
 	applyInventoryListFilter(mongoFilter, f)
+	// Read-side maturity gate (opt-in): drop operations seen fewer than
+	// min_seen times. Backed by the project_seen_count index leg.
+	if f.MinSeen > 0 {
+		mongoFilter["seen_count"] = bson.M{"$gte": f.MinSeen}
+	}
 
 	// CH-side cross filter: country / asn / source_ip / user_agent
 	// aren't stored on api_inventory docs (only on the per-event
@@ -472,7 +489,16 @@ func (h *InventoryHandler) ListInventory(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, buildPaginationResponse(items, total, f.Limit, f.Offset))
+	// Optional current-vs-ever overlay: per-row current_max_risk from the
+	// 1h rollup so the catalog can default to CURRENT risk instead of the
+	// monotonic "_ever" max. Opt-in (?with_current=true) — best-effort,
+	// never blocks the list.
+	resp := buildPaginationResponse(items, total, f.Limit, f.Offset)
+	if c.Query("with_current") == "true" {
+		resp["current_available"] = h.enrichFlatCurrentRisk(ctx, projectID, items, currentWindowDaysQuery(c))
+		resp["posture_current_available"] = false
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 // ListAttackSurface handles GET /api/v3/inventory/attack-surface.
@@ -655,8 +681,16 @@ func (h *InventoryHandler) ListInventoryOperations(c *gin.Context) {
 			"first_seen":        1,
 			"last_seen":         1,
 		}}},
-		{{Key: "$sort", Value: bson.M{opSortBy: opSortOrder}}},
-		{{Key: "$facet", Value: bson.M{
+	}
+	// Read-side maturity gate (opt-in): keep only paths whose total
+	// observation count (sum of per-method seen_count) meets min_seen.
+	// Post-group because the threshold is on the path's aggregate volume.
+	if f.MinSeen > 0 {
+		pipeline = append(pipeline, bson.D{{Key: "$match", Value: bson.M{"total_seen": bson.M{"$gte": f.MinSeen}}}})
+	}
+	pipeline = append(pipeline,
+		bson.D{{Key: "$sort", Value: bson.M{opSortBy: opSortOrder}}},
+		bson.D{{Key: "$facet", Value: bson.M{
 			"data": []bson.M{
 				{"$skip": f.Offset},
 				{"$limit": f.Limit},
@@ -665,7 +699,7 @@ func (h *InventoryHandler) ListInventoryOperations(c *gin.Context) {
 				{"$count": "total"},
 			},
 		}}},
-	}
+	)
 
 	coll := h.Context.Client.Collection(inventoryCollection)
 	cur, err := coll.Aggregate(ctx, pipeline, options.Aggregate().SetAllowDiskUse(true))
@@ -706,6 +740,13 @@ func (h *InventoryHandler) ListInventoryOperations(c *gin.Context) {
 	resp := buildPaginationResponse(data, total, f.Limit, f.Offset)
 	resp["sort_by"] = opSortBy
 	resp["sort_order"] = sortOrderLabel(opSortOrder)
+	// Optional current-vs-ever overlay: each operation entry (and the path
+	// row) gains current_max_risk from the 1h rollup. Opt-in
+	// (?with_current=true), best-effort.
+	if c.Query("with_current") == "true" {
+		resp["current_available"] = h.enrichOperationsCurrentRisk(ctx, projectID, data, currentWindowDaysQuery(c))
+		resp["posture_current_available"] = false
+	}
 	c.JSON(http.StatusOK, resp)
 }
 
@@ -1212,6 +1253,10 @@ func parseInventoryListFilter(c *gin.Context) listFilter {
 	}
 	if v, err := strconv.Atoi(c.Query("max_risk_score")); err == nil {
 		f.MaxRiskScore = v
+	}
+	// min_seen: read-side maturity gate (opt-in). Negative/invalid → 0 (off).
+	if v, err := strconv.ParseInt(c.Query("min_seen"), 10, 64); err == nil && v > 0 {
+		f.MinSeen = v
 	}
 	if v := c.Query("last_seen_from"); v != "" {
 		if t, err := time.Parse(time.RFC3339, v); err == nil {

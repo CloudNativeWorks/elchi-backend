@@ -36,8 +36,8 @@ cd "${TEMP_DIR}"
 
 # Builder image management
 BUILDER_IMAGE="elchi-backend-arm64-builder"
-echo "Checking builder image status..."
 
+echo "Checking builder image status..."
 if docker image inspect ${BUILDER_IMAGE} >/dev/null 2>&1; then
     read -p "Builder image already exists. Do you want to rebuild it? (y/N): " rebuild
     if [[ $rebuild =~ ^[Yy]$ ]]; then

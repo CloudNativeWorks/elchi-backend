@@ -514,21 +514,22 @@ type CurrentPostureFilter struct {
 // window (dormant) — the handler then returns current as null so the UI
 // can distinguish "clean because quiet" from "clean because remediated".
 //
-// NOTE: there is no current EXPOSURE score here — the collector does not
-// ship posture_score to ClickHouse (only risk_score), so max_posture_score
-// is available as "_ever" only. MaxRiskScore comes from the 1h rollup
-// (maxMerge — sampling-safe, may exceed raw retention); the flag/PII/auth
-// detail comes from raw and is bounded by the ~7d raw retention.
+// Both axes are current: MaxRiskScore (THREAT) and MaxPostureScore
+// (EXPOSURE) are read from raw with the full operation key. The collector
+// ships posture_score to ClickHouse as of migration 007, so the exposure
+// axis is no longer "_ever" only. Reads are sampling-safe (the sampler only
+// sheds benign events) and bounded by the ~7d raw retention.
 type CurrentPosture struct {
-	Active         bool      `json:"active"`
-	WindowDays     int       `json:"window_days"`
-	MaxRiskScore   int64     `json:"max_risk_score"`
-	RiskFlags      []string  `json:"risk_flags"`
-	PIICategories  []string  `json:"pii_categories"`
-	AuthObserved   bool      `json:"auth_observed"`   // any authenticated request in window
-	NoauthObserved bool      `json:"noauth_observed"` // any UNauthenticated request in window
-	EventCount     int64     `json:"event_count"`
-	LastActive     time.Time `json:"last_active"`
+	Active          bool      `json:"active"`
+	WindowDays      int       `json:"window_days"`
+	MaxRiskScore    int64     `json:"max_risk_score"`
+	MaxPostureScore int64     `json:"max_posture_score"`
+	RiskFlags       []string  `json:"risk_flags"`
+	PIICategories   []string  `json:"pii_categories"`
+	AuthObserved    bool      `json:"auth_observed"`   // any authenticated request in window
+	NoauthObserved  bool      `json:"noauth_observed"` // any UNauthenticated request in window
+	EventCount      int64     `json:"event_count"`
+	LastActive      time.Time `json:"last_active"`
 }
 
 // ConsumerSourceIP is one source address the consumer was seen from.

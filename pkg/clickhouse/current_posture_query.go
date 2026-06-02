@@ -44,8 +44,9 @@ func clampWindowDays(windowDays int) int {
 //     exact for the risk signal — the rollup held no advantage here (the MV
 //     is materialised FROM raw).
 //
-// There is deliberately NO current EXPOSURE score: the collector does not yet
-// ship posture_score to ClickHouse, so posture stays "_ever" only. Active is
+// Both the THREAT (max risk_score) and EXPOSURE (max posture_score) axes are
+// computed for the window — the collector ships posture_score to raw as of
+// migration 007, so current exposure is no longer "_ever" only. Active is
 // false when no raw events fell in the window (dormant); the caller surfaces
 // that as a null `current` so the UI distinguishes "clean because quiet" from
 // "clean because remediated".
@@ -70,6 +71,7 @@ func (c *Client) QueryCurrentPosture(ctx context.Context, f CurrentPostureFilter
 		`SELECT
             toInt64(count())                     AS n,
             toInt64(maxOrDefault(risk_score))    AS max_risk,
+            toInt64(maxOrDefault(posture_score)) AS max_posture,
             groupUniqArrayArray(risk_flags)      AS flags,
             groupUniqArrayArray(pii_categories)  AS pii,
             toUInt8(maxOrDefault(auth_observed)) AS any_auth,
@@ -88,6 +90,7 @@ func (c *Client) QueryCurrentPosture(ctx context.Context, f CurrentPostureFilter
 	var (
 		n          int64
 		maxRisk    int64
+		maxPosture int64
 		flags      []string
 		pii        []string
 		anyAuth    uint8
@@ -98,7 +101,7 @@ func (c *Client) QueryCurrentPosture(ctx context.Context, f CurrentPostureFilter
 		f.ProjectID, f.ListenerName, f.Host, f.Protocol,
 		f.Method, f.NormalizedPath, f.GRPCService, f.GRPCMethod,
 		windowStart,
-	).Scan(&n, &maxRisk, &flags, &pii, &anyAuth, &minAuth, &lastActive); err != nil {
+	).Scan(&n, &maxRisk, &maxPosture, &flags, &pii, &anyAuth, &minAuth, &lastActive); err != nil {
 		return nil, fmt.Errorf("current posture: %w", err)
 	}
 
@@ -115,6 +118,7 @@ func (c *Client) QueryCurrentPosture(ctx context.Context, f CurrentPostureFilter
 	// as "clean & unauthenticated" — the caller nulls `current` when !Active.
 	if n > 0 {
 		out.MaxRiskScore = maxRisk
+		out.MaxPostureScore = maxPosture
 		out.AuthObserved = anyAuth == 1
 		out.NoauthObserved = minAuth == 0
 		if lastActive != nil {
@@ -154,9 +158,11 @@ type CurrentRiskKey struct {
 // Empty key set returns an empty map (enrichment is a best-effort overlay,
 // never an error that blocks the list).
 //
-// posture-current is a deliberate follow-up: once the collector ships
-// posture_score to ClickHouse (raw), add max(posture_score) to the same
-// SELECT / GROUP BY and merge — the catalog then shows current EXPOSURE too.
+// This batch enriches the list view with current THREAT only; the catalog
+// list does not render a current EXPOSURE column (the detail card does, via
+// QueryCurrentPosture). posture_score is available in raw (migration 007), so
+// adding max(posture_score) here is a UI-scope decision, not a data gap — wire
+// it in if the list ever surfaces current exposure per row.
 func (c *Client) QueryCurrentRiskBatch(ctx context.Context, projectID string, keys []CurrentRiskKey, windowDays int) (map[CurrentRiskKey]int64, error) {
 	result := map[CurrentRiskKey]int64{}
 	if c == nil || c.conn == nil {

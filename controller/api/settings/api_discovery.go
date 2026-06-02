@@ -192,19 +192,23 @@ var detectorWindowKeys = []string{
 	"replay", "path_scan", "geo_spread", "ip_rate", "normalize_gap",
 }
 
-// distinctTrackerWindowKeys are the detectors whose threshold counts distinct
-// values in the collector's fixed-size DistinctTracker ring. A threshold above
-// the ring size can never fire, so the collector rejects the config. We mirror
-// that cap here for an immediate 400.
-var distinctTrackerWindowKeys = map[string]bool{
+// ringBoundedThresholdKeys are the detectors whose threshold counts distinct
+// values in a fixed-size per-key ring: path_scan / geo_spread / normalize_gap
+// use the collector's DistinctTracker ring, and bola uses its BOLATracker ring
+// — both sized at 128. A threshold above the ring size can never fire (older
+// entries are overwritten before the count is reached), so the collector would
+// reject the config and keep running the old one. We mirror that cap here for
+// an immediate 400.
+var ringBoundedThresholdKeys = map[string]bool{
 	"path_scan":     true,
 	"geo_spread":    true,
 	"normalize_gap": true,
+	"bola":          true,
 }
 
-// distinctTrackerThresholdMax is the DistinctTracker ring size (collector
-// v0.1.5). Keep in sync with the collector if it ever changes.
-const distinctTrackerThresholdMax = 128
+// ringBoundedThresholdMax is the per-key ring size (collector DistinctTracker
+// and BOLATracker, both 128). Keep in sync with the collector if it changes.
+const ringBoundedThresholdMax = 128
 
 // validateCollectorConfigUpdate mirrors the collector's Doc.Validate()
 // well enough to catch the common operator mistakes BEFORE the write,
@@ -560,6 +564,9 @@ func validateCollectorDetection(detection bson.M) error {
 		if !ok {
 			return fmt.Errorf("detection.weak_token_ttl_seconds must be a number")
 		}
+		if n != float64(int64(n)) {
+			return fmt.Errorf("detection.weak_token_ttl_seconds must be a whole number")
+		}
 		if n < 0 {
 			return fmt.Errorf("detection.weak_token_ttl_seconds cannot be negative")
 		}
@@ -577,26 +584,53 @@ func validateCollectorDetection(detection bson.M) error {
 		enabled, _ := win["enabled"].(bool)
 		threshold, hasT := numericValue(win["threshold"])
 		window, hasW := numericValue(win["window_seconds"])
+		// The collector decodes threshold/window_seconds into int/int64. A
+		// fractional value (the backend stores JSON numbers as BSON double)
+		// fails that decode, so the collector silently rejects the WHOLE doc
+		// and keeps the old config. Reject non-integers here for an explicit
+		// 400 — same guard the policy.raw_sample_rate check already applies.
+		if hasT && threshold != float64(int64(threshold)) {
+			return fmt.Errorf("detection.%s.threshold must be a whole number", key)
+		}
+		if hasW && window != float64(int64(window)) {
+			return fmt.Errorf("detection.%s.window_seconds must be a whole number", key)
+		}
 		if hasT && threshold < 0 {
 			return fmt.Errorf("detection.%s.threshold cannot be negative", key)
 		}
-		// DistinctTracker-backed detectors (path_scan / geo_spread /
-		// normalize_gap) count distinct values in a fixed 128-slot ring
-		// (collector v0.1.5). A threshold above the ring size can NEVER
-		// fire — the collector rejects the whole doc and keeps running on
-		// the old config (runtime_config_poll_failures_total++). Reject it
-		// here so the operator gets an immediate 400 instead of a silently
-		// dropped update.
-		if hasT && threshold > distinctTrackerThresholdMax && distinctTrackerWindowKeys[key] {
-			return fmt.Errorf("detection.%s.threshold cannot exceed %d (collector DistinctTracker ring size)", key, distinctTrackerThresholdMax)
+		// Ring-bounded detectors (path_scan / geo_spread / normalize_gap via
+		// the DistinctTracker ring; bola via the BOLATracker ring) count
+		// distinct values in a fixed 128-slot ring. A threshold above the ring
+		// size can NEVER fire — older entries are overwritten before the count
+		// is reached — so the collector rejects the whole doc and keeps running
+		// the old config (runtime_config_poll_failures_total++). Reject it here
+		// so the operator gets an immediate 400 instead of a silently dropped
+		// update (or, worse, a detector that quietly never fires).
+		if hasT && threshold > ringBoundedThresholdMax && ringBoundedThresholdKeys[key] {
+			return fmt.Errorf("detection.%s.threshold cannot exceed %d (collector detector ring size)", key, ringBoundedThresholdMax)
 		}
 		if hasW && window < 0 {
 			return fmt.Errorf("detection.%s.window_seconds cannot be negative", key)
 		}
 		// threshold_ip is the source-IP-keyed fallback threshold (brute_force);
-		// the collector's validateWindow rejects a negative value.
-		if tip, hasTIP := numericValue(win["threshold_ip"]); hasTIP && tip < 0 {
-			return fmt.Errorf("detection.%s.threshold_ip cannot be negative", key)
+		// the collector's validateWindow rejects a negative value. It decodes
+		// into an int, so a fractional value would also fail — reject it here.
+		if tip, hasTIP := numericValue(win["threshold_ip"]); hasTIP {
+			if tip != float64(int64(tip)) {
+				return fmt.Errorf("detection.%s.threshold_ip must be a whole number", key)
+			}
+			if tip < 0 {
+				return fmt.Errorf("detection.%s.threshold_ip cannot be negative", key)
+			}
+		}
+		// min_forbidden (bola) decodes into an int too — guard the same way.
+		if mf, hasMF := numericValue(win["min_forbidden"]); hasMF {
+			if mf != float64(int64(mf)) {
+				return fmt.Errorf("detection.%s.min_forbidden must be a whole number", key)
+			}
+			if mf < 0 {
+				return fmt.Errorf("detection.%s.min_forbidden cannot be negative", key)
+			}
 		}
 		if enabled {
 			if !hasT || threshold <= 0 {

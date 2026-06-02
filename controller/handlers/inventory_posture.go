@@ -25,10 +25,11 @@ import (
 // render "dormant — last seen X, historical max Y" rather than a misleading
 // zero.
 //
-// Limitation surfaced explicitly: posture_current_available is always false
-// — the collector ships risk_score (THREAT) to ClickHouse but not
-// posture_score (EXPOSURE), so the exposure axis is "_ever" only until the
-// collector mirrors posture_score into the raw-event schema.
+// Both axes are current: the collector ships risk_score (THREAT) and
+// posture_score (EXPOSURE) to ClickHouse (raw, migration 007), so the
+// response carries current max_risk_score AND max_posture_score whenever the
+// window has traffic. posture_current_available is set true on the success
+// path so the UI renders current exposure alongside current threat.
 func (h *InventoryHandler) GetInventoryCurrentPosture(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -52,8 +53,9 @@ func (h *InventoryHandler) GetInventoryCurrentPosture(c *gin.Context) {
 			"max_risk_score":    toInt64Loose(item["max_risk_score"]),
 			"max_posture_score": toInt64Loose(item["max_posture_score"]),
 		},
-		// EXPOSURE has no current value (collector does not ship
-		// posture_score to ClickHouse) — posture is "_ever" only.
+		// Default false; flipped true on the success path below once the
+		// ClickHouse query (which now reads posture_score) returns. Stays
+		// false when ClickHouse is unavailable or the query fails.
 		"posture_current_available": false,
 	}
 
@@ -92,6 +94,9 @@ func (h *InventoryHandler) GetInventoryCurrentPosture(c *gin.Context) {
 	}
 
 	resp["current_available"] = true
+	// posture_score now ships to ClickHouse (migration 007), so the windowed
+	// EXPOSURE axis on cp is real — let the UI render current exposure.
+	resp["posture_current_available"] = true
 	resp["window_days"] = cp.WindowDays
 	if cp.Active {
 		resp["dormant"] = false

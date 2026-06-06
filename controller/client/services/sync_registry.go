@@ -91,7 +91,11 @@ func (s *ClientService) getConnectedClientsFromDB(ctx context.Context) ([]*clien
 func (s *ClientService) syncSingleClient(ctx context.Context, dbClient *client.ClientInfo) bool {
 	clientID := dbClient.ClientID
 	lastSeenAge := time.Since(dbClient.LastSeen)
-	isLocallyConnected := s.IsClientConnected(clientID)
+	// Reachable = owned by us, even if the command stream is momentarily down and
+	// the client is alive via ping. The strict stream-based check here would make
+	// the sync tear down ping-alive clients and drop their registry location.
+	// Command delivery still uses the strict stream check at send time.
+	isLocallyConnected := s.IsClientReachable(clientID)
 
 	s.logger.Debugf("Sync analysis for client %s: locally_connected=%v, last_seen_age=%v",
 		clientID, isLocallyConnected, lastSeenAge)
@@ -298,11 +302,16 @@ func (s *ClientService) CleanupStaleClientsFromDB(ctx context.Context) error {
 	for _, dbClient := range connectedClients {
 		clientID := dbClient.ClientID
 		lastSeenAge := time.Since(dbClient.LastSeen)
-		isLocallyConnected := s.IsClientConnected(clientID)
+		// Reachable (in-memory + Connected), not strictly stream-connected: a
+		// ping-alive client whose command stream is momentarily down must not be
+		// marked disconnected by this DB cleanup. Truly dead in-memory entries
+		// are removed by CleanupUnhealthyConnections via stale LastSeen, which
+		// then lets this cleanup mark them in DB on a later pass.
+		isLocallyConnected := s.IsClientReachable(clientID)
 
 		// Skip locally connected clients
 		if isLocallyConnected {
-			s.logger.Debugf("CLEANUP-SKIP: Client %s is locally connected, skipping", clientID)
+			s.logger.Debugf("CLEANUP-SKIP: Client %s is locally reachable, skipping", clientID)
 			continue
 		}
 

@@ -559,6 +559,32 @@ func (s *ClientService) GetDisconnectedClients() ([]*client.ClientInfo, error) {
 // ValidateSession validates client session
 func (s *ClientService) ValidateSession(clientID, sessionToken string) error {
 	s.clientsMux.RLock()
+	_, exists := s.clients[clientID]
+	s.clientsMux.RUnlock()
+
+	if !exists {
+		// Not in memory — most likely the command stream dropped, DisconnectClient
+		// evicted the entry, and the client is now trying to re-establish its
+		// stream. Rejecting here would wedge the client in a ping-only
+		// (Stream==nil) state: IsConnected() then reports it as disconnected, so
+		// it gets dropped from the registry client list (UpdateClientList does a
+		// full-replace) and becomes unroutable until a manual restart. Re-hydrate
+		// from DB and re-admit it (mirrors the ping-based self-heal in the Ping
+		// handler) so the command stream can come back up.
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		dbClient, err := s.GetClientByClientID(ctx, clientID)
+		cancel()
+		if err != nil || dbClient == nil {
+			return fmt.Errorf("client not found/live: %s", clientID)
+		}
+		if dbClient.SessionToken != sessionToken {
+			return fmt.Errorf("invalid session token")
+		}
+		s.AddClientToMemoryFromPing(dbClient)
+		s.logger.Infof("Re-admitted client %s from DB during session validation (stream re-establishment)", clientID)
+	}
+
+	s.clientsMux.RLock()
 	defer s.clientsMux.RUnlock()
 
 	client, exists := s.clients[clientID]
@@ -825,6 +851,22 @@ func (s *ClientService) IsClientConnected(clientID string) bool {
 	return false
 }
 
+// IsClientReachable reports whether this controller owns and can reach the
+// client, regardless of whether its command stream is currently established.
+// A client kept alive via ping (Stream==nil) is still reachable — its stream
+// can be re-established on demand (see ValidateSession). Use this for ownership
+// and routing decisions; use IsClientConnected only when a command must be
+// delivered on the live stream right now.
+func (s *ClientService) IsClientReachable(clientID string) bool {
+	s.clientsMux.RLock()
+	defer s.clientsMux.RUnlock()
+
+	if client, exists := s.clients[clientID]; exists {
+		return client.Connected
+	}
+	return false
+}
+
 // GetConnectedClientIDs returns all currently connected client IDs
 func (s *ClientService) GetConnectedClientIDs() []string {
 	s.clientsMux.RLock()
@@ -832,7 +874,14 @@ func (s *ClientService) GetConnectedClientIDs() []string {
 
 	clientIDs := make([]string, 0, len(s.clients))
 	for clientID, client := range s.clients {
-		if client.IsConnected() {
+		// Use Connected (not IsConnected) deliberately: a client whose command
+		// stream briefly dropped is kept alive in memory via ping with
+		// Stream==nil. It is still owned by and reachable through this controller,
+		// so its registry location MUST be advertised — otherwise UpdateClientList
+		// (full-replace) deletes the mapping and the client becomes unroutable
+		// until restart. Truly dead ping-only entries are reaped separately by
+		// CleanupUnhealthyConnections via stale LastSeen.
+		if client.Connected {
 			clientIDs = append(clientIDs, clientID)
 		}
 	}

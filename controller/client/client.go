@@ -71,7 +71,7 @@ func (h *AppHandler) Start(appConfig *config.AppConfig) {
 		grpclib.KeepaliveParams(keepalive.ServerParameters{
 			MaxConnectionIdle:     0,                // Never expire connection
 			Time:                  30 * time.Second, // Health check every 30 seconds (1 minute -> 30 seconds)
-			Timeout:               5 * time.Second,  // Health check timeout (10 -> 5 seconds)
+			Timeout:               20 * time.Second, // Health check timeout (was 5s; too aggressive — a brief network hiccup killed live command streams and evicted still-connected clients)
 			MaxConnectionAge:      0,                // Infinite connection age
 			MaxConnectionAgeGrace: 0,                // Infinite grace period
 		}),

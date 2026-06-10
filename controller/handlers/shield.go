@@ -12,8 +12,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// ShieldHandler exposes the elchi-shield policy store (CRUD) and the deploy path
-// that pushes a stored policy to edge clients via the command stream.
+// ShieldHandler exposes the elchi-shield policy store (CRUD). Any create/update/
+// delete auto-deploys the project's MERGED policy set (full-sync) to the project's
+// connected clients — there is no manual per-policy/per-client deploy.
 type ShieldHandler struct {
 	crudService   *shield.CRUDService
 	logger        *logger.Logger
@@ -51,7 +52,7 @@ func shieldStatus(err error) int {
 	}
 }
 
-// CreateShieldPolicy handles POST /api/v3/shield/policies.
+// CreateShieldPolicy handles POST /api/v3/shield/policies and auto-deploys.
 func (h *ShieldHandler) CreateShieldPolicy(c *gin.Context) {
 	if !h.isAdmin(c) {
 		return
@@ -66,10 +67,10 @@ func (h *ShieldHandler) CreateShieldPolicy(c *gin.Context) {
 		c.JSON(shieldStatus(err), gin.H{"message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusCreated, gin.H{"data": policy.ToResponse()})
+	c.JSON(http.StatusCreated, gin.H{"data": policy.ToResponse(), "deploy": h.deployProject(c, req.Project)})
 }
 
-// UpdateShieldPolicy handles PUT /api/v3/shield/policies/:policy_id.
+// UpdateShieldPolicy handles PUT /api/v3/shield/policies/:policy_id and auto-deploys.
 func (h *ShieldHandler) UpdateShieldPolicy(c *gin.Context) {
 	if !h.isAdmin(c) {
 		return
@@ -84,7 +85,7 @@ func (h *ShieldHandler) UpdateShieldPolicy(c *gin.Context) {
 		c.JSON(shieldStatus(err), gin.H{"message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": policy.ToResponse()})
+	c.JSON(http.StatusOK, gin.H{"data": policy.ToResponse(), "deploy": h.deployProject(c, req.Project)})
 }
 
 // GetShieldPolicy handles GET /api/v3/shield/policies/:policy_id?project=.
@@ -111,54 +112,39 @@ func (h *ShieldHandler) ListShieldPolicies(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": out})
 }
 
-// DeleteShieldPolicy handles DELETE /api/v3/shield/policies/:policy_id?project=.
+// DeleteShieldPolicy handles DELETE /api/v3/shield/policies/:policy_id?project= and
+// re-deploys the remaining merged set (which removes the deleted files from edges).
 func (h *ShieldHandler) DeleteShieldPolicy(c *gin.Context) {
 	if !h.isAdmin(c) {
 		return
 	}
-	if err := h.crudService.Delete(c.Request.Context(), c.Param("policy_id"), c.Query("project")); err != nil {
+	project := c.Query("project")
+	if err := h.crudService.Delete(c.Request.Context(), c.Param("policy_id"), project); err != nil {
 		c.JSON(shieldStatus(err), gin.H{"message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
+	c.JSON(http.StatusOK, gin.H{"message": "deleted", "deploy": h.deployProject(c, project)})
 }
 
-// DeployShieldPolicy handles POST /api/v3/shield/policies/:policy_id/deploy. It
-// renders the stored policy into a config bundle and pushes it to the requested
-// clients, reusing the command pipeline (processor/responser/fan-out/auth).
-func (h *ShieldHandler) DeployShieldPolicy(c *gin.Context) {
+// SyncShieldProject handles POST /api/v3/shield/sync — re-push the project's merged
+// policy set to its connected clients (e.g. after clients reconnect).
+func (h *ShieldHandler) SyncShieldProject(c *gin.Context) {
 	if !h.isAdmin(c) {
 		return
 	}
 	var body struct {
-		Project       string   `json:"project" binding:"required"`
-		TargetClients []string `json:"target_clients" binding:"required"`
+		Project string `json:"project" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
-	if len(body.TargetClients) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "target_clients is required"})
-		return
-	}
-	policy, err := h.crudService.GetByID(c.Request.Context(), c.Param("policy_id"), body.Project)
-	if err != nil {
-		c.JSON(shieldStatus(err), gin.H{"message": err.Error()})
-		return
-	}
-	cfg := policy.ToConfigJSON()
-	resp, err := h.dispatch(c, policy.Name, body.Project, client.SubCommandType_UPDATE_SHIELD_CONFIG, body.TargetClients, &cfg)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error(), "data": resp})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"data": resp})
+	c.JSON(http.StatusOK, gin.H{"data": h.deployProject(c, body.Project)})
 }
 
 // ShieldStatus handles GET /api/v3/shield/status?project=&client_id=. It queries a
 // connected edge client's shield service status — a command dispatch, so it is
-// admin/owner-gated like deploy (not an open store read).
+// admin/owner-gated (not an open store read).
 func (h *ShieldHandler) ShieldStatus(c *gin.Context) {
 	if !h.isAdmin(c) {
 		return
@@ -176,6 +162,38 @@ func (h *ShieldHandler) ShieldStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": resp})
 }
 
+// deployProject renders the project's MERGED policy set into one full-sync bundle
+// and pushes it to the project's connected clients. It never returns an error to
+// the caller — a store mutation succeeds regardless of deploy outcome; the result
+// (versions/per-client status/errors) is returned for the response body.
+func (h *ShieldHandler) deployProject(c *gin.Context, project string) any {
+	ctx := c.Request.Context()
+	policies, err := h.crudService.List(ctx, project)
+	if err != nil {
+		h.logger.Errorf("shield deploy: list policies for project %s: %v", project, err)
+		return gin.H{"deployed": false, "error": err.Error()}
+	}
+	cfg, err := shield.MergePolicies(policies)
+	if err != nil {
+		h.logger.Errorf("shield deploy: merge policies for project %s: %v", project, err)
+		return gin.H{"deployed": false, "error": err.Error()}
+	}
+	clientIDs, err := h.crudService.ListConnectedClientIDs(ctx, project)
+	if err != nil {
+		h.logger.Errorf("shield deploy: list clients for project %s: %v", project, err)
+		return gin.H{"deployed": false, "error": err.Error()}
+	}
+	if len(clientIDs) == 0 {
+		return gin.H{"deployed": true, "clients": 0, "version": cfg.Version, "message": "no connected clients in project"}
+	}
+	resp, err := h.dispatch(c, "", project, client.SubCommandType_UPDATE_SHIELD_CONFIG, clientIDs, &cfg)
+	if err != nil {
+		h.logger.Errorf("shield deploy to project %s: %v", project, err)
+		return gin.H{"deployed": false, "version": cfg.Version, "clients": len(clientIDs), "error": err.Error(), "results": resp}
+	}
+	return gin.H{"deployed": true, "version": cfg.Version, "clients": len(clientIDs), "results": resp}
+}
+
 // dispatch builds a SHIELD Operation and routes it through the client command
 // handler, reusing its processor/responser, parallel fan-out, and authorization.
 func (h *ShieldHandler) dispatch(c *gin.Context, name, project string, sub client.SubCommandType, targets []string, cfg *models.ShieldConfigJSON) (any, error) {
@@ -184,14 +202,11 @@ func (h *ShieldHandler) dispatch(c *gin.Context, name, project string, sub clien
 		clients = append(clients, models.ServiceClients{ClientID: cid})
 	}
 	op := &models.Operations{
-		Type:    models.CommandTypeJSON(client.CommandType_SHIELD),
-		SubType: models.SubCommandTypeJSON(sub),
-		Clients: clients,
-		Command: models.Command{Project: project, Name: name},
-		ShieldOp: &models.RequestShieldJSON{
-			Operation: sub.String(),
-			Config:    cfg,
-		},
+		Type:     models.CommandTypeJSON(client.CommandType_SHIELD),
+		SubType:  models.SubCommandTypeJSON(sub),
+		Clients:  clients,
+		Command:  models.Command{Project: project, Name: name},
+		ShieldOp: &models.RequestShieldJSON{Config: cfg},
 	}
 	requestDetails, _ := h.parentHandler.getRequestDetails(c)
 	return h.parentHandler.Client.Handler.HandleSendCommand(c.Request.Context(), op, requestDetails)

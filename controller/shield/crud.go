@@ -40,8 +40,8 @@ func (s *CRUDService) collection() *mongo.Collection {
 // validate checks a request: a non-empty file set, each file with a safe relative
 // path and exactly one content source (inline content OR a download URL+sha256).
 func validate(req *ShieldPolicyRequest) error {
-	if len(req.Files) == 0 && !req.FullSync {
-		return fmt.Errorf("files is empty (set full_sync to deploy an empty/clearing bundle)")
+	if len(req.Files) == 0 {
+		return fmt.Errorf("files is required and must be non-empty")
 	}
 	seen := make(map[string]struct{}, len(req.Files))
 	for i := range req.Files {
@@ -77,7 +77,7 @@ func validate(req *ShieldPolicyRequest) error {
 	return nil
 }
 
-// isHexSHA256 reports whether s is a 64-char lowercase-or-mixed hex digest.
+// isHexSHA256 reports whether s is a 64-char hex digest.
 func isHexSHA256(s string) bool {
 	if len(s) != 64 {
 		return false
@@ -90,16 +90,49 @@ func isHexSHA256(s string) bool {
 	return true
 }
 
-// Create inserts a new policy (version 1). A duplicate (name, project) errors.
+// collisionCheck loads the project's other policies and verifies none already owns
+// any of the given (cleaned) paths — the project's policies are merged into one
+// full-sync bundle, so paths must be globally unique. excludeID (the policy being
+// updated) is skipped.
+func (s *CRUDService) collisionCheck(ctx context.Context, project, excludeID string, paths map[string]struct{}) error {
+	others, err := s.List(ctx, project)
+	if err != nil {
+		return err
+	}
+	for i := range others {
+		if others[i].ID.Hex() == excludeID {
+			continue
+		}
+		for _, f := range others[i].Files {
+			if _, clash := paths[path.Clean(f.Path)]; clash {
+				return fmt.Errorf("file path %q already used by policy %q in this project", path.Clean(f.Path), others[i].Name)
+			}
+		}
+	}
+	return nil
+}
+
+func requestPaths(req *ShieldPolicyRequest) map[string]struct{} {
+	m := make(map[string]struct{}, len(req.Files))
+	for i := range req.Files {
+		m[path.Clean(req.Files[i].Path)] = struct{}{}
+	}
+	return m
+}
+
+// Create inserts a new policy (version 1). A duplicate (name, project) errors, as
+// does a file path already owned by another policy in the project.
 func (s *CRUDService) Create(ctx context.Context, req ShieldPolicyRequest) (*ShieldPolicy, error) {
 	if err := validate(&req); err != nil {
+		return nil, err
+	}
+	if err := s.collisionCheck(ctx, req.Project, "", requestPaths(&req)); err != nil {
 		return nil, err
 	}
 	now := time.Now().UTC()
 	policy := &ShieldPolicy{
 		Name:      req.Name,
 		Project:   req.Project,
-		FullSync:  req.FullSync,
 		Files:     req.Files,
 		Version:   1,
 		CreatedAt: now,
@@ -125,9 +158,11 @@ func (s *CRUDService) Update(ctx context.Context, id string, req ShieldPolicyReq
 	if err != nil {
 		return nil, ErrPolicyNotFound
 	}
+	if err := s.collisionCheck(ctx, req.Project, id, requestPaths(&req)); err != nil {
+		return nil, err
+	}
 	update := bson.M{
 		"$set": bson.M{
-			"full_sync":  req.FullSync,
 			"files":      req.Files,
 			"updated_at": time.Now().UTC(),
 		},
@@ -198,4 +233,32 @@ func (s *CRUDService) Delete(ctx context.Context, id, project string) error {
 		return ErrPolicyNotFound
 	}
 	return nil
+}
+
+// ListConnectedClientIDs returns the client IDs of currently-connected clients in
+// the project — the deploy targets. Disconnected clients are skipped (they pick up
+// the config on reconnect).
+func (s *CRUDService) ListConnectedClientIDs(ctx context.Context, project string) ([]string, error) {
+	cursor, err := s.dbContext.Client.Collection("clients").Find(
+		ctx,
+		bson.M{"project": project, "connected": true},
+		options.Find().SetProjection(bson.M{"client_id": 1}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list project clients: %w", err)
+	}
+	defer func() { _ = cursor.Close(ctx) }()
+	var rows []struct {
+		ClientID string `bson:"client_id"`
+	}
+	if err := cursor.All(ctx, &rows); err != nil {
+		return nil, fmt.Errorf("decode project clients: %w", err)
+	}
+	ids := make([]string, 0, len(rows))
+	for _, r := range rows {
+		if r.ClientID != "" {
+			ids = append(ids, r.ClientID)
+		}
+	}
+	return ids, nil
 }

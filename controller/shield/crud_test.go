@@ -10,6 +10,10 @@ func file(p string, content []byte, url, sha string) models.ShieldFileJSON {
 	return models.ShieldFileJSON{Path: p, Content: content, DownloadURL: url, Sha256: sha}
 }
 
+func req(files ...models.ShieldFileJSON) ShieldPolicyRequest {
+	return ShieldPolicyRequest{Name: "p", Project: "proj", Files: files}
+}
+
 func TestValidate(t *testing.T) {
 	good64 := "0000000000000000000000000000000000000000000000000000000000000000"
 	cases := []struct {
@@ -17,24 +21,22 @@ func TestValidate(t *testing.T) {
 		req     ShieldPolicyRequest
 		wantErr bool
 	}{
-		{"ok inline", ShieldPolicyRequest{Files: []models.ShieldFileJSON{file("api.yaml", []byte("x"), "", "")}}, false},
-		{"ok download", ShieldPolicyRequest{Files: []models.ShieldFileJSON{file("geo/c.mmdb", nil, "https://x/y", good64)}}, false},
-		{"clear-dir (empty + full_sync)", ShieldPolicyRequest{FullSync: true}, false},
-		{"empty without full_sync", ShieldPolicyRequest{}, true},
-		{"abs path", ShieldPolicyRequest{Files: []models.ShieldFileJSON{file("/etc/passwd", []byte("x"), "", "")}}, true},
-		{"traversal", ShieldPolicyRequest{Files: []models.ShieldFileJSON{file("../x.yaml", []byte("x"), "", "")}}, true},
-		{"deep traversal", ShieldPolicyRequest{Files: []models.ShieldFileJSON{file("a/../../b", []byte("x"), "", "")}}, true},
-		{"empty path", ShieldPolicyRequest{Files: []models.ShieldFileJSON{file("", []byte("x"), "", "")}}, true},
-		{"dup path", ShieldPolicyRequest{Files: []models.ShieldFileJSON{file("a.yaml", []byte("1"), "", ""), file("a.yaml", []byte("2"), "", "")}}, true},
-		{"no source", ShieldPolicyRequest{Files: []models.ShieldFileJSON{file("a.yaml", nil, "", "")}}, true},
-		{"both sources", ShieldPolicyRequest{Files: []models.ShieldFileJSON{file("a.yaml", []byte("x"), "https://x/y", good64)}}, true},
-		{"download no sha", ShieldPolicyRequest{Files: []models.ShieldFileJSON{file("a.mmdb", nil, "https://x/y", "")}}, true},
-		{"download bad scheme", ShieldPolicyRequest{Files: []models.ShieldFileJSON{file("a.mmdb", nil, "ftp://x/y", good64)}}, true},
-		{"bad sha format", ShieldPolicyRequest{Files: []models.ShieldFileJSON{file("a.yaml", []byte("x"), "", "nothex")}}, true},
+		{"ok inline", req(file("api.yaml", []byte("x"), "", "")), false},
+		{"ok download", req(file("geo/c.mmdb", nil, "https://x/y", good64)), false},
+		{"empty files", req(), true},
+		{"abs path", req(file("/etc/passwd", []byte("x"), "", "")), true},
+		{"traversal", req(file("../x.yaml", []byte("x"), "", "")), true},
+		{"deep traversal", req(file("a/../../b", []byte("x"), "", "")), true},
+		{"empty path", req(file("", []byte("x"), "", "")), true},
+		{"dup path", req(file("a.yaml", []byte("1"), "", ""), file("a.yaml", []byte("2"), "", "")), true},
+		{"no source", req(file("a.yaml", nil, "", "")), true},
+		{"both sources", req(file("a.yaml", []byte("x"), "https://x/y", good64)), true},
+		{"download no sha", req(file("a.mmdb", nil, "https://x/y", "")), true},
+		{"download bad scheme", req(file("a.mmdb", nil, "ftp://x/y", good64)), true},
+		{"bad sha format", req(file("a.yaml", []byte("x"), "", "nothex")), true},
 	}
 	for _, tc := range cases {
-		err := validate(&tc.req)
-		if (err != nil) != tc.wantErr {
+		if err := validate(&tc.req); (err != nil) != tc.wantErr {
 			t.Errorf("%s: err=%v wantErr=%v", tc.name, err, tc.wantErr)
 		}
 	}

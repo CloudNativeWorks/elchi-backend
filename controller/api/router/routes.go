@@ -511,9 +511,10 @@ func initShieldRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		{"GET", "/policies/:policy_id", h.Shield.GetShieldPolicy},       // GET /api/v3/shield/policies/:policy_id?project=
 		{"GET", "/policies", h.Shield.ListShieldPolicies},               // GET /api/v3/shield/policies?project=
 
-		// Deploy a stored policy to edge clients
-		{"POST", "/policies/:policy_id/deploy", h.Shield.DeployShieldPolicy}, // POST /api/v3/shield/policies/:policy_id/deploy
-		// Read a connected client's live shield service status (client-scoped, not policy-scoped)
+		// Manual re-sync: re-push the project's merged policy set to its connected
+		// clients (CRUD already auto-deploys; this is for reconnects/recovery).
+		{"POST", "/sync", h.Shield.SyncShieldProject}, // POST /api/v3/shield/sync  body:{project}
+		// Read a connected client's live shield service status (client-scoped)
 		{"GET", "/status", h.Shield.ShieldStatus}, // GET /api/v3/shield/status?project=&client_id=
 	}
 

@@ -29,10 +29,12 @@ type ShieldPolicy struct {
 
 // ShieldPolicyRequest is the create/update request body.
 type ShieldPolicyRequest struct {
-	Name     string                  `json:"name" binding:"required"`
-	Project  string                  `json:"project" binding:"required"`
-	FullSync bool                    `json:"full_sync"`
-	Files    []models.ShieldFileJSON `json:"files" binding:"required"`
+	Name     string `json:"name" binding:"required"`
+	Project  string `json:"project" binding:"required"`
+	FullSync bool   `json:"full_sync"`
+	// Files may be empty when full_sync is set (a clearing bundle); validate()
+	// enforces the rule, so no binding:"required" here.
+	Files []models.ShieldFileJSON `json:"files"`
 }
 
 // ShieldPolicyResponse is the API response shape.

@@ -58,14 +58,36 @@ func validate(req *ShieldPolicyRequest) error {
 		}
 		seen[clean] = struct{}{}
 		if f.DownloadURL != "" {
+			if len(f.Content) > 0 {
+				return fmt.Errorf("files[%d]: set either content or download_url, not both", i)
+			}
 			if f.Sha256 == "" {
 				return fmt.Errorf("files[%d]: a download_url requires a sha256", i)
+			}
+			if !strings.HasPrefix(f.DownloadURL, "http://") && !strings.HasPrefix(f.DownloadURL, "https://") {
+				return fmt.Errorf("files[%d]: download_url must be http(s)", i)
 			}
 		} else if len(f.Content) == 0 {
 			return fmt.Errorf("files[%d]: either content or download_url is required", i)
 		}
+		if f.Sha256 != "" && !isHexSHA256(f.Sha256) {
+			return fmt.Errorf("files[%d]: sha256 must be 64 hex chars", i)
+		}
 	}
 	return nil
+}
+
+// isHexSHA256 reports whether s is a 64-char lowercase-or-mixed hex digest.
+func isHexSHA256(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for _, r := range s {
+		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
+			return false
+		}
+	}
+	return true
 }
 
 // Create inserts a new policy (version 1). A duplicate (name, project) errors.

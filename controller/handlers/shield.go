@@ -156,8 +156,13 @@ func (h *ShieldHandler) DeployShieldPolicy(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": resp})
 }
 
-// StatusShieldPolicy handles GET /api/v3/shield/policies/:policy_id/status?project=&client_id=.
-func (h *ShieldHandler) StatusShieldPolicy(c *gin.Context) {
+// ShieldStatus handles GET /api/v3/shield/status?project=&client_id=. It queries a
+// connected edge client's shield service status — a command dispatch, so it is
+// admin/owner-gated like deploy (not an open store read).
+func (h *ShieldHandler) ShieldStatus(c *gin.Context) {
+	if !h.isAdmin(c) {
+		return
+	}
 	clientID := c.Query("client_id")
 	if clientID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"message": "client_id is required"})

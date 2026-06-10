@@ -511,9 +511,10 @@ func initShieldRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		{"GET", "/policies/:policy_id", h.Shield.GetShieldPolicy},       // GET /api/v3/shield/policies/:policy_id?project=
 		{"GET", "/policies", h.Shield.ListShieldPolicies},               // GET /api/v3/shield/policies?project=
 
-		// Deploy a stored policy to edge clients + read shield status
+		// Deploy a stored policy to edge clients
 		{"POST", "/policies/:policy_id/deploy", h.Shield.DeployShieldPolicy}, // POST /api/v3/shield/policies/:policy_id/deploy
-		{"GET", "/policies/:policy_id/status", h.Shield.StatusShieldPolicy},  // GET /api/v3/shield/policies/:policy_id/status?project=&client_id=
+		// Read a connected client's live shield service status (client-scoped, not policy-scoped)
+		{"GET", "/status", h.Shield.ShieldStatus}, // GET /api/v3/shield/status?project=&client_id=
 	}
 
 	initRoutes(rg, routes)

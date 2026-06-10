@@ -83,6 +83,8 @@ var Indices = map[string]mongo.IndexModel{
 	"gslb_ip_health": {Keys: bson.D{{Key: "record_id", Value: 1}, {Key: "ip", Value: 1}}, Options: options.Index().SetUnique(true).SetName("record_id_ip_1")},
 	// GSLB nodes collection - Tracks elchi-gslb instances that fetch DNS records
 	"gslb_nodes": {Keys: bson.D{{Key: "node_ip", Value: 1}, {Key: "zone", Value: 1}}, Options: options.Index().SetUnique(true).SetName("node_ip_zone_1")},
+	// Shield policies collection - elchi-shield config bundles, unique per project
+	"shield_policies": {Keys: bson.D{{Key: "name", Value: 1}, {Key: "project", Value: 1}}, Options: options.Index().SetUnique(true).SetName("name_project_1").SetCollation(&options.Collation{Locale: "en", Strength: 2})},
 	// (No "license" entry — the collection only needs the auto-created _id_
 	// index. A previous spec tried to recreate {_id: 1} under the name
 	// "license_id_1"; Mongo silently ignores the duplicate-key request but

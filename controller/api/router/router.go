@@ -80,6 +80,7 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 	apiSnippets := v3.Group("/snippets")
 	apiSearch := v3.Group("/search")
 	apiWAF := v3.Group("/waf")
+	apiShield := v3.Group("/shield")
 	apiMaintenance := apiSettings.Group("/maintenance") // Maintenance routes under settings
 	apiACME := v3.Group("/acme")
 	apiDNS := e.Group("/dns")                               // GSLB DNS API routes (zone-based authentication via middleware)
@@ -109,6 +110,7 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 	initSnippetRoutes(apiSnippets, h)
 	initSearchRoutes(apiSearch, h)
 	initWAFRoutes(apiWAF, h)
+	initShieldRoutes(apiShield, h)
 	initMaintenanceRoutes(apiMaintenance, h) // Maintenance/cleanup routes
 	initOpenStackRoutes(apiClient, h)        // OpenStack routes under /api/op/clients
 	initACMERoutes(apiACME, h)               // ACME routes under /api/v3/acme

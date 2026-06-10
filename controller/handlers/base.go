@@ -64,6 +64,7 @@ type Handler struct {
 	RouteMap     *routemap.RouteMapHandler
 	Snippet      *SnippetHandler
 	WAF          *WAFHandler
+	Shield       *ShieldHandler
 	Upgrade      *UpgradeHandler
 	Maintenance  *MaintenanceHandler
 	ACME         *ACMEHandler
@@ -135,6 +136,10 @@ func NewHandler(xds *xds.AppHandler, extension *extension.AppHandler, custom *cu
 	// Initialize WAF handler with required dependencies
 	handler.WAF = NewWAFHandler(xds.Context, xds.PokeService, jobs.asyncSystem, xds.Logger)
 	handler.WAF.SetParentHandler(handler) // Set parent reference for audit functions
+
+	// Initialize shield (elchi-shield config policy) handler
+	handler.Shield = NewShieldHandler(xds.Context, xds.Logger)
+	handler.Shield.SetParentHandler(handler)
 
 	// Set parent handler for ACME (for audit functions)
 	if acme != nil {

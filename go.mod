@@ -5,7 +5,7 @@ go 1.25.6
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.46.0
 	github.com/CloudNativeWorks/cnw-license-sdk v0.2.5
-	github.com/CloudNativeWorks/elchi-proto v0.0.0-20260105113801-d89349b0818e
+	github.com/CloudNativeWorks/elchi-proto v0.0.0-20260610152828-bc4e800786e7
 	github.com/CloudNativeWorks/versioned-go-control-plane v0.14.0-envoy1.36.2
 	github.com/CloudNativeWorks/versioned-go-control-plane/envoy v1.36.2
 	github.com/gin-contrib/pprof v1.5.3

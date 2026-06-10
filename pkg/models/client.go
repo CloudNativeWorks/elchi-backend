@@ -1,6 +1,8 @@
 package models
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 
@@ -52,6 +54,9 @@ type OperationClass interface {
 
 	// Rsyslog related methods
 	GetRsyslog() *pb.RequestRsyslog
+
+	// Shield (elchi-shield ext_proc WAF) config delivery
+	GetShield() *pb.RequestShield
 
 	GetClients() []ServiceClients
 
@@ -266,6 +271,67 @@ type Operations struct {
 
 	// Rsyslog operation fields
 	RsyslogOp *pb.RequestRsyslog `json:"rsyslog,omitempty"`
+
+	// Shield operation fields
+	ShieldOp *RequestShieldJSON `json:"shield,omitempty"`
+}
+
+// ShieldFileJSON is one file in an elchi-shield config bundle. Content is base64
+// in JSON (encoding/json handles []byte). The same struct is reused (with bson
+// tags) as the stored policy's file shape.
+type ShieldFileJSON struct {
+	Path        string `json:"path" bson:"path"`
+	Content     []byte `json:"content,omitempty" bson:"content,omitempty"`
+	DownloadURL string `json:"download_url,omitempty" bson:"download_url,omitempty"`
+	Sha256      string `json:"sha256,omitempty" bson:"sha256,omitempty"`
+	Mode        string `json:"mode,omitempty" bson:"mode,omitempty"`
+}
+
+// ShieldConfigJSON is the JSON/BSON shape of an elchi-shield config bundle.
+type ShieldConfigJSON struct {
+	Files    []ShieldFileJSON `json:"files,omitempty" bson:"files,omitempty"`
+	FullSync bool             `json:"full_sync,omitempty" bson:"full_sync,omitempty"`
+	Version  string           `json:"version,omitempty" bson:"version,omitempty"`
+}
+
+// ToPB builds the protobuf ShieldConfig, deriving each inline file's sha256 from
+// its content (unless one was supplied). A file with a download URL becomes a
+// download source and keeps its supplied sha256 (the agent verifies it).
+func (c *ShieldConfigJSON) ToPB() *pb.ShieldConfig {
+	if c == nil {
+		return nil
+	}
+	out := &pb.ShieldConfig{FullSync: c.FullSync, Version: c.Version}
+	for i := range c.Files {
+		f := c.Files[i]
+		pf := &pb.ShieldFile{Path: f.Path, Mode: f.Mode, Sha256: f.Sha256}
+		if f.DownloadURL != "" {
+			pf.Source = &pb.ShieldFile_Download{Download: &pb.ShieldDownload{Url: f.DownloadURL, Version: c.Version}}
+		} else {
+			pf.Source = &pb.ShieldFile_Inline{Inline: f.Content}
+			if pf.Sha256 == "" {
+				sum := sha256.Sum256(f.Content)
+				pf.Sha256 = hex.EncodeToString(sum[:])
+			}
+		}
+		out.Files = append(out.Files, pf)
+	}
+	return out
+}
+
+// RequestShieldJSON is the JSON wrapper for a shield command. Operation is
+// UPDATE_SHIELD_CONFIG (carries Config), GET_SHIELD_CONFIG, or GET_SHIELD_STATUS.
+type RequestShieldJSON struct {
+	Operation string            `json:"operation"`
+	Config    *ShieldConfigJSON `json:"config,omitempty"`
+}
+
+// ToPB converts the wrapper to the protobuf RequestShield.
+func (r *RequestShieldJSON) ToPB() *pb.RequestShield {
+	if r == nil {
+		return nil
+	}
+	return &pb.RequestShield{Config: r.Config.ToPB()}
 }
 
 type ServiceClients struct {
@@ -646,4 +712,8 @@ func (o *Operations) GetFilebeat() *pb.RequestFilebeat {
 
 func (o *Operations) GetRsyslog() *pb.RequestRsyslog {
 	return o.RsyslogOp
+}
+
+func (o *Operations) GetShield() *pb.RequestShield {
+	return o.ShieldOp.ToPB()
 }

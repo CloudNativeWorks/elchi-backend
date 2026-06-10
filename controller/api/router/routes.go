@@ -496,6 +496,29 @@ func initWAFRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 	initRoutes(rg, routes)
 }
 
+// initShieldRoutes wires the elchi-shield policy store + deploy endpoints under
+// /api/v3/shield.
+func initShieldRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
+	routes := []struct {
+		method  string
+		path    string
+		handler gin.HandlerFunc
+	}{
+		// Policy CRUD
+		{"POST", "/policies", h.Shield.CreateShieldPolicy},              // POST /api/v3/shield/policies
+		{"PUT", "/policies/:policy_id", h.Shield.UpdateShieldPolicy},    // PUT /api/v3/shield/policies/:policy_id
+		{"DELETE", "/policies/:policy_id", h.Shield.DeleteShieldPolicy}, // DELETE /api/v3/shield/policies/:policy_id?project=
+		{"GET", "/policies/:policy_id", h.Shield.GetShieldPolicy},       // GET /api/v3/shield/policies/:policy_id?project=
+		{"GET", "/policies", h.Shield.ListShieldPolicies},               // GET /api/v3/shield/policies?project=
+
+		// Deploy a stored policy to edge clients + read shield status
+		{"POST", "/policies/:policy_id/deploy", h.Shield.DeployShieldPolicy}, // POST /api/v3/shield/policies/:policy_id/deploy
+		{"GET", "/policies/:policy_id/status", h.Shield.StatusShieldPolicy},  // GET /api/v3/shield/policies/:policy_id/status?project=&client_id=
+	}
+
+	initRoutes(rg, routes)
+}
+
 func initRouteMapRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 	routes := []struct {
 		method  string

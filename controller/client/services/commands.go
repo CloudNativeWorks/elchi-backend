@@ -104,6 +104,9 @@ func getCommandTimeout(cmdType pb.CommandType) time.Duration {
 	case pb.CommandType_UPGRADE_LISTENER:
 		// Listener upgrades can take time for graceful draining and restart
 		return 90 * time.Second // 1.5 minutes (includes drain time + restart)
+	case pb.CommandType_SHIELD:
+		// Shield config pushes can fetch large download-ref artifacts on the edge
+		return 180 * time.Second // 3 minutes
 	case pb.CommandType_NETWORK:
 		// Network operations might need more time for changes to take effect
 		return 45 * time.Second // 45 seconds

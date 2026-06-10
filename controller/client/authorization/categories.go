@@ -119,6 +119,15 @@ func GetCommandCategory(commandType string, subType string) CommandCategory {
 		// Reading version is readonly
 		return ReadonlyCommand
 
+	case "SHIELD":
+		// Reading shield config/status is readonly; pushing config is admin-only
+		switch subType {
+		case "GET_SHIELD_CONFIG", "GET_SHIELD_STATUS":
+			return ReadonlyCommand
+		default:
+			return AdminOnlyCommand
+		}
+
 	default:
 		// Default to admin-only for unknown commands (safe default)
 		return AdminOnlyCommand

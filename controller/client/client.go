@@ -34,6 +34,7 @@ type AppHandler struct {
 	Logger         *logger.Logger
 	XDSHandler     *xds.AppHandler
 	RegistryClient *registry.RegistryClient
+	ShieldEnqueuer grpc.ShieldConnectEnqueuer
 }
 
 func NewClientHandler(context *db.AppContext, xdsHandler *xds.AppHandler, openStackHandler *openstack.Handler, clientService *services.ClientService) *AppHandler {
@@ -50,6 +51,12 @@ func (h *AppHandler) SetRegistryClient(client *registry.RegistryClient) {
 	h.RegistryClient = client
 	h.Service.SetRegistryClient(client)
 	h.Handler.SetRegistryClient(client)
+}
+
+// SetShieldEnqueuer wires the on-connect shield deploy enqueuer. Call before Start
+// so the gRPC server hands it to each new client stream.
+func (h *AppHandler) SetShieldEnqueuer(enqueuer grpc.ShieldConnectEnqueuer) {
+	h.ShieldEnqueuer = enqueuer
 }
 
 func (h *AppHandler) Start(appConfig *config.AppConfig) {
@@ -91,7 +98,7 @@ func (h *AppHandler) Start(appConfig *config.AppConfig) {
 	grpcServer := grpclib.NewServer(opts...)
 
 	// Register command service
-	pb.RegisterCommandServiceServer(grpcServer, grpc.NewServer(h.Service, appConfig))
+	pb.RegisterCommandServiceServer(grpcServer, grpc.NewServer(h.Service, h.ShieldEnqueuer, appConfig))
 
 	// Wait group for graceful shutdown
 	wg := sync.WaitGroup{}

@@ -24,6 +24,7 @@ import (
 	"github.com/CloudNativeWorks/elchi-backend/controller/handlers"
 	"github.com/CloudNativeWorks/elchi-backend/controller/routemap"
 	"github.com/CloudNativeWorks/elchi-backend/controller/service"
+	"github.com/CloudNativeWorks/elchi-backend/controller/shield"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/acme"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/async"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/audit"
@@ -289,6 +290,17 @@ var restCmd = &cobra.Command{
 				}
 			}
 		}()
+
+		// Wire the elchi-shield async deploy path BEFORE workers start and BEFORE
+		// the client gRPC server accepts streams: the worker-side deployer (renders
+		// a project's merged policy set and pushes it over the client command path)
+		// and the on-connect enqueuer (re-pushes the project's current config to a
+		// (re)connecting client). clientHandler.Handler satisfies the deployer's
+		// CommandRunner (HandleSendCommand).
+		shieldAsyncSystem := jobHandler.GetAsyncSystem()
+		shieldDeployer := shield.NewDeployer(shield.NewCRUDService(appContext, rootLogger), clientHandler.Handler, rootLogger)
+		shieldAsyncSystem.SetShieldDeployer(shieldDeployer)
+		clientHandler.SetShieldEnqueuer(shield.NewEnqueuer(shieldAsyncSystem, rootLogger))
 
 		// Initialize async job system workers FIRST (needed by upgrade handler)
 		rootLogger.Infof("Starting async job system workers...")

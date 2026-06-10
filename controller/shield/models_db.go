@@ -1,7 +1,10 @@
 // Package shield manages elchi-shield config policies: a project-scoped Mongo
 // store of config bundles plus the deploy path that MERGES all of a project's
 // policies into one full-sync bundle and pushes it to the project's connected
-// edge clients over the command stream, on every policy create/update/delete.
+// edge clients over the command stream. Deploys run asynchronously as
+// SHIELD_DEPLOY background jobs (the Enqueuer queues them; the Deployer renders +
+// pushes them in a worker), triggered on every policy create/update/delete and
+// when a client (re)connects (so an edge offline during a change catches up).
 package shield
 
 import (

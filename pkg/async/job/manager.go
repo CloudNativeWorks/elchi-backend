@@ -71,6 +71,9 @@ func (m *Manager) CreateJob(ctx context.Context, req *CreateJobRequest) (*Job, e
 		// For Let's Encrypt verification jobs
 		project = req.Metadata.ACMEMetadata.Project
 		version = "" // Let's Encrypt jobs don't have a version
+	} else if req.Metadata.ShieldDeploy != nil {
+		// For elchi-shield config deploy jobs (no version)
+		project = req.Metadata.ShieldDeploy.Project
 	}
 
 	job := &Job{
@@ -144,6 +147,9 @@ func (m *Manager) CreateJobWithParent(ctx context.Context, req *CreateJobRequest
 		// For Let's Encrypt verification jobs
 		project = req.Metadata.ACMEMetadata.Project
 		version = "" // Let's Encrypt jobs don't have a version
+	} else if req.Metadata.ShieldDeploy != nil {
+		// For elchi-shield config deploy jobs (no version)
+		project = req.Metadata.ShieldDeploy.Project
 	}
 
 	job := &Job{

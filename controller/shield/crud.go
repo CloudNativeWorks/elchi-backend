@@ -10,11 +10,20 @@ import (
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
+
+// maxInlineBundleBytes caps the TOTAL inline content of a project's merged bundle.
+// All of a project's policies are merged into one full-sync command that is held
+// in memory and sent over the CommandStream (gRPC's ~4 MiB default message cap),
+// so the cap is enforced across the whole project, not per policy. Large artifacts
+// must use a download ref instead. Mirrors the control-plane processor's guard so
+// an over-cap bundle is rejected at store time, not only at deploy time.
+const maxInlineBundleBytes = 3 << 20 // 3 MiB
 
 // ErrPolicyNameTaken is returned when a (name, project) pair already exists.
 var ErrPolicyNameTaken = errors.New("a shield policy with this name already exists in the project")
@@ -90,15 +99,26 @@ func isHexSHA256(s string) bool {
 	return true
 }
 
-// collisionCheck loads the project's other policies and verifies none already owns
-// any of the given (cleaned) paths — the project's policies are merged into one
-// full-sync bundle, so paths must be globally unique. excludeID (the policy being
-// updated) is skipped.
-func (s *CRUDService) collisionCheck(ctx context.Context, project, excludeID string, paths map[string]struct{}) error {
+// collisionCheck loads the project's other policies and verifies the merged bundle
+// is valid: (1) no other policy already owns any of the request's (cleaned) paths —
+// the project's policies are merged into one full-sync bundle, so paths must be
+// globally unique — and (2) the merged bundle's total inline content stays under
+// maxInlineBundleBytes. excludeID (the policy being updated) is skipped so an
+// update is sized against the post-update set.
+func (s *CRUDService) collisionCheck(ctx context.Context, project, excludeID string, req *ShieldPolicyRequest) error {
 	others, err := s.List(ctx, project)
 	if err != nil {
 		return err
 	}
+	return checkBundle(req, others, excludeID)
+}
+
+// checkBundle enforces the merged-bundle invariants (path uniqueness + total inline
+// size) for an incoming policy req against the project's other policies. Pure (no
+// I/O) so it is unit-testable; collisionCheck supplies the loaded others.
+func checkBundle(req *ShieldPolicyRequest, others []ShieldPolicy, excludeID string) error {
+	paths := requestPaths(req)
+	inlineTotal := inlineBytes(req.Files)
 	for i := range others {
 		if others[i].ID.Hex() == excludeID {
 			continue
@@ -108,8 +128,24 @@ func (s *CRUDService) collisionCheck(ctx context.Context, project, excludeID str
 				return fmt.Errorf("file path %q already used by policy %q in this project", path.Clean(f.Path), others[i].Name)
 			}
 		}
+		inlineTotal += inlineBytes(others[i].Files)
+	}
+	if inlineTotal > maxInlineBundleBytes {
+		return fmt.Errorf("project's merged shield bundle inline content is %d bytes (max %d); use download refs for large files", inlineTotal, maxInlineBundleBytes)
 	}
 	return nil
+}
+
+// inlineBytes sums the inline content size of a file set (download-ref files carry
+// no inline bytes and are not counted).
+func inlineBytes(files []models.ShieldFileJSON) int {
+	total := 0
+	for i := range files {
+		if files[i].DownloadURL == "" {
+			total += len(files[i].Content)
+		}
+	}
+	return total
 }
 
 func requestPaths(req *ShieldPolicyRequest) map[string]struct{} {
@@ -126,7 +162,7 @@ func (s *CRUDService) Create(ctx context.Context, req ShieldPolicyRequest) (*Shi
 	if err := validate(&req); err != nil {
 		return nil, err
 	}
-	if err := s.collisionCheck(ctx, req.Project, "", requestPaths(&req)); err != nil {
+	if err := s.collisionCheck(ctx, req.Project, "", &req); err != nil {
 		return nil, err
 	}
 	now := time.Now().UTC()
@@ -158,7 +194,7 @@ func (s *CRUDService) Update(ctx context.Context, id string, req ShieldPolicyReq
 	if err != nil {
 		return nil, ErrPolicyNotFound
 	}
-	if err := s.collisionCheck(ctx, req.Project, id, requestPaths(&req)); err != nil {
+	if err := s.collisionCheck(ctx, req.Project, id, &req); err != nil {
 		return nil, err
 	}
 	update := bson.M{

@@ -58,6 +58,12 @@ type AsyncJobSystem interface {
 
 	// Integration hooks
 	SetPokeService(service *bridge.PokeServiceClient) error
+	// SetShieldDeployer injects the elchi-shield deployer used by SHIELD_DEPLOY
+	// jobs. Set after construction (the deployer depends on the client command
+	// handler, which is built later than the async system) and before workers
+	// start. Safe to leave unset — SHIELD_DEPLOY jobs then fail fast instead of
+	// silently dropping.
+	SetShieldDeployer(deployer ShieldDeployer)
 }
 
 // Config holds the configuration for the async job system
@@ -75,12 +81,13 @@ type Config struct {
 
 // asyncJobSystem is the concrete implementation
 type asyncJobSystem struct {
-	config      *Config
-	jobManager  JobManagerInterface
-	workerPool  WorkerPool
-	analyzer    DependencyAnalyzer
-	logger      *logger.Logger
-	pokeService *bridge.PokeServiceClient
+	config         *Config
+	jobManager     JobManagerInterface
+	workerPool     WorkerPool
+	analyzer       DependencyAnalyzer
+	logger         *logger.Logger
+	pokeService    *bridge.PokeServiceClient
+	shieldDeployer ShieldDeployer
 }
 
 // NewAsyncJobSystem creates a new async job system instance
@@ -198,6 +205,7 @@ func (s *asyncJobSystem) StartWorkers(ctx context.Context, config *WorkerConfig)
 		JobManager:         s.jobManager.(*job.Manager),
 		DBContext:          config.DBContext.(*db.AppContext),
 		WAFProcessor:       wafProcessor,
+		ShieldDeployer:     s.shieldDeployer,
 		MaxConcurrentPokes: config.MaxConcurrentPokes,
 	}
 	return s.workerPool.Start(ctx, workerConfig)
@@ -420,6 +428,12 @@ func (s *asyncJobSystem) SetPokeService(service *bridge.PokeServiceClient) error
 	}
 	s.pokeService = service
 	return nil
+}
+
+// SetShieldDeployer injects the elchi-shield deployer for SHIELD_DEPLOY jobs.
+// Must be called before StartWorkers so the worker pool picks it up.
+func (s *asyncJobSystem) SetShieldDeployer(deployer ShieldDeployer) {
+	s.shieldDeployer = deployer
 }
 
 // CreateACMEVerificationJob creates a job for Let's Encrypt DNS verification

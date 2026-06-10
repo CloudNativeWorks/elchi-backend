@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/CloudNativeWorks/elchi-backend/controller/shield"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/async"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
@@ -13,18 +14,24 @@ import (
 )
 
 // ShieldHandler exposes the elchi-shield policy store (CRUD). Any create/update/
-// delete auto-deploys the project's MERGED policy set (full-sync) to the project's
-// connected clients — there is no manual per-policy/per-client deploy.
+// delete enqueues an async SHIELD_DEPLOY job that pushes the project's MERGED
+// policy set (full-sync) to the project's connected clients — there is no manual
+// per-policy/per-client deploy. The HTTP request returns immediately with the
+// job id; the worker performs the push (and a (re)connecting client is brought up
+// to the current desired state by a connect-triggered job).
 type ShieldHandler struct {
 	crudService   *shield.CRUDService
+	enqueuer      *shield.Enqueuer
 	logger        *logger.Logger
 	parentHandler *Handler
 }
 
-// NewShieldHandler builds the shield handler.
-func NewShieldHandler(dbContext *db.AppContext, logger *logger.Logger) *ShieldHandler {
+// NewShieldHandler builds the shield handler over the policy store and async job
+// system (used to enqueue deploy jobs).
+func NewShieldHandler(dbContext *db.AppContext, asyncSystem async.AsyncJobSystem, logger *logger.Logger) *ShieldHandler {
 	return &ShieldHandler{
 		crudService: shield.NewCRUDService(dbContext, logger),
+		enqueuer:    shield.NewEnqueuer(asyncSystem, logger),
 		logger:      logger,
 	}
 }
@@ -67,7 +74,7 @@ func (h *ShieldHandler) CreateShieldPolicy(c *gin.Context) {
 		c.JSON(shieldStatus(err), gin.H{"message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusCreated, gin.H{"data": policy.ToResponse(), "deploy": h.deployProject(c, req.Project)})
+	c.JSON(http.StatusCreated, gin.H{"data": policy.ToResponse(), "deploy": h.enqueueDeploy(c, req.Project)})
 }
 
 // UpdateShieldPolicy handles PUT /api/v3/shield/policies/:policy_id and auto-deploys.
@@ -85,7 +92,7 @@ func (h *ShieldHandler) UpdateShieldPolicy(c *gin.Context) {
 		c.JSON(shieldStatus(err), gin.H{"message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": policy.ToResponse(), "deploy": h.deployProject(c, req.Project)})
+	c.JSON(http.StatusOK, gin.H{"data": policy.ToResponse(), "deploy": h.enqueueDeploy(c, req.Project)})
 }
 
 // GetShieldPolicy handles GET /api/v3/shield/policies/:policy_id?project=.
@@ -123,7 +130,7 @@ func (h *ShieldHandler) DeleteShieldPolicy(c *gin.Context) {
 		c.JSON(shieldStatus(err), gin.H{"message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "deleted", "deploy": h.deployProject(c, project)})
+	c.JSON(http.StatusOK, gin.H{"message": "deleted", "deploy": h.enqueueDeploy(c, project)})
 }
 
 // SyncShieldProject handles POST /api/v3/shield/sync — re-push the project's merged
@@ -139,7 +146,7 @@ func (h *ShieldHandler) SyncShieldProject(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": h.deployProject(c, body.Project)})
+	c.JSON(http.StatusOK, gin.H{"data": h.enqueueDeploy(c, body.Project)})
 }
 
 // ShieldStatus handles GET /api/v3/shield/status?project=&client_id=. It queries a
@@ -162,36 +169,20 @@ func (h *ShieldHandler) ShieldStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": resp})
 }
 
-// deployProject renders the project's MERGED policy set into one full-sync bundle
-// and pushes it to the project's connected clients. It never returns an error to
-// the caller — a store mutation succeeds regardless of deploy outcome; the result
-// (versions/per-client status/errors) is returned for the response body.
-func (h *ShieldHandler) deployProject(c *gin.Context, project string) any {
-	ctx := c.Request.Context()
-	policies, err := h.crudService.List(ctx, project)
+// enqueueDeploy enqueues an async SHIELD_DEPLOY job for the project's connected
+// clients and returns the job id for the response body. It never returns an error
+// to the caller — a store mutation succeeds regardless of deploy outcome; the
+// worker performs the render + push and records the job's terminal status. The
+// triggering admin is carried onto the job so the worker's command authorization
+// runs as that identity.
+func (h *ShieldHandler) enqueueDeploy(c *gin.Context, project string) any {
+	_, userDetails := h.parentHandler.getRequestDetails(c)
+	jobID, err := h.enqueuer.EnqueueProjectDeploy(c.Request.Context(), project, userDetails, shield.ReasonPolicyChange)
 	if err != nil {
-		h.logger.Errorf("shield deploy: list policies for project %s: %v", project, err)
-		return gin.H{"deployed": false, "error": err.Error()}
+		h.logger.Errorf("shield deploy: enqueue job for project %s: %v", project, err)
+		return gin.H{"enqueued": false, "error": err.Error()}
 	}
-	cfg, err := shield.MergePolicies(policies)
-	if err != nil {
-		h.logger.Errorf("shield deploy: merge policies for project %s: %v", project, err)
-		return gin.H{"deployed": false, "error": err.Error()}
-	}
-	clientIDs, err := h.crudService.ListConnectedClientIDs(ctx, project)
-	if err != nil {
-		h.logger.Errorf("shield deploy: list clients for project %s: %v", project, err)
-		return gin.H{"deployed": false, "error": err.Error()}
-	}
-	if len(clientIDs) == 0 {
-		return gin.H{"deployed": true, "clients": 0, "version": cfg.Version, "message": "no connected clients in project"}
-	}
-	resp, err := h.dispatch(c, "", project, client.SubCommandType_UPDATE_SHIELD_CONFIG, clientIDs, &cfg)
-	if err != nil {
-		h.logger.Errorf("shield deploy to project %s: %v", project, err)
-		return gin.H{"deployed": false, "version": cfg.Version, "clients": len(clientIDs), "error": err.Error(), "results": resp}
-	}
-	return gin.H{"deployed": true, "version": cfg.Version, "clients": len(clientIDs), "results": resp}
+	return gin.H{"enqueued": true, "deploy_job": jobID}
 }
 
 // dispatch builds a SHIELD Operation and routes it through the client command

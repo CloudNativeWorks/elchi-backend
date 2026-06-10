@@ -138,7 +138,7 @@ func NewHandler(xds *xds.AppHandler, extension *extension.AppHandler, custom *cu
 	handler.WAF.SetParentHandler(handler) // Set parent reference for audit functions
 
 	// Initialize shield (elchi-shield config policy) handler
-	handler.Shield = NewShieldHandler(xds.Context, xds.Logger)
+	handler.Shield = NewShieldHandler(xds.Context, jobs.asyncSystem, xds.Logger)
 	handler.Shield.SetParentHandler(handler)
 
 	// Set parent handler for ACME (for audit functions)

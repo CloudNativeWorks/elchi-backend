@@ -29,6 +29,7 @@ type (
 	ActionType        = job.ActionType
 	PokeStatus        = job.PokeStatus
 	WAFProcessor      = worker.WAFProcessor
+	ShieldDeployer    = worker.ShieldDeployer
 )
 
 // JobManagerInterface defines the interface for job management

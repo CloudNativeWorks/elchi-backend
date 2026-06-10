@@ -34,6 +34,7 @@ type Worker struct {
 	pokeService    *bridge.PokeServiceClient
 	dbContext      *db.AppContext
 	wafProcessor   WAFProcessor
+	shieldDeployer ShieldDeployer
 	commandHandler ClientCommandHandler
 	logger         *logger.Logger
 	isProcessing   bool
@@ -42,13 +43,14 @@ type Worker struct {
 }
 
 // NewWorker creates a new worker
-func NewWorker(id string, poolConfig *PoolConfig, jobManager *job.Manager, pokeService *bridge.PokeServiceClient, dbContext *db.AppContext, wafProcessor WAFProcessor, commandHandler ClientCommandHandler) *Worker {
+func NewWorker(id string, poolConfig *PoolConfig, jobManager *job.Manager, pokeService *bridge.PokeServiceClient, dbContext *db.AppContext, wafProcessor WAFProcessor, shieldDeployer ShieldDeployer, commandHandler ClientCommandHandler) *Worker {
 	// Create WorkerConfig from poolConfig
 	workerConfig := &WorkerConfig{
 		PokeService:        pokeService,
 		JobManager:         jobManager,
 		DBContext:          dbContext,
 		WAFProcessor:       wafProcessor,
+		ShieldDeployer:     shieldDeployer,
 		MaxConcurrentPokes: poolConfig.MaxConcurrentPokes,
 	}
 
@@ -60,6 +62,7 @@ func NewWorker(id string, poolConfig *PoolConfig, jobManager *job.Manager, pokeS
 		pokeService:    pokeService,
 		dbContext:      dbContext,
 		wafProcessor:   wafProcessor,
+		shieldDeployer: shieldDeployer,
 		commandHandler: commandHandler,
 		logger:         logger.NewLogger(fmt.Sprintf("worker-%s", id)),
 	}
@@ -131,6 +134,8 @@ func (w *Worker) processNextJob(ctx context.Context) {
 		w.processResourceUpgradeJob(ctx, claimedJob)
 	case job.JobTypeACMEVerification:
 		w.processACMEVerificationJob(ctx, claimedJob)
+	case job.JobTypeShieldDeploy:
+		w.processShieldDeployJob(ctx, claimedJob)
 	default:
 		w.logger.Errorf("Unknown job type: %s", claimedJob.Type)
 		if err := w.jobManager.FailJob(ctx, claimedJob.ID, fmt.Errorf("unknown job type")); err != nil {

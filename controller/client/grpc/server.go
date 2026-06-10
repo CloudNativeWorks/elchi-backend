@@ -17,15 +17,26 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 )
 
+// ShieldConnectEnqueuer enqueues a shield config deploy for a client that just
+// (re)connected, so an edge that was offline when a policy changed is brought up
+// to the project's current desired state on connect. Satisfied by
+// *controller/shield.Enqueuer; defined here (consumer side) and optional — a nil
+// enqueuer disables the on-connect push.
+type ShieldConnectEnqueuer interface {
+	EnqueueClientConnect(ctx context.Context, project, clientID string)
+}
+
 // Server represents the gRPC server
 type Server struct {
 	pb.UnimplementedCommandServiceServer
-	clientService *services.ClientService
-	logger        *logger.Logger
+	clientService  *services.ClientService
+	shieldEnqueuer ShieldConnectEnqueuer
+	logger         *logger.Logger
 }
 
-// NewServer creates a new gRPC server
-func NewServer(clientService *services.ClientService, appConfig *config.AppConfig) *Server {
+// NewServer creates a new gRPC server. shieldEnqueuer is optional (may be nil),
+// enabling the on-connect shield config push when set.
+func NewServer(clientService *services.ClientService, shieldEnqueuer ShieldConnectEnqueuer, appConfig *config.AppConfig) *Server {
 	// Initialize logger
 	if err := logger.Init(logger.Config{
 		Level:      appConfig.Logging.Level,
@@ -38,8 +49,9 @@ func NewServer(clientService *services.ClientService, appConfig *config.AppConfi
 	}
 
 	return &Server{
-		clientService: clientService,
-		logger:        logger.NewLogger("controller/clientServer"),
+		clientService:  clientService,
+		shieldEnqueuer: shieldEnqueuer,
+		logger:         logger.NewLogger("controller/clientServer"),
 	}
 }
 
@@ -234,6 +246,26 @@ func (s *Server) CommandStream(stream pb.CommandService_CommandStreamServer) err
 	if err != nil {
 		s.logger.Errorf("Failed to get client after stream update (Client ID: %s): %v", clientID, err)
 		return fmt.Errorf("client not found after stream update: %w", err)
+	}
+
+	// Bring this client up to its project's current elchi-shield config by
+	// enqueuing a SHIELD_DEPLOY job. Best-effort and fired in its own goroutine
+	// with a bounded context so a slow/unavailable Mongo on the job insert never
+	// stalls or fails the stream handshake (the job outlives this request scope).
+	if s.shieldEnqueuer != nil {
+		project := client.Project
+		go func() {
+			// Detached goroutine: a panic here would crash the whole controller,
+			// so contain it — the enqueue is best-effort.
+			defer func() {
+				if r := recover(); r != nil {
+					s.logger.Errorf("Panic in shield connect enqueue (Client ID: %s): %v", clientID, r)
+				}
+			}()
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			s.shieldEnqueuer.EnqueueClientConnect(ctx, project, clientID)
+		}()
 	}
 
 	// Keepalive ticker removed - client will send pings via separate connection

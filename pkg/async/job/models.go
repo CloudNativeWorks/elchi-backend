@@ -14,6 +14,7 @@ const (
 	JobTypeWAFPropagation   JobType = "WAF_PROPAGATION"
 	JobTypeResourceUpgrade  JobType = "RESOURCE_UPGRADE"
 	JobTypeACMEVerification JobType = "ACME_VERIFICATION"
+	JobTypeShieldDeploy     JobType = "SHIELD_DEPLOY"
 )
 
 // JobStatus represents the current status of a job
@@ -80,15 +81,27 @@ type JobProgress struct {
 
 // JobMetadata contains metadata about the job
 type JobMetadata struct {
-	SourceResource    *SourceResource  `bson:"source_resource,omitempty" json:"source_resource,omitempty"`
-	TriggerUser       *TriggerUser     `bson:"trigger_user" json:"trigger_user"`
-	AffectedListeners []string         `bson:"affected_listeners" json:"affected_listeners"`
-	TotalAffected     int              `bson:"total_affected" json:"total_affected"`
-	AnalysisDuration  int64            `bson:"analysis_duration_ms" json:"analysis_duration_ms"`
-	WAFConfig         *WAFConfigMeta   `bson:"waf_config,omitempty" json:"waf_config,omitempty"`         // For WAF_PROPAGATION jobs
-	AffectedWASM      []string         `bson:"affected_wasm,omitempty" json:"affected_wasm,omitempty"`   // For WAF_PROPAGATION jobs
-	UpgradeConfig     *UpgradeMetadata `bson:"upgrade_config,omitempty" json:"upgrade_config,omitempty"` // For RESOURCE_UPGRADE jobs
-	ACMEMetadata      *ACMEJobMetadata `bson:"acme,omitempty" json:"acme,omitempty"`                     // For ACME_VERIFICATION jobs
+	SourceResource    *SourceResource   `bson:"source_resource,omitempty" json:"source_resource,omitempty"`
+	TriggerUser       *TriggerUser      `bson:"trigger_user" json:"trigger_user"`
+	AffectedListeners []string          `bson:"affected_listeners" json:"affected_listeners"`
+	TotalAffected     int               `bson:"total_affected" json:"total_affected"`
+	AnalysisDuration  int64             `bson:"analysis_duration_ms" json:"analysis_duration_ms"`
+	WAFConfig         *WAFConfigMeta    `bson:"waf_config,omitempty" json:"waf_config,omitempty"`         // For WAF_PROPAGATION jobs
+	AffectedWASM      []string          `bson:"affected_wasm,omitempty" json:"affected_wasm,omitempty"`   // For WAF_PROPAGATION jobs
+	UpgradeConfig     *UpgradeMetadata  `bson:"upgrade_config,omitempty" json:"upgrade_config,omitempty"` // For RESOURCE_UPGRADE jobs
+	ACMEMetadata      *ACMEJobMetadata  `bson:"acme,omitempty" json:"acme,omitempty"`                     // For ACME_VERIFICATION jobs
+	ShieldDeploy      *ShieldDeployMeta `bson:"shield_deploy,omitempty" json:"shield_deploy,omitempty"`   // For SHIELD_DEPLOY jobs
+}
+
+// ShieldDeployMeta contains metadata for elchi-shield config deploy jobs. The
+// worker renders the project's merged policy set into one full-sync bundle and
+// pushes it to TargetClients (empty = all currently-connected clients in the
+// project). Reason is "policy_change" (a CRUD mutation) or "client_connect" (a
+// client (re)connected and must be brought up to the current desired state).
+type ShieldDeployMeta struct {
+	Project       string   `bson:"project" json:"project"`
+	TargetClients []string `bson:"target_clients,omitempty" json:"target_clients,omitempty"`
+	Reason        string   `bson:"reason" json:"reason"`
 }
 
 // WAFConfigMeta contains metadata about the WAF config that triggered propagation
@@ -216,14 +229,14 @@ type JobFilter struct {
 
 // UpgradeMetadata contains metadata for resource upgrade jobs
 type UpgradeMetadata struct {
-	TargetVersion   string `bson:"target_version" json:"target_version"`
-	ValidateClients bool   `bson:"validate_clients" json:"validate_clients"`
-	UpdateBootstrap bool   `bson:"update_bootstrap" json:"update_bootstrap"`
-	DryRun          bool   `bson:"dry_run" json:"dry_run"`
-	Analysis          *UpgradeAnalysisResult `bson:"analysis,omitempty" json:"analysis,omitempty"`
-	ClientResponses   []any                  `bson:"client_responses,omitempty" json:"client_responses,omitempty"`   // Raw responses from each client
-	CreatedResources  []ResourceRef          `bson:"created_resources,omitempty" json:"created_resources,omitempty"` // Resources created during upgrade
-	BootstrapUpdates  []BootstrapUpdate      `bson:"bootstrap_updates,omitempty" json:"bootstrap_updates,omitempty"` // Bootstrap updates performed
+	TargetVersion    string                 `bson:"target_version" json:"target_version"`
+	ValidateClients  bool                   `bson:"validate_clients" json:"validate_clients"`
+	UpdateBootstrap  bool                   `bson:"update_bootstrap" json:"update_bootstrap"`
+	DryRun           bool                   `bson:"dry_run" json:"dry_run"`
+	Analysis         *UpgradeAnalysisResult `bson:"analysis,omitempty" json:"analysis,omitempty"`
+	ClientResponses  []any                  `bson:"client_responses,omitempty" json:"client_responses,omitempty"`   // Raw responses from each client
+	CreatedResources []ResourceRef          `bson:"created_resources,omitempty" json:"created_resources,omitempty"` // Resources created during upgrade
+	BootstrapUpdates []BootstrapUpdate      `bson:"bootstrap_updates,omitempty" json:"bootstrap_updates,omitempty"` // Bootstrap updates performed
 
 	// LockKey is a deterministic string ("upgrade::{project}::{sorted listener names}")
 	// used by a partial unique index on background_jobs to reject a second

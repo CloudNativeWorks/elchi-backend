@@ -195,6 +195,12 @@ var AllowedEndpoints = []string{
 	"/api/v3/waf/config/:config_id/versions",
 	"/api/v3/waf/config/:config_id/versions/:version",
 	"/api/v3/waf/config/:config_id/versions/:version/restore",
+	// Shield (elchi-shield edge API-security sidecar) endpoints
+	"/api/v3/shield/policies",            // list (GET) + create (POST)
+	"/api/v3/shield/policies/:policy_id", // detail (GET), update (PUT), delete (DELETE)
+	"/api/v3/shield/sync",                // re-push merged policy set (POST)
+	"/api/v3/shield/status",              // live edge shield service status (GET)
+	"/api/v3/shield/files",               // live edge on-disk file set (GET)
 	// Upgrade endpoint
 	"/api/v3/resource/upgrade",
 	// Maintenance endpoints

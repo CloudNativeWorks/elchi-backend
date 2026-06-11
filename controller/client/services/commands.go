@@ -89,6 +89,15 @@ func (s *ClientService) SendCommand(clientID string, cmdType pb.CommandType, sub
 	}
 }
 
+// CommandTimeout exposes the per-command-type response timeout so the parallel
+// fan-out path (controller/client/handlers) can size its per-client context and
+// result-collector waits to the actual command instead of a fixed cap — a fixed
+// 30s/60s silently abandoned long-running commands (SHIELD 180s, ENVOY_VERSION
+// 120s) that the client was still executing.
+func CommandTimeout(cmdType pb.CommandType) time.Duration {
+	return getCommandTimeout(cmdType)
+}
+
 // getCommandTimeout returns appropriate timeout for different command types
 func getCommandTimeout(cmdType pb.CommandType) time.Duration {
 	switch cmdType {

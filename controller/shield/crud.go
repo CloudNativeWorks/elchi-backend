@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -71,6 +72,9 @@ func validate(req *ShieldPolicyRequest) error {
 		if path.IsAbs(f.Path) || clean == ".." || strings.HasPrefix(clean, "../") {
 			return fmt.Errorf("files[%d].path %q must be a safe relative path", i, f.Path)
 		}
+		if clean == ClearMarkerFile {
+			return fmt.Errorf("files[%d]: path %q is reserved (auto-generated clear marker)", i, ClearMarkerFile)
+		}
 		if _, dup := seen[clean]; dup {
 			return fmt.Errorf("files[%d]: duplicate path %q", i, clean)
 		}
@@ -91,6 +95,28 @@ func validate(req *ShieldPolicyRequest) error {
 		if f.Sha256 != "" && !isHexSHA256(f.Sha256) {
 			return fmt.Errorf("files[%d]: sha256 must be 64 hex chars", i)
 		}
+		if err := validateMode(f.Mode); err != nil {
+			return fmt.Errorf("files[%d]: %w", i, err)
+		}
+	}
+	return nil
+}
+
+// validateMode checks an optional file mode string: empty (edge default applies)
+// or an octal permission like "0644"/"640" up to 0777. Caught here so a typo
+// (e.g. "rw-r--r--") errors at store time instead of silently becoming the edge's
+// default mode.
+func validateMode(m string) error {
+	m = strings.TrimSpace(m)
+	if m == "" {
+		return nil
+	}
+	v, err := strconv.ParseUint(m, 8, 32)
+	if err != nil {
+		return fmt.Errorf("mode %q must be an octal permission like \"0644\"", m)
+	}
+	if v > 0o777 {
+		return fmt.Errorf("mode %q exceeds 0777 (permission bits only)", m)
 	}
 	return nil
 }
@@ -191,6 +217,11 @@ func (s *CRUDService) Create(ctx context.Context, req ShieldPolicyRequest) (*Shi
 		return nil, fmt.Errorf("insert shield policy: %w", err)
 	}
 	policy.ID = res.InsertedID.(primitive.ObjectID)
+	// The project has policies again — drop any clear tombstone so connect-triggered
+	// deploys stop treating it as "cleared". Best-effort: the policy IS stored.
+	if err := s.dropClearTombstone(ctx, req.Project); err != nil {
+		s.logger.Warnf("shield: drop clear tombstone for project %s: %v", req.Project, err)
+	}
 	return policy, nil
 }
 
@@ -277,7 +308,81 @@ func (s *CRUDService) Delete(ctx context.Context, id, project string) error {
 	if res.DeletedCount == 0 {
 		return ErrPolicyNotFound
 	}
+	// If that was the project's LAST policy, leave a clear tombstone: it records
+	// "this project used shield and was intentionally cleared", so a client that
+	// was offline during the clear still receives the clear-marker bundle on
+	// reconnect (projects that never used shield have no tombstone and are never
+	// pushed to on connect). Best-effort: the deletion itself succeeded.
+	if n, err := s.collection().CountDocuments(ctx, bson.M{"project": project}); err != nil {
+		s.logger.Warnf("shield: count policies for project %s after delete: %v", project, err)
+	} else if n == 0 {
+		if err := s.setClearTombstone(ctx, project); err != nil {
+			s.logger.Warnf("shield: set clear tombstone for project %s: %v", project, err)
+		}
+	}
 	return nil
+}
+
+// ShieldStateCollection holds one tombstone doc per project whose shield policy
+// set was intentionally emptied ({_id: project, cleared_at}). It distinguishes
+// "cleared, edges must receive the clear marker" from "never used shield, never
+// push" on client connect.
+const ShieldStateCollection = "shield_project_state"
+
+func (s *CRUDService) stateCollection() *mongo.Collection {
+	return s.dbContext.Client.Collection(ShieldStateCollection)
+}
+
+// setClearTombstone records that the project's policy set was intentionally
+// emptied (idempotent upsert).
+func (s *CRUDService) setClearTombstone(ctx context.Context, project string) error {
+	_, err := s.stateCollection().UpdateOne(ctx,
+		bson.M{"_id": project},
+		bson.M{"$set": bson.M{"cleared_at": time.Now().UTC()}},
+		options.Update().SetUpsert(true),
+	)
+	return err
+}
+
+// dropClearTombstone removes the project's clear tombstone (a policy exists again).
+func (s *CRUDService) dropClearTombstone(ctx context.Context, project string) error {
+	_, err := s.stateCollection().DeleteOne(ctx, bson.M{"_id": project})
+	return err
+}
+
+// HasClearTombstone reports whether the project was intentionally cleared.
+func (s *CRUDService) HasClearTombstone(ctx context.Context, project string) (bool, error) {
+	err := s.stateCollection().FindOne(ctx, bson.M{"_id": project}).Err()
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("read shield clear tombstone: %w", err)
+	}
+	return true, nil
+}
+
+// ListMeta returns the project's policies WITHOUT inline file content (a Mongo
+// projection drops files.content) — the list/table read. Inline content can be up
+// to the bundle cap, so the full List is reserved for the deployer and the
+// single-policy GET.
+func (s *CRUDService) ListMeta(ctx context.Context, project string) ([]ShieldPolicy, error) {
+	cursor, err := s.collection().Find(
+		ctx,
+		bson.M{"project": project},
+		options.Find().
+			SetSort(bson.D{{Key: "created_at", Value: -1}}).
+			SetProjection(bson.M{"files.content": 0}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list shield policies: %w", err)
+	}
+	defer func() { _ = cursor.Close(ctx) }()
+	policies := []ShieldPolicy{}
+	if err := cursor.All(ctx, &policies); err != nil {
+		return nil, fmt.Errorf("decode shield policies: %w", err)
+	}
+	return policies, nil
 }
 
 // ListConnectedClientIDs returns the client IDs of currently-connected clients in

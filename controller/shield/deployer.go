@@ -25,6 +25,7 @@ type CommandRunner interface {
 type policyStore interface {
 	List(ctx context.Context, project string) ([]ShieldPolicy, error)
 	ListConnectedClientIDs(ctx context.Context, project string) ([]string, error)
+	HasClearTombstone(ctx context.Context, project string) (bool, error)
 }
 
 // Deployer renders a project's merged elchi-shield policy set into one full-sync
@@ -59,20 +60,27 @@ func (d *Deployer) DeployProject(ctx context.Context, project string, clientIDs 
 		return nil, fmt.Errorf("list shield policies for project %s: %w", project, err)
 	}
 
+	// A connect-triggered deploy brings ONE (re)connecting client up to the
+	// project's desired state. With no policies there are two distinct cases the
+	// clear tombstone separates: the project NEVER used shield → skip (don't push
+	// shield files at clients that may not even run it), vs the policy set was
+	// intentionally CLEARED → fall through so a client that was offline during the
+	// clear still receives the clear-marker bundle. A policy_change deploy always
+	// proceeds (an empty set merges to the marker, the actual clear push).
+	if reason == ReasonClientConnect && len(policies) == 0 {
+		cleared, terr := d.store.HasClearTombstone(ctx, project)
+		if terr != nil {
+			return nil, fmt.Errorf("read clear tombstone for project %s: %w", project, terr)
+		}
+		if !cleared {
+			d.logger.Debugf("shield deploy: project %s has no shield config; skipping connect deploy", project)
+			return &job.ShieldDeployResult{Note: "no shield config for project"}, nil
+		}
+	}
+
 	cfg, err := MergePolicies(policies)
 	if err != nil {
 		return nil, fmt.Errorf("merge shield policies for project %s: %w", project, err)
-	}
-
-	// A connect-triggered deploy brings ONE (re)connecting client up to the
-	// project's desired state. If the project has no shield config, there is
-	// nothing to bring it up to — skip rather than push an empty "clear" bundle
-	// to a client that has no desired state (and may not even run elchi-shield).
-	// A policy_change that removed the last policy still clears all clients: it
-	// arrives here with reason policy_change and a non-empty target set.
-	if reason == ReasonClientConnect && len(cfg.Files) == 0 {
-		d.logger.Debugf("shield deploy: project %s has no shield config; skipping connect deploy", project)
-		return &job.ShieldDeployResult{Version: cfg.Version, Note: "no shield config for project"}, nil
 	}
 
 	targets := clientIDs

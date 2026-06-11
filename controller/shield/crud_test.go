@@ -14,6 +14,10 @@ func req(files ...models.ShieldFileJSON) ShieldPolicyRequest {
 	return ShieldPolicyRequest{Name: "p", Project: "proj", Files: files}
 }
 
+func fileWithMode(p, mode string) models.ShieldFileJSON {
+	return models.ShieldFileJSON{Path: p, Content: []byte("x"), Mode: mode}
+}
+
 func TestValidate(t *testing.T) {
 	good64 := "0000000000000000000000000000000000000000000000000000000000000000"
 	cases := []struct {
@@ -34,6 +38,11 @@ func TestValidate(t *testing.T) {
 		{"download no sha", req(file("a.mmdb", nil, "https://x/y", "")), true},
 		{"download bad scheme", req(file("a.mmdb", nil, "ftp://x/y", good64)), true},
 		{"bad sha format", req(file("a.yaml", []byte("x"), "", "nothex")), true},
+		{"reserved clear-marker name", req(file(ClearMarkerFile, []byte("x"), "", "")), true},
+		{"ok mode 0644", req(fileWithMode("a.yaml", "0644")), false},
+		{"ok mode 640", req(fileWithMode("a.yaml", "640")), false},
+		{"bad mode symbolic", req(fileWithMode("a.yaml", "rw-r--r--")), true},
+		{"bad mode over 0777", req(fileWithMode("a.yaml", "1777")), true},
 	}
 	for _, tc := range cases {
 		if err := validate(&tc.req); (err != nil) != tc.wantErr {

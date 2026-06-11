@@ -6,6 +6,7 @@ import (
 
 	"github.com/CloudNativeWorks/elchi-backend/controller/shield"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/async"
+	"github.com/CloudNativeWorks/elchi-backend/pkg/audit"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/db"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
@@ -48,6 +49,17 @@ func (h *ShieldHandler) isAdmin(c *gin.Context) bool {
 	return false
 }
 
+// setShieldAudit stamps the audit entry for a shield policy mutation. The global
+// AuditMiddleware persists the entry only when an action is set, so without this
+// the security-policy mutations would go unaudited (unlike GSLB/LDAP/settings).
+func (h *ShieldHandler) setShieldAudit(c *gin.Context, action, policyID, policyName, project string) {
+	if h.parentHandler == nil || h.parentHandler.AuditService == nil {
+		return
+	}
+	audit.SetAuditResource(c, "shield_policies", policyID, policyName, project)
+	audit.SetAuditAction(c, action)
+}
+
 func shieldStatus(err error) int {
 	switch {
 	case errors.Is(err, shield.ErrPolicyNotFound):
@@ -71,11 +83,14 @@ func (h *ShieldHandler) CreateShieldPolicy(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
+	h.setShieldAudit(c, "CREATE_SHIELD_POLICY", "", req.Name, req.Project)
 	policy, err := h.crudService.Create(c.Request.Context(), req)
+	h.parentHandler.setAuditResult(c, err)
 	if err != nil {
 		c.JSON(shieldStatus(err), gin.H{"message": err.Error()})
 		return
 	}
+	audit.SetAuditResource(c, "shield_policies", policy.ID.Hex(), policy.Name, req.Project)
 	c.JSON(http.StatusCreated, gin.H{"data": policy.ToResponse(), "deploy": h.enqueueDeploy(c, req.Project)})
 }
 
@@ -89,7 +104,9 @@ func (h *ShieldHandler) UpdateShieldPolicy(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
+	h.setShieldAudit(c, "UPDATE_SHIELD_POLICY", c.Param("policy_id"), req.Name, req.Project)
 	policy, err := h.crudService.Update(c.Request.Context(), c.Param("policy_id"), req)
+	h.parentHandler.setAuditResult(c, err)
 	if err != nil {
 		c.JSON(shieldStatus(err), gin.H{"message": err.Error()})
 		return
@@ -107,9 +124,10 @@ func (h *ShieldHandler) GetShieldPolicy(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": policy.ToResponse()})
 }
 
-// ListShieldPolicies handles GET /api/v3/shield/policies?project=.
+// ListShieldPolicies handles GET /api/v3/shield/policies?project=. Inline file
+// content is omitted (it can be MiBs); GET /policies/:policy_id returns it.
 func (h *ShieldHandler) ListShieldPolicies(c *gin.Context) {
-	policies, err := h.crudService.List(c.Request.Context(), c.Query("project"))
+	policies, err := h.crudService.ListMeta(c.Request.Context(), c.Query("project"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
 		return
@@ -128,7 +146,10 @@ func (h *ShieldHandler) DeleteShieldPolicy(c *gin.Context) {
 		return
 	}
 	project := c.Query("project")
-	if err := h.crudService.Delete(c.Request.Context(), c.Param("policy_id"), project); err != nil {
+	h.setShieldAudit(c, "DELETE_SHIELD_POLICY", c.Param("policy_id"), "", project)
+	err := h.crudService.Delete(c.Request.Context(), c.Param("policy_id"), project)
+	h.parentHandler.setAuditResult(c, err)
+	if err != nil {
 		c.JSON(shieldStatus(err), gin.H{"message": err.Error()})
 		return
 	}
@@ -148,6 +169,8 @@ func (h *ShieldHandler) SyncShieldProject(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
+	h.setShieldAudit(c, "SYNC_SHIELD_POLICIES", "", "", body.Project)
+	h.parentHandler.setAuditResult(c, nil)
 	c.JSON(http.StatusOK, gin.H{"data": h.enqueueDeploy(c, body.Project)})
 }
 

@@ -42,9 +42,21 @@ func TestMergePolicies_RejectsPathCollision(t *testing.T) {
 	}
 }
 
-func TestMergePolicies_EmptyClears(t *testing.T) {
+func TestMergePolicies_EmptyYieldsClearMarker(t *testing.T) {
+	// shield keeps last-good on an EMPTY config dir, so a true clear must ship an
+	// explicit mode-off config instead of an empty bundle.
 	cfg, err := MergePolicies(nil)
-	if err != nil || !cfg.FullSync || len(cfg.Files) != 0 {
-		t.Fatalf("empty set should be an empty full-sync bundle: %+v err=%v", cfg, err)
+	if err != nil || !cfg.FullSync || len(cfg.Files) != 1 {
+		t.Fatalf("empty set should be a full-sync bundle holding only the clear marker: %+v err=%v", cfg, err)
+	}
+	f := cfg.Files[0]
+	if f.Path != ClearMarkerFile || len(f.Content) == 0 || cfg.Version == "" {
+		t.Fatalf("marker file malformed: path=%q content=%dB version=%q", f.Path, len(f.Content), cfg.Version)
+	}
+	// Deterministic: a re-clear produces the identical bundle version (idempotent
+	// re-push on the edge).
+	cfg2, _ := MergePolicies([]ShieldPolicy{})
+	if cfg2.Version != cfg.Version {
+		t.Fatalf("clear bundle version not deterministic: %q vs %q", cfg.Version, cfg2.Version)
 	}
 }

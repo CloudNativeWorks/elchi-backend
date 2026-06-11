@@ -14,6 +14,7 @@ import (
 
 	"github.com/CloudNativeWorks/elchi-backend/controller/client/authorization"
 	"github.com/CloudNativeWorks/elchi-backend/controller/client/processor"
+	"github.com/CloudNativeWorks/elchi-backend/controller/client/services"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/bridge"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/helper"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
@@ -170,6 +171,15 @@ func (h *Client) processClientsInParallel(ctx context.Context, clients []models.
 
 	h.logger.Infof("Processing %d clients in parallel", len(clients))
 
+	// Size the per-client context and the result-collector wait to the command
+	// type's real response timeout (+margin for processing/forward overhead). The
+	// old fixed 30s/60s caps abandoned long-running commands (SHIELD 180s,
+	// ENVOY_VERSION 120s) mid-flight and reported them failed while the clients
+	// were still executing them.
+	cmdTimeout := services.CommandTimeout(op.GetTypeNum())
+	perClientTimeout := cmdTimeout + 10*time.Second
+	collectorWait := cmdTimeout + 20*time.Second
+
 	// Use indexed results to maintain order
 	results := make([]ClientProcessResult, len(clients))
 	resultChan := make(chan ClientProcessResult, len(clients))
@@ -200,7 +210,7 @@ func (h *Client) processClientsInParallel(ctx context.Context, clients []models.
 			}()
 
 			// Create timeout context for this individual client processing
-			clientCtx, clientCancel := context.WithTimeout(ctx, 30*time.Second)
+			clientCtx, clientCancel := context.WithTimeout(ctx, perClientTimeout)
 			defer clientCancel()
 
 			// Process single client with timeout protection
@@ -245,7 +255,7 @@ func (h *Client) processClientsInParallel(ctx context.Context, clients []models.
 			collectedResults++
 			h.logger.Debugf("Collected result %d/%d from client %s at index %d",
 				collectedResults, len(clients), result.ClientID, result.Index)
-		case <-time.After(60 * time.Second):
+		case <-time.After(collectorWait):
 			h.logger.Errorf("Timeout waiting for results: collected %d/%d results", collectedResults, len(clients))
 			// Create error results for missing clients
 			for i := range len(clients) {

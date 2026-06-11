@@ -18,6 +18,7 @@ func init() {
 type fakeStore struct {
 	policies  []ShieldPolicy
 	connected []string
+	cleared   bool
 	listErr   error
 	connErr   error
 }
@@ -27,6 +28,9 @@ func (f *fakeStore) List(_ context.Context, _ string) ([]ShieldPolicy, error) {
 }
 func (f *fakeStore) ListConnectedClientIDs(_ context.Context, _ string) ([]string, error) {
 	return f.connected, f.connErr
+}
+func (f *fakeStore) HasClearTombstone(_ context.Context, _ string) (bool, error) {
+	return f.cleared, nil
 }
 
 // fakeRunner captures the op it was handed and returns a canned result.
@@ -170,8 +174,10 @@ func TestDeployProject_NoConnectedClientsSkipsPush(t *testing.T) {
 	}
 }
 
-func TestDeployProject_ConnectWithNoPoliciesSkipsPush(t *testing.T) {
-	store := &fakeStore{policies: nil}
+func TestDeployProject_ConnectNeverUsedShieldSkipsPush(t *testing.T) {
+	// No policies AND no clear tombstone = the project never used shield: a
+	// connecting client must not get shield files pushed at it.
+	store := &fakeStore{policies: nil, cleared: false}
 	runner := &fakeRunner{}
 	d := newDeployer(store, runner)
 
@@ -180,14 +186,40 @@ func TestDeployProject_ConnectWithNoPoliciesSkipsPush(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if runner.callCnt != 0 {
-		t.Fatal("connect deploy with no shield config must not push")
+		t.Fatal("connect deploy with no shield history must not push")
 	}
 	if res.Total != 0 {
 		t.Fatalf("want zero-target result, got %+v", res)
 	}
 }
 
-func TestDeployProject_PolicyChangeWithNoPoliciesClearsClients(t *testing.T) {
+func TestDeployProject_ConnectAfterClearPushesMarker(t *testing.T) {
+	// The project WAS cleared (tombstone set): a client that was offline during
+	// the clear must receive the clear-marker bundle on reconnect.
+	store := &fakeStore{policies: nil, cleared: true}
+	runner := &fakeRunner{result: []any{okResult("c1")}}
+	d := newDeployer(store, runner)
+
+	res, err := d.DeployProject(context.Background(), "proj", []string{"c1"}, ReasonClientConnect, models.UserDetails{IsOwner: true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if runner.callCnt != 1 {
+		t.Fatal("a cleared project must push the marker to a reconnecting client")
+	}
+	shieldOp := runner.gotOp.GetShield()
+	if shieldOp == nil || shieldOp.Config == nil || len(shieldOp.Config.Files) != 1 || shieldOp.Config.Files[0].Path != ClearMarkerFile {
+		t.Fatalf("want the clear-marker bundle, got %+v", shieldOp)
+	}
+	if res.Succeeded != 1 {
+		t.Fatalf("want 1 ok, got %+v", res)
+	}
+}
+
+func TestDeployProject_PolicyChangeWithNoPoliciesPushesMarker(t *testing.T) {
+	// Deleting the last policy (reason policy_change) pushes the clear-marker
+	// bundle — an explicit mode-off config, NOT an empty dir (shield would keep
+	// enforcing last-good on an empty dir).
 	store := &fakeStore{policies: nil, connected: []string{"c1"}}
 	runner := &fakeRunner{result: []any{okResult("c1")}}
 	d := newDeployer(store, runner)
@@ -197,11 +229,12 @@ func TestDeployProject_PolicyChangeWithNoPoliciesClearsClients(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if runner.callCnt != 1 {
-		t.Fatal("policy_change clear must push the empty full-sync bundle to connected clients")
+		t.Fatal("policy_change clear must push the marker bundle to connected clients")
 	}
 	shieldOp := runner.gotOp.GetShield()
-	if shieldOp == nil || shieldOp.Config == nil || !shieldOp.Config.FullSync || len(shieldOp.Config.Files) != 0 {
-		t.Fatalf("want an empty full-sync clear bundle, got %+v", shieldOp)
+	if shieldOp == nil || shieldOp.Config == nil || !shieldOp.Config.FullSync ||
+		len(shieldOp.Config.Files) != 1 || shieldOp.Config.Files[0].Path != ClearMarkerFile {
+		t.Fatalf("want a full-sync clear-marker bundle, got %+v", shieldOp)
 	}
 	if res.Succeeded != 1 {
 		t.Fatalf("want the clear pushed to 1 client, got %+v", res)

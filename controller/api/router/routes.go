@@ -516,6 +516,8 @@ func initShieldRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		{"POST", "/sync", h.Shield.SyncShieldProject}, // POST /api/v3/shield/sync  body:{project}
 		// Read a connected client's live shield service status (client-scoped)
 		{"GET", "/status", h.Shield.ShieldStatus}, // GET /api/v3/shield/status?project=&client_id=
+		// Read back a connected client's live on-disk shield file set (client-scoped)
+		{"GET", "/files", h.Shield.ShieldFiles}, // GET /api/v3/shield/files?project=&client_id=
 	}
 
 	initRoutes(rg, routes)

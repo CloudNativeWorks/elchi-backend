@@ -152,7 +152,33 @@ type TriggerUser struct {
 // ExecutionDetails contains details about job execution
 type ExecutionDetails struct {
 	ProcessedSnapshots []SnapshotExecution `bson:"processed_snapshots" json:"processed_snapshots"`
-	ACMEResult         *ACMEExecution      `bson:"acme,omitempty" json:"acme,omitempty"` // For ACME_VERIFICATION jobs
+	ACMEResult         *ACMEExecution      `bson:"acme,omitempty" json:"acme,omitempty"`                   // For ACME_VERIFICATION jobs
+	ShieldResult       *ShieldDeployResult `bson:"shield_result,omitempty" json:"shield_result,omitempty"` // For SHIELD_DEPLOY jobs
+}
+
+// ShieldDeployResult is the per-job outcome of a SHIELD_DEPLOY: which clients the
+// merged bundle was pushed to and how each fared. Persisted on the job so a
+// completed/failed deploy is inspectable via GET /jobs/:id (the async path no
+// longer returns per-client results in an HTTP response).
+type ShieldDeployResult struct {
+	Version   string               `bson:"version" json:"version"`
+	Total     int                  `bson:"total" json:"total"`
+	Succeeded int                  `bson:"succeeded" json:"succeeded"`
+	Failed    int                  `bson:"failed" json:"failed"`
+	Clients   []ClientShieldResult `bson:"clients,omitempty" json:"clients,omitempty"`
+	Note      string               `bson:"note,omitempty" json:"note,omitempty"` // e.g. "no connected clients in project"
+}
+
+// ClientShieldResult is one client's outcome within a SHIELD_DEPLOY. Ok folds the
+// transport/envelope success with the edge's reported shield success and reload
+// confirmation, so a client that received the command but whose shield rejected the
+// bundle counts as failed.
+type ClientShieldResult struct {
+	ClientID       string `bson:"client_id" json:"client_id"`
+	Ok             bool   `bson:"ok" json:"ok"`
+	ReloadOk       bool   `bson:"reload_ok" json:"reload_ok"`
+	AppliedVersion string `bson:"applied_version,omitempty" json:"applied_version,omitempty"`
+	Error          string `bson:"error,omitempty" json:"error,omitempty"`
 }
 
 // SnapshotExecution represents a single snapshot update execution

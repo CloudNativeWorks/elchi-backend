@@ -22,7 +22,7 @@ import (
 // no desired state). user is the identity the deploy runs as, used for command
 // authorization and forward-token minting on the target pod.
 type ShieldDeployer interface {
-	DeployProject(ctx context.Context, project string, clientIDs []string, reason string, user models.UserDetails) (any, error)
+	DeployProject(ctx context.Context, project string, clientIDs []string, reason string, user models.UserDetails) (*job.ShieldDeployResult, error)
 }
 
 // processShieldDeployJob renders and pushes a project's merged shield config.
@@ -76,18 +76,50 @@ func (w *Worker) processShieldDeployJob(ctx context.Context, j *job.Job) {
 		}
 		return
 	}
+	if result == nil {
+		result = &job.ShieldDeployResult{}
+	}
 
+	// Record per-client outcome + progress so the deploy is inspectable via the job.
+	pct := 100.0
+	if result.Total > 0 {
+		pct = float64(result.Succeeded) / float64(result.Total) * 100.0
+	}
 	if err := w.jobManager.UpdateJobProgress(ctx, j.ID, &job.JobProgress{
-		Total:      1,
-		Completed:  1,
-		Percentage: 100.0,
+		Total:      result.Total,
+		Completed:  result.Succeeded,
+		Failed:     result.Failed,
+		Percentage: pct,
 	}); err != nil {
 		w.logger.Errorf("Failed to update job progress: %v", err)
 	}
+	exec := &job.ExecutionDetails{ShieldResult: result}
 
-	if err := w.jobManager.CompleteJob(ctx, j.ID, &job.ExecutionDetails{}); err != nil {
+	// Every targeted client failed (e.g. all disconnected, or shield rejected the
+	// bundle everywhere) → fail the job so it surfaces and can be retried. Persist
+	// the result first so the per-client detail survives on the failed job.
+	if result.Total > 0 && result.Succeeded == 0 {
+		if uerr := w.jobManager.UpdateJob(ctx, j.ID.Hex(), map[string]any{
+			"$set": map[string]any{"execution_details": exec},
+		}); uerr != nil {
+			w.logger.Errorf("Failed to persist shield deploy result: %v", uerr)
+		}
+		failErr := fmt.Errorf("shield deploy: all %d targeted client(s) failed", result.Total)
+		w.logger.Errorf("Shield deploy job %s: %v", j.JobID, failErr)
+		if ferr := w.jobManager.FailJob(ctx, j.ID, failErr); ferr != nil {
+			w.logger.Errorf("Failed to mark job as failed: %v", ferr)
+		}
+		return
+	}
+
+	if err := w.jobManager.CompleteJob(ctx, j.ID, exec); err != nil {
 		w.logger.Errorf("Failed to complete job: %v", err)
 	}
-	w.logger.Infof("Shield deploy job %s completed (project=%s, reason=%s, result=%v)",
-		j.JobID, meta.Project, meta.Reason, result)
+	if result.Failed > 0 {
+		w.logger.Warnf("Shield deploy job %s completed with partial failures (project=%s, reason=%s, %d/%d ok, version=%s)",
+			j.JobID, meta.Project, meta.Reason, result.Succeeded, result.Total, result.Version)
+	} else {
+		w.logger.Infof("Shield deploy job %s completed (project=%s, reason=%s, clients=%d, version=%s)",
+			j.JobID, meta.Project, meta.Reason, result.Total, result.Version)
+	}
 }

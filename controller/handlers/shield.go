@@ -169,6 +169,27 @@ func (h *ShieldHandler) ShieldStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": resp})
 }
 
+// ShieldFiles handles GET /api/v3/shield/files?project=&client_id=. It reads back a
+// connected edge client's live on-disk shield file set (path/sha256/mode) by
+// dispatching GET_SHIELD_CONFIG — a command dispatch, so it is admin/owner-gated.
+// Useful to confirm what a given edge actually has applied vs the desired bundle.
+func (h *ShieldHandler) ShieldFiles(c *gin.Context) {
+	if !h.isAdmin(c) {
+		return
+	}
+	clientID := c.Query("client_id")
+	if clientID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "client_id is required"})
+		return
+	}
+	resp, err := h.dispatch(c, "", c.Query("project"), client.SubCommandType_GET_SHIELD_CONFIG, []string{clientID}, nil)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error(), "data": resp})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": resp})
+}
+
 // enqueueDeploy enqueues an async SHIELD_DEPLOY job for the project's connected
 // clients and returns the job id for the response body. It never returns an error
 // to the caller — a store mutation succeeds regardless of deploy outcome; the

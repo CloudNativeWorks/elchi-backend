@@ -44,6 +44,19 @@ func (p *ShieldResponser) ValidateAndTransform(op models.OperationClass, respons
 		}
 		data["current_files"] = out
 	}
+	if logs := shield.GetLogs(); len(logs) > 0 {
+		out := make([]map[string]any, 0, len(logs))
+		for _, l := range logs {
+			out = append(out, map[string]any{
+				"timestamp": l.GetTimestamp(), "level": l.GetLevel(),
+				"component": l.GetComponent(), "message": l.GetMessage(),
+			})
+		}
+		data["logs"] = out
+	}
+	if errMsg := shield.GetError(); errMsg != "" {
+		data["error"] = errMsg
+	}
 
 	result["shield"] = data
 	return result

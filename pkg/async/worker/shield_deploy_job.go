@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/async/job"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
@@ -34,20 +35,35 @@ type ShieldDeployer interface {
 func (w *Worker) processShieldDeployJob(ctx context.Context, j *job.Job) {
 	w.logger.Infof("Starting shield deploy job %s", j.JobID)
 
-	if j.Metadata == nil || j.Metadata.ShieldDeploy == nil {
-		w.logger.Errorf("Shield deploy job %s has invalid metadata", j.JobID)
-		if err := w.jobManager.FailJob(ctx, j.ID, fmt.Errorf("invalid job metadata")); err != nil {
+	// Terminal status writes (FailJob/CompleteJob) must survive a canceled worker
+	// ctx — on pod shutdown the pool cancels ctx mid-job, and writing the terminal
+	// status with that same ctx would fail, leaving the job RUNNING (orphaned until
+	// the stuck-job reaper). Use a short detached context for those writes when
+	// the parent is already done.
+	termCtx := func() (context.Context, context.CancelFunc) {
+		if ctx.Err() == nil {
+			return ctx, func() {}
+		}
+		return context.WithTimeout(context.Background(), 10*time.Second)
+	}
+	failJob := func(reason error) {
+		tctx, cancel := termCtx()
+		defer cancel()
+		if err := w.jobManager.FailJob(tctx, j.ID, reason); err != nil {
 			w.logger.Errorf("Failed to mark job as failed: %v", err)
 		}
+	}
+
+	if j.Metadata == nil || j.Metadata.ShieldDeploy == nil {
+		w.logger.Errorf("Shield deploy job %s has invalid metadata", j.JobID)
+		failJob(fmt.Errorf("invalid job metadata"))
 		return
 	}
 
 	deployer := w.shieldDeployer
 	if deployer == nil {
 		w.logger.Errorf("Shield deployer not available for job %s", j.JobID)
-		if err := w.jobManager.FailJob(ctx, j.ID, fmt.Errorf("shield deployer not configured")); err != nil {
-			w.logger.Errorf("Failed to mark job as failed: %v", err)
-		}
+		failJob(fmt.Errorf("shield deployer not configured"))
 		return
 	}
 
@@ -71,9 +87,7 @@ func (w *Worker) processShieldDeployJob(ctx context.Context, j *job.Job) {
 	result, err := deployer.DeployProject(ctx, meta.Project, meta.TargetClients, meta.Reason, user)
 	if err != nil {
 		w.logger.Errorf("Shield deploy job %s failed: %v", j.JobID, err)
-		if failErr := w.jobManager.FailJob(ctx, j.ID, err); failErr != nil {
-			w.logger.Errorf("Failed to mark job as failed: %v", failErr)
-		}
+		failJob(err)
 		return
 	}
 	if result == nil {
@@ -99,20 +113,22 @@ func (w *Worker) processShieldDeployJob(ctx context.Context, j *job.Job) {
 	// bundle everywhere) → fail the job so it surfaces and can be retried. Persist
 	// the result first so the per-client detail survives on the failed job.
 	if result.Total > 0 && result.Succeeded == 0 {
-		if uerr := w.jobManager.UpdateJob(ctx, j.ID.Hex(), map[string]any{
+		tctx, cancel := termCtx()
+		if uerr := w.jobManager.UpdateJob(tctx, j.ID.Hex(), map[string]any{
 			"$set": map[string]any{"execution_details": exec},
 		}); uerr != nil {
 			w.logger.Errorf("Failed to persist shield deploy result: %v", uerr)
 		}
+		cancel()
 		failErr := fmt.Errorf("shield deploy: all %d targeted client(s) failed", result.Total)
 		w.logger.Errorf("Shield deploy job %s: %v", j.JobID, failErr)
-		if ferr := w.jobManager.FailJob(ctx, j.ID, failErr); ferr != nil {
-			w.logger.Errorf("Failed to mark job as failed: %v", ferr)
-		}
+		failJob(failErr)
 		return
 	}
 
-	if err := w.jobManager.CompleteJob(ctx, j.ID, exec); err != nil {
+	tctx, cancel := termCtx()
+	defer cancel()
+	if err := w.jobManager.CompleteJob(tctx, j.ID, exec); err != nil {
 		w.logger.Errorf("Failed to complete job: %v", err)
 	}
 	if result.Failed > 0 {

@@ -50,6 +50,7 @@ type JobManagerInterface interface {
 	RetryFailedSnapshots(ctx context.Context, jobID string) (*Job, error)
 	GetStuckJobs(ctx context.Context) ([]*Job, error)
 	FailStuckAnalyzingJobs(ctx context.Context) (int, error)
+	FailStuckClaimedJobs(ctx context.Context) (int, error)
 }
 
 // WorkerPool interface for worker management

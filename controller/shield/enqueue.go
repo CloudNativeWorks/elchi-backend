@@ -2,11 +2,13 @@ package shield
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/CloudNativeWorks/elchi-backend/pkg/async/job"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 // Deploy reasons recorded on SHIELD_DEPLOY jobs for observability.
@@ -14,6 +16,12 @@ const (
 	ReasonPolicyChange  = "policy_change"
 	ReasonClientConnect = "client_connect"
 )
+
+// ErrDeployAlreadyQueued reports that an identical deploy is already PENDING
+// (rejected by the shield_deploy_lock_key_unique_pending partial index). Not a
+// failure: the queued job reads the policy store at execution time, so it will
+// deliver the caller's change too.
+var ErrDeployAlreadyQueued = errors.New("a shield deploy for this target is already queued")
 
 // JobCreator is the narrow slice of the async job system the enqueuer needs.
 // Satisfied by async.AsyncJobSystem.
@@ -48,12 +56,21 @@ func (e *Enqueuer) EnqueueProjectDeploy(ctx context.Context, project string, use
 		Type:   job.JobTypeShieldDeploy,
 		Status: job.JobStatusPending,
 		Metadata: &job.JobMetadata{
-			TriggerUser:  triggerUser(user),
-			ShieldDeploy: &job.ShieldDeployMeta{Project: project, Reason: reason},
+			TriggerUser: triggerUser(user),
+			ShieldDeploy: &job.ShieldDeployMeta{
+				Project: project,
+				Reason:  reason,
+				LockKey: "shield::" + project,
+			},
 		},
 	}
 	created, err := e.jobs.CreateJob(ctx, req)
 	if err != nil {
+		if mongo.IsDuplicateKeyError(err) {
+			// A project-wide deploy is already PENDING; it reads the policy store
+			// at execution time, so it will carry this change too.
+			return "", ErrDeployAlreadyQueued
+		}
 		return "", err
 	}
 	return created.JobID, nil
@@ -74,11 +91,24 @@ func (e *Enqueuer) EnqueueClientConnect(ctx context.Context, project, clientID s
 		Type:   job.JobTypeShieldDeploy,
 		Status: job.JobStatusPending,
 		Metadata: &job.JobMetadata{
-			TriggerUser:  systemTriggerUser(),
-			ShieldDeploy: &job.ShieldDeployMeta{Project: project, TargetClients: []string{clientID}, Reason: ReasonClientConnect},
+			TriggerUser: systemTriggerUser(),
+			ShieldDeploy: &job.ShieldDeployMeta{
+				Project:       project,
+				TargetClients: []string{clientID},
+				Reason:        ReasonClientConnect,
+				LockKey:       "shield::" + project + "::" + clientID,
+			},
 		},
 	}
 	if _, err := e.jobs.CreateJob(ctx, req); err != nil {
+		if mongo.IsDuplicateKeyError(err) {
+			// A connect deploy for this client is already queued (the client is
+			// flapping); the queued one delivers the current desired state.
+			if e.logger != nil {
+				e.logger.Debugf("shield: connect deploy for client %s already queued; coalesced", clientID)
+			}
+			return
+		}
 		if e.logger != nil {
 			e.logger.Warnf("shield: failed to enqueue connect deploy for client %s (project %s): %v", clientID, project, err)
 		}

@@ -39,8 +39,15 @@ func (s *Server) Run(config *config.AppConfig, logger *logger.Logger) error {
 		Handler:           s.Router,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second, // Allow 30s for reading request
-		WriteTimeout:      45 * time.Second, // Allow 45s for writing response (includes forward time)
-		IdleTimeout:       60 * time.Second, // Keep connections alive for 60s
+		// WriteTimeout bounds the whole handler+response window. It must exceed
+		// the longest client-command budget because pod-to-pod command forwards
+		// (/api/op/clients) execute the command inline before responding: SHIELD
+		// waits up to 180s, ENVOY_VERSION 120s (see services.CommandTimeout).
+		// The old 45s cut forwarded long commands mid-flight while the edge kept
+		// executing them. Request-side slowloris stays bounded by
+		// ReadHeaderTimeout/ReadTimeout above.
+		WriteTimeout: 210 * time.Second,
+		IdleTimeout:  60 * time.Second, // Keep connections alive for 60s
 	}
 	done := make(chan os.Signal, 1)
 	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)

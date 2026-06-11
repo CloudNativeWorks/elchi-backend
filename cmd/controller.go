@@ -272,10 +272,12 @@ var restCmd = &cobra.Command{
 		auditService.SetForwarder(syslogForwarder)
 		defer syslogForwarder.Stop()
 
-		// Background reaper for ANALYZING jobs whose owning controller died
-		// mid-analysis. Each pod runs this independently; MongoDB UpdateMany
-		// is atomic so concurrent reapers converge on the same result without
-		// race. 5-min ticker is well under the 10-min stuck threshold.
+		// Background reaper for jobs orphaned by a dead controller: ANALYZING
+		// (died mid-analysis) and CLAIMED/RUNNING (worker pod crashed — without
+		// this they stay non-terminal forever: unretryable and never TTL-purged).
+		// Each pod runs this independently; MongoDB UpdateMany is atomic so
+		// concurrent reapers converge on the same result without race. 5-min
+		// ticker is well under the 10-min stuck threshold.
 		asyncSystemForReap := jobHandler.GetAsyncSystem()
 		go func() {
 			ticker := time.NewTicker(5 * time.Minute)
@@ -287,6 +289,13 @@ var restCmd = &cobra.Command{
 					rootLogger.Warnf("stuck ANALYZING reaper: %v", err)
 				case n > 0:
 					rootLogger.Infof("stuck ANALYZING reaper: marked %d job(s) as failed", n)
+				}
+				n, err = asyncSystemForReap.FailStuckClaimedJobs(context.Background())
+				switch {
+				case err != nil:
+					rootLogger.Warnf("stuck CLAIMED/RUNNING reaper: %v", err)
+				case n > 0:
+					rootLogger.Infof("stuck CLAIMED/RUNNING reaper: marked %d orphaned job(s) as failed", n)
 				}
 			}
 		}()
@@ -307,6 +316,17 @@ var restCmd = &cobra.Command{
 		if err := jobHandler.StartAsyncSystem(&bridgeHandler.Poke); err != nil {
 			rootLogger.Fatalf("Failed to start async job system: %v", err)
 		}
+		// Graceful worker drain on shutdown: httpserver.Run returns after SIGTERM,
+		// so this defer runs and pool.Stop cancels the workers' ctx + waits (30s
+		// cap) for in-flight jobs. Without it workers were killed mid-job, leaving
+		// jobs RUNNING forever (the stuck-job reaper now also backstops that).
+		defer func() {
+			stopCtx, stopCancel := context.WithTimeout(context.Background(), 35*time.Second)
+			defer stopCancel()
+			if err := asyncSystemForReap.StopWorkers(stopCtx); err != nil {
+				rootLogger.Warnf("async worker pool stop: %v", err)
+			}
+		}()
 
 		// Initialize license service (online-only) BEFORE the gRPC server starts
 		// accepting Register requests, so the per-plan cap is enforced from the

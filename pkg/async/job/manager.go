@@ -286,6 +286,8 @@ func (m *Manager) ListJobs(ctx context.Context, filter *JobFilter) ([]*Job, erro
 	}
 	if filter.CreatedBy != "" {
 		mongoFilter["created_by"] = filter.CreatedBy
+	} else if filter.ExcludeSystem {
+		mongoFilter["created_by"] = bson.M{"$ne": "system"}
 	}
 
 	// New filters
@@ -363,6 +365,8 @@ func (m *Manager) CountJobs(ctx context.Context, filter *JobFilter) (int64, erro
 	}
 	if filter.CreatedBy != "" {
 		mongoFilter["created_by"] = filter.CreatedBy
+	} else if filter.ExcludeSystem {
+		mongoFilter["created_by"] = bson.M{"$ne": "system"}
 	}
 
 	// New filters (same as ListJobs)
@@ -750,6 +754,44 @@ func (m *Manager) FailStuckAnalyzingJobs(ctx context.Context) (int, error) {
 			"status":       JobStatusFailed,
 			"completed_at": time.Now(),
 			"error":        "controller crashed during dependency analysis; retry the upgrade",
+		},
+	}
+
+	res, err := collection.UpdateMany(ctx, filter, update)
+	if err != nil {
+		return 0, err
+	}
+	return int(res.ModifiedCount), nil
+}
+
+// FailStuckClaimedJobs marks CLAIMED/RUNNING jobs whose worker stopped
+// heart-beating (pod crash / hard kill) as FAILED. Without this they stay
+// non-terminal forever: RetryJob refuses them, and completed_at never gets set
+// so the 30-day TTL index never purges them. Workers heartbeat every 30s; the
+// 10-minute threshold (20 missed beats, same as GetStuckJobs) makes a false
+// positive on a live worker practically impossible. Marked FAILED rather than
+// re-queued: terminal status is safe for every job type (idempotent types like
+// SHIELD_DEPLOY also self-heal on their next trigger), unblocks RetryJob, and
+// makes the doc TTL-eligible. Safe to run concurrently from every pod
+// (UpdateMany is atomic per document).
+//
+// Returns the number of jobs transitioned to FAILED so the caller can log.
+func (m *Manager) FailStuckClaimedJobs(ctx context.Context) (int, error) {
+	collection := m.db.Collection("background_jobs")
+
+	threshold := time.Now().Add(-10 * time.Minute)
+	filter := bson.M{
+		"status": bson.M{"$in": []JobStatus{JobStatusClaimed, JobStatusRunning}},
+		"$or": bson.A{
+			bson.M{"worker_info.heartbeat": bson.M{"$lt": threshold}},
+			bson.M{"worker_info": bson.M{"$exists": false}},
+		},
+	}
+	update := bson.M{
+		"$set": bson.M{
+			"status":       JobStatusFailed,
+			"completed_at": time.Now(),
+			"error":        "worker lost (stale heartbeat, likely a controller crash/restart); retry the job",
 		},
 	}
 

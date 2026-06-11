@@ -41,6 +41,7 @@ type AsyncJobSystem interface {
 	RetryFailedSnapshots(ctx context.Context, jobID string) (*Job, error)
 	GetStuckJobs(ctx context.Context) ([]*Job, error)
 	FailStuckAnalyzingJobs(ctx context.Context) (int, error)
+	FailStuckClaimedJobs(ctx context.Context) (int, error)
 
 	// Fast response methods
 	CreatePreliminaryJob(ctx context.Context, req *CreateJobRequest) (*Job, error)
@@ -252,6 +253,13 @@ func (s *asyncJobSystem) GetStuckJobs(ctx context.Context) ([]*Job, error) {
 // from controller startup; safe to run concurrently from every pod.
 func (s *asyncJobSystem) FailStuckAnalyzingJobs(ctx context.Context) (int, error) {
 	return s.jobManager.FailStuckAnalyzingJobs(ctx)
+}
+
+// FailStuckClaimedJobs marks CLAIMED/RUNNING jobs orphaned by a crashed worker
+// pod as FAILED (terminal → retryable + TTL-purgeable). Invoked from the same
+// periodic reaper as FailStuckAnalyzingJobs; safe on every pod concurrently.
+func (s *asyncJobSystem) FailStuckClaimedJobs(ctx context.Context) (int, error) {
+	return s.jobManager.FailStuckClaimedJobs(ctx)
 }
 
 // GetJobStats returns basic job statistics

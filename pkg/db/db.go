@@ -730,6 +730,27 @@ var BackgroundJobIndices = map[string][]mongo.IndexModel{
 					"metadata.upgrade_config.lock_key": bson.M{"$exists": true},
 				}),
 		},
+		// Partial unique index that coalesces QUEUED shield deploys: a second
+		// SHIELD_DEPLOY insert with the same lock_key ("shield::{project}" or
+		// "shield::{project}::{clientID}") is rejected while one is still
+		// PENDING, so a flapping client (~1 reconnect/s) or rapid policy edits
+		// don't pile up redundant jobs. Scope is PENDING-only — narrower than
+		// the upgrade lock above — because a queued deploy reads the policy
+		// store at execution time (coalescing loses nothing), while an edit
+		// during a RUNNING deploy must still enqueue a fresh job. The
+		// `$exists: true` guard mirrors the upgrade index: docs without the
+		// field (other reasons/legacy) stay out of the unique-enforced subset.
+		{
+			Keys: bson.D{{Key: "metadata.shield_deploy.lock_key", Value: 1}},
+			Options: options.Index().
+				SetName("shield_deploy_lock_key_unique_pending").
+				SetUnique(true).
+				SetPartialFilterExpression(bson.M{
+					"type":                            "SHIELD_DEPLOY",
+					"status":                          "PENDING",
+					"metadata.shield_deploy.lock_key": bson.M{"$exists": true},
+				}),
+		},
 	},
 }
 

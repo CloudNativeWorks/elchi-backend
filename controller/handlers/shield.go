@@ -224,6 +224,11 @@ func (h *ShieldHandler) ShieldFiles(c *gin.Context) {
 func (h *ShieldHandler) enqueueDeploy(c *gin.Context, project string) any {
 	_, userDetails := h.parentHandler.getRequestDetails(c)
 	jobID, err := h.enqueuer.EnqueueProjectDeploy(c.Request.Context(), project, userDetails, shield.ReasonPolicyChange)
+	if errors.Is(err, shield.ErrDeployAlreadyQueued) {
+		// Benign: a PENDING deploy already exists and reads the policy store at
+		// execution time, so it will deliver this change too.
+		return gin.H{"enqueued": true, "deduped": true, "message": err.Error()}
+	}
 	if err != nil {
 		h.logger.Errorf("shield deploy: enqueue job for project %s: %v", project, err)
 		return gin.H{"enqueued": false, "error": err.Error()}

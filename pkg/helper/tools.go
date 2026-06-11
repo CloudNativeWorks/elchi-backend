@@ -242,8 +242,11 @@ func GenerateAllTokens(email, username *string, userID string, groups *[]string,
 }
 
 // internalForwardTokenTTL bounds the lifetime of tokens issued for
-// inter-controller forwarding. Forward HTTPTimeout is 25s; 60s leaves a
-// comfortable margin while keeping the leak window tiny.
+// inter-controller forwarding. The token only has to be valid when the TARGET
+// pod's auth middleware checks it — at request start, milliseconds after
+// minting — not for the (much longer, per-command-type) duration of the
+// forwarded command itself. 60s covers network latency and retry slack while
+// keeping the leak window tiny.
 const internalForwardTokenTTL = 60 * time.Second
 
 // GenerateInternalForwardToken issues a short-lived JWT used when one

@@ -98,10 +98,19 @@ type JobMetadata struct {
 // pushes it to TargetClients (empty = all currently-connected clients in the
 // project). Reason is "policy_change" (a CRUD mutation) or "client_connect" (a
 // client (re)connected and must be brought up to the current desired state).
+//
+// LockKey deduplicates QUEUED deploys: a partial unique index on background_jobs
+// (PENDING-only scope) rejects a second insert with the same key, so a flapping
+// client or rapid policy edits coalesce into one queued job. PENDING-only is
+// deliberately narrower than the upgrade lock: a queued deploy reads the policy
+// store at EXECUTION time, so coalescing into it loses nothing, while a new edit
+// during a RUNNING deploy still needs (and gets) a fresh job. Keys:
+// "shield::<project>" (project-wide) / "shield::<project>::<clientID>" (connect).
 type ShieldDeployMeta struct {
 	Project       string   `bson:"project" json:"project"`
 	TargetClients []string `bson:"target_clients,omitempty" json:"target_clients,omitempty"`
 	Reason        string   `bson:"reason" json:"reason"`
+	LockKey       string   `bson:"lock_key,omitempty" json:"lock_key,omitempty"`
 }
 
 // WAFConfigMeta contains metadata about the WAF config that triggered propagation
@@ -240,17 +249,23 @@ type DependencyAnalysisResult struct {
 
 // JobFilter represents filters for listing jobs
 type JobFilter struct {
-	Status           []JobStatus `json:"status,omitempty"`
-	Type             []JobType   `json:"type,omitempty"`
-	Project          string      `json:"project,omitempty"`
-	CreatedBy        string      `json:"created_by,omitempty"`
-	ResourceName     string      `json:"resource_name,omitempty"`     // Filter by source resource name
-	AffectedListener string      `json:"affected_listener,omitempty"` // Filter by affected listener name
-	Username         string      `json:"username,omitempty"`          // Filter by trigger username
-	StartDate        string      `json:"start_date,omitempty"`        // Filter by date range start (YYYY-MM-DD)
-	EndDate          string      `json:"end_date,omitempty"`          // Filter by date range end (YYYY-MM-DD)
-	Limit            int         `json:"limit,omitempty"`
-	Offset           int         `json:"offset,omitempty"`
+	Status  []JobStatus `json:"status,omitempty"`
+	Type    []JobType   `json:"type,omitempty"`
+	Project string      `json:"project,omitempty"`
+	// ExcludeSystem hides system-originated jobs (created_by == "system", e.g.
+	// the per-client-connect SHIELD_DEPLOY syncs) from list/stats results. The
+	// jobs UI sets it by default for admins — after a controller restart every
+	// reconnecting client enqueues one, which would otherwise bury
+	// human-triggered jobs. Ignored when CreatedBy is set (more specific).
+	ExcludeSystem    bool   `json:"exclude_system,omitempty"`
+	CreatedBy        string `json:"created_by,omitempty"`
+	ResourceName     string `json:"resource_name,omitempty"`     // Filter by source resource name
+	AffectedListener string `json:"affected_listener,omitempty"` // Filter by affected listener name
+	Username         string `json:"username,omitempty"`          // Filter by trigger username
+	StartDate        string `json:"start_date,omitempty"`        // Filter by date range start (YYYY-MM-DD)
+	EndDate          string `json:"end_date,omitempty"`          // Filter by date range end (YYYY-MM-DD)
+	Limit            int    `json:"limit,omitempty"`
+	Offset           int    `json:"offset,omitempty"`
 }
 
 // UpgradeMetadata contains metadata for resource upgrade jobs

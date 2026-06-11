@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -62,7 +63,13 @@ func (e ClientFetchError) Error() string {
 
 // Constants
 const (
-	HTTPTimeout                  = 25 * time.Second // Increased to 25s (less than server WriteTimeout 45s)
+	// maxForwardTimeout bounds a forwarded command when the caller supplies no
+	// context deadline (e.g. a UI-originated request). Context-deadline'd callers
+	// (the parallel fan-out sizes its per-client ctx from the command type's real
+	// timeout) are bounded by their own deadline instead — a fixed client-level
+	// timeout here used to cut long commands (SHIELD 180s, ENVOY_VERSION 120s)
+	// mid-flight while the remote pod kept executing them.
+	maxForwardTimeout            = 4 * time.Minute
 	defaultControllerForwardPort = uint(8099)
 	DevModeEnvVar                = "DEV_MODE"
 
@@ -78,10 +85,19 @@ const (
 	ForwardTrue     = "true"
 )
 
-// Shared HTTP client with connection pooling for better performance
+// Shared HTTP client with connection pooling for better performance.
+// No client-level Timeout: a forwarded command's duration is bounded by the
+// per-request context (sized per command type by the fan-out path, or by
+// maxForwardTimeout when the caller has no deadline — see executeForwardRequest).
+// Connection ESTABLISHMENT stays tightly bounded via the dial/TLS timeouts below,
+// so a dead pod fails fast while a long-running remote command is not cut off.
 var sharedHTTPClient = &http.Client{
-	Timeout: HTTPTimeout,
 	Transport: &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   10 * time.Second, // TCP connect bound (dead pod → fail fast)
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		TLSHandshakeTimeout: 10 * time.Second,
 		MaxIdleConns:        100,              // Total idle connections
 		MaxIdleConnsPerHost: 10,               // Idle connections per host
 		IdleConnTimeout:     90 * time.Second, // How long idle connections stay open
@@ -213,8 +229,12 @@ func (h *Client) processClientsInParallel(ctx context.Context, clients []models.
 			clientCtx, clientCancel := context.WithTimeout(ctx, perClientTimeout)
 			defer clientCancel()
 
-			// Process single client with timeout protection
-			response, err := h.sendCommandWithLocationCheck(clientCtx, requestDetails, client, op, processor)
+			// Process single client with timeout protection AND per-client
+			// serialization (the same safeguards as the sequential path) — two
+			// concurrent sends to one client's gRPC stream are unsafe and can
+			// reorder config pushes (e.g. a policy fan-out racing a
+			// connect-triggered shield deploy).
+			response, err := h.processClientWithSafeguards(clientCtx, requestDetails, client, op, processor)
 			if err != nil {
 				h.logger.Debugf("Client %s processing failed: %v", client.ClientID, err)
 			}
@@ -485,27 +505,23 @@ func (h *Client) prepareForwardRequest(ctx context.Context, targetURL string, re
 	return req, nil
 }
 
-// executeForwardRequest executes HTTP request and returns response body
+// executeForwardRequest executes HTTP request and returns response body.
+// The request duration is governed by the request context: callers with a
+// deadline (the fan-out path sizes it per command type) keep it; an expired
+// deadline fails fast; a caller WITHOUT a deadline gets maxForwardTimeout so a
+// hung remote can never park the goroutine forever (sharedHTTPClient itself has
+// no client-level timeout by design — see its definition).
 func (h *Client) executeForwardRequest(req *http.Request, targetURL string) ([]byte, error) {
-	// Check if we have enough time left in the context
 	if deadline, ok := req.Context().Deadline(); ok {
 		timeLeft := time.Until(deadline)
 		h.logger.Debugf("Context deadline check: %v remaining", timeLeft)
-
-		// If less than HTTPTimeout + 2s buffer, create new context with sufficient time
-		// HTTPTimeout is 25s, so this checks for < 27s remaining
-		// This avoids unnecessary context recreation when parent has ~30s (sufficient time)
-		if timeLeft < HTTPTimeout+2*time.Second {
-			h.logger.Warnf("Insufficient time in parent context (%v), creating new context for forward request", timeLeft)
-
-			// Create new context with sufficient timeout for forward request
-			newCtx, cancel := context.WithTimeout(context.Background(), HTTPTimeout+5*time.Second)
-			defer cancel()
-
-			// Update request context
-			req = req.WithContext(newCtx)
-			h.logger.Infof("Created new context with %v timeout for forward request", HTTPTimeout+5*time.Second)
+		if timeLeft <= 0 {
+			return nil, fmt.Errorf("forward to %s aborted: caller context already expired", targetURL)
 		}
+	} else {
+		boundedCtx, cancel := context.WithTimeout(req.Context(), maxForwardTimeout)
+		defer cancel()
+		req = req.WithContext(boundedCtx)
 	}
 
 	resp, err := sharedHTTPClient.Do(req)
@@ -670,8 +686,21 @@ func (h *Client) executeDirectCommand(_ context.Context, op models.OperationClas
 			return nil, fmt.Errorf("command validation error for client %s: %w", client.ClientID, err)
 		}
 
-		// Direct send only (no routing)
-		response, err := h.tryDirectSend(client.ClientID, op.GetTypeNum(), op.GetSubTypeNum(), processedPayload)
+		// Direct send only (no routing) — under the per-client lock, so a
+		// forwarded command can't interleave with this pod's own sends to the
+		// same client stream (the local paths take the same lock). The closure
+		// scopes a DEFERRED release: an explicit release after the call would
+		// leak the mutex forever if the send panicked (gin recovery keeps the
+		// process alive, and every later command to that client would then die
+		// on the 15s lock timeout).
+		response, err := func() (*pb.CommandResponse, error) {
+			release, lerr := h.acquireClientLock(client.ClientID)
+			if lerr != nil {
+				return nil, lerr
+			}
+			defer release()
+			return h.tryDirectSend(client.ClientID, op.GetTypeNum(), op.GetSubTypeNum(), processedPayload)
+		}()
 		if err != nil {
 			h.logger.Errorf("Direct send failed for client %s: %v", client.ClientID, err)
 			return nil, fmt.Errorf("client %s not found on this controller: %w", client.ClientID, err)
@@ -998,10 +1027,13 @@ func (h *Client) FetchClients(op models.OperationClass, version string) ([]model
 	return result.Clients, nil
 }
 
-// processClientWithSafeguards processes a single client with serialization and health checks
-func (h *Client) processClientWithSafeguards(ctx context.Context, requestDetails models.RequestDetails, client models.ServiceClients, op models.OperationClass, processor processor.CommandProcessor) (any, error) {
-	// Client-level serialization to prevent "SendHeader called multiple times"
-	mutex := h.getClientMutex(client.ClientID)
+// acquireClientLock serializes command sends to one client: concurrent stream.Send
+// calls on the same gRPC server stream are unsafe, and unserialized sends also
+// reorder config pushes. Returns a release func on success; errors out after a
+// bounded wait so a stuck holder can't park callers forever (the eventual
+// acquisition is then released by a watcher goroutine, never leaked).
+func (h *Client) acquireClientLock(clientID string) (func(), error) {
+	mutex := h.getClientMutex(clientID)
 
 	// Try to acquire lock with timeout to prevent deadlocks
 	mutexCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -1018,7 +1050,7 @@ func (h *Client) processClientWithSafeguards(ctx context.Context, requestDetails
 	select {
 	case <-done:
 		// Successfully acquired lock
-		defer mutex.Unlock()
+		return mutex.Unlock, nil
 	case <-mutexCtx.Done():
 		// Timeout occurred
 		// CRITICAL: If goroutine eventually acquires lock after timeout, we must unlock it
@@ -1027,11 +1059,21 @@ func (h *Client) processClientWithSafeguards(ctx context.Context, requestDetails
 			<-done // Wait for goroutine to finish (it will eventually acquire lock)
 			if locked {
 				mutex.Unlock() // Unlock the orphaned lock
-				h.logger.Warnf("🔓 Released orphaned mutex for client %s after timeout", client.ClientID)
+				h.logger.Warnf("🔓 Released orphaned mutex for client %s after timeout", clientID)
 			}
 		}()
-		return nil, fmt.Errorf("mutex timeout for %s", client.ClientID)
+		return nil, fmt.Errorf("mutex timeout for %s", clientID)
 	}
+}
+
+// processClientWithSafeguards processes a single client with serialization and health checks
+func (h *Client) processClientWithSafeguards(ctx context.Context, requestDetails models.RequestDetails, client models.ServiceClients, op models.OperationClass, processor processor.CommandProcessor) (any, error) {
+	// Client-level serialization to prevent "SendHeader called multiple times"
+	release, err := h.acquireClientLock(client.ClientID)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 
 	// Send command with existing logic (handles both local and remote)
 	return h.sendCommandWithLocationCheck(ctx, requestDetails, client, op, processor)

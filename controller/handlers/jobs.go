@@ -113,6 +113,13 @@ func (h *JobHandler) ListJobs(c *gin.Context) {
 		filter.Type = []job.JobType{jobType}
 	}
 
+	// Hide system-originated jobs (e.g. per-client-connect SHIELD_DEPLOY syncs)
+	// by default so they don't bury human-triggered jobs after every controller
+	// restart. An explicit type filter or include_system=true opts back in.
+	if c.Query("include_system") != "true" && len(filter.Type) == 0 {
+		filter.ExcludeSystem = true
+	}
+
 	// Project filter (only show jobs for accessible projects)
 	if projectParam := c.Query("project"); projectParam != "" {
 		// Check if user has access to this project
@@ -447,6 +454,12 @@ func (h *JobHandler) GetJobStats(c *gin.Context) {
 	if typeParam := c.Query("type"); typeParam != "" {
 		jobType := job.JobType(typeParam)
 		filter.Type = []job.JobType{jobType}
+	}
+
+	// Default-exclude system-originated jobs from stats too (same rationale as
+	// ListJobs: connect-sync jobs would dominate every count after a restart).
+	if c.Query("include_system") != "true" && len(filter.Type) == 0 {
+		filter.ExcludeSystem = true
 	}
 
 	// Project filter (only show stats for accessible projects)

@@ -1,6 +1,7 @@
 package shield
 
 import (
+	"errors"
 	"testing"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -9,8 +10,12 @@ import (
 func TestCheckBundle_RejectsPathOwnedByAnotherPolicy(t *testing.T) {
 	r := req(file("api.yaml", []byte("x"), "", ""))
 	others := []ShieldPolicy{policy("other", file("api.yaml", []byte("y"), "", ""))}
-	if err := checkBundle(&r, others, ""); err == nil {
+	err := checkBundle(&r, others, "")
+	if err == nil {
 		t.Fatal("a path already owned by another policy must be rejected")
+	}
+	if !errors.Is(err, ErrPolicyPathConflict) {
+		t.Fatalf("a path collision must carry ErrPolicyPathConflict (→ 409), got: %v", err)
 	}
 }
 
@@ -28,8 +33,12 @@ func TestCheckBundle_RejectsOverInlineSizeCap(t *testing.T) {
 	big := make([]byte, maxInlineBundleBytes-10)
 	r := req(file("api.yaml", big, "", ""))
 	others := []ShieldPolicy{policy("other", file("feeds/x.json", make([]byte, 100), "", ""))}
-	if err := checkBundle(&r, others, ""); err == nil {
+	err := checkBundle(&r, others, "")
+	if err == nil {
 		t.Fatal("merged inline content over the cap must be rejected")
+	}
+	if !errors.Is(err, ErrPolicyInvalid) {
+		t.Fatalf("an over-size bundle must carry ErrPolicyInvalid (→ 400), got: %v", err)
 	}
 }
 

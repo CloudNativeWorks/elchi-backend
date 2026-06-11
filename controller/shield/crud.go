@@ -31,6 +31,15 @@ var ErrPolicyNameTaken = errors.New("a shield policy with this name already exis
 // ErrPolicyNotFound is returned when a policy id does not resolve.
 var ErrPolicyNotFound = errors.New("shield policy not found")
 
+// ErrPolicyInvalid wraps a bad-input rejection (unsafe path, missing/duplicate
+// fields, bad sha256, over-size bundle). Maps to HTTP 400 — it is a client error,
+// not a server fault.
+var ErrPolicyInvalid = errors.New("invalid shield policy")
+
+// ErrPolicyPathConflict wraps a file path already owned by another policy in the
+// project (the merged bundle requires globally-unique paths). Maps to HTTP 409.
+var ErrPolicyPathConflict = errors.New("shield policy file path conflict")
+
 // CRUDService handles CRUD on the shield_policies collection.
 type CRUDService struct {
 	dbContext *db.AppContext
@@ -125,13 +134,13 @@ func checkBundle(req *ShieldPolicyRequest, others []ShieldPolicy, excludeID stri
 		}
 		for _, f := range others[i].Files {
 			if _, clash := paths[path.Clean(f.Path)]; clash {
-				return fmt.Errorf("file path %q already used by policy %q in this project", path.Clean(f.Path), others[i].Name)
+				return fmt.Errorf("%w: file path %q already used by policy %q in this project", ErrPolicyPathConflict, path.Clean(f.Path), others[i].Name)
 			}
 		}
 		inlineTotal += inlineBytes(others[i].Files)
 	}
 	if inlineTotal > maxInlineBundleBytes {
-		return fmt.Errorf("project's merged shield bundle inline content is %d bytes (max %d); use download refs for large files", inlineTotal, maxInlineBundleBytes)
+		return fmt.Errorf("%w: project's merged shield bundle inline content is %d bytes (max %d); use download refs for large files", ErrPolicyInvalid, inlineTotal, maxInlineBundleBytes)
 	}
 	return nil
 }
@@ -160,7 +169,7 @@ func requestPaths(req *ShieldPolicyRequest) map[string]struct{} {
 // does a file path already owned by another policy in the project.
 func (s *CRUDService) Create(ctx context.Context, req ShieldPolicyRequest) (*ShieldPolicy, error) {
 	if err := validate(&req); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %s", ErrPolicyInvalid, err.Error())
 	}
 	if err := s.collisionCheck(ctx, req.Project, "", &req); err != nil {
 		return nil, err
@@ -188,7 +197,7 @@ func (s *CRUDService) Create(ctx context.Context, req ShieldPolicyRequest) (*Shi
 // Update replaces a policy's bundle and bumps its version. Returns the updated doc.
 func (s *CRUDService) Update(ctx context.Context, id string, req ShieldPolicyRequest) (*ShieldPolicy, error) {
 	if err := validate(&req); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %s", ErrPolicyInvalid, err.Error())
 	}
 	objectID, err := primitive.ObjectIDFromHex(id)
 	if err != nil {

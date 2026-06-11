@@ -52,8 +52,10 @@ func shieldStatus(err error) int {
 	switch {
 	case errors.Is(err, shield.ErrPolicyNotFound):
 		return http.StatusNotFound
-	case errors.Is(err, shield.ErrPolicyNameTaken):
+	case errors.Is(err, shield.ErrPolicyNameTaken), errors.Is(err, shield.ErrPolicyPathConflict):
 		return http.StatusConflict
+	case errors.Is(err, shield.ErrPolicyInvalid):
+		return http.StatusBadRequest
 	default:
 		return http.StatusInternalServerError
 	}

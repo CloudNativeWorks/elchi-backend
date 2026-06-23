@@ -39,6 +39,14 @@ func parseDuplicateKeyError(err error, resourceName string) error {
 }
 
 func (extension *AppHandler) SetExtension(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
+	// Viewers reach POST through checkRole (which permits POST so read-only
+	// client/op commands can run); the create path therefore must reject them
+	// explicitly — mirrors DelExtension. Without this a viewer with project
+	// access can create extensions despite being read-only.
+	if requestDetails.User.Role == models.RoleViewer {
+		return nil, errors.New("insufficient privileges: viewers cannot create resources")
+	}
+
 	// Validate Extension resource name format
 	if err := validation.ValidateExtensionResource(resource); err != nil {
 		return nil, fmt.Errorf("validation failed: %w", err)

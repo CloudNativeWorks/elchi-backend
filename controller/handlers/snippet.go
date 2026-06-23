@@ -33,6 +33,23 @@ func NewSnippetHandler(handler *Handler) *SnippetHandler {
 	}
 }
 
+// requireSnippetWriter rejects read-only viewers from mutating snippets.
+// Snippet handlers are direct gin handlers (no checkRole pipeline), so the
+// role guard is explicit here. Editor/Admin/Owner may write; viewers are
+// read-only. Returns false (and writes the response) when access is denied.
+func (sh *SnippetHandler) requireSnippetWriter(c *gin.Context) bool {
+	user, err := GetUserDetails(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return false
+	}
+	if user.Role == models.RoleViewer {
+		c.JSON(http.StatusForbidden, gin.H{"error": "viewers cannot modify snippets"})
+		return false
+	}
+	return true
+}
+
 // generateDataHash generates a hash for snippet data to detect duplicates
 func (sh *SnippetHandler) generateDataHash(data any) string {
 	// Convert to consistent JSON string
@@ -83,6 +100,9 @@ func (sh *SnippetHandler) setSnippetAuditChanges(c *gin.Context, existingSnippet
 
 // CreateSnippet creates a new snippet
 func (sh *SnippetHandler) CreateSnippet(c *gin.Context) {
+	if !sh.requireSnippetWriter(c) {
+		return
+	}
 	var req models.SnippetCreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format", "details": err.Error()})
@@ -267,6 +287,9 @@ func (sh *SnippetHandler) ListSnippets(c *gin.Context) {
 
 // UpdateSnippet updates an existing snippet
 func (sh *SnippetHandler) UpdateSnippet(c *gin.Context) {
+	if !sh.requireSnippetWriter(c) {
+		return
+	}
 	snippetID := c.Param("id")
 	objID, err := primitive.ObjectIDFromHex(snippetID)
 	if err != nil {
@@ -346,6 +369,9 @@ func (sh *SnippetHandler) UpdateSnippet(c *gin.Context) {
 
 // DeleteSnippet deletes a snippet by ID
 func (sh *SnippetHandler) DeleteSnippet(c *gin.Context) {
+	if !sh.requireSnippetWriter(c) {
+		return
+	}
 	snippetID := c.Param("id")
 	objID, err := primitive.ObjectIDFromHex(snippetID)
 	if err != nil {
@@ -376,6 +402,9 @@ func (sh *SnippetHandler) DeleteSnippet(c *gin.Context) {
 
 // BatchCreateSnippets creates multiple snippets in a single request
 func (sh *SnippetHandler) BatchCreateSnippets(c *gin.Context) {
+	if !sh.requireSnippetWriter(c) {
+		return
+	}
 	var req models.SnippetBatchCreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format", "details": err.Error()})
@@ -455,6 +484,9 @@ func (sh *SnippetHandler) BatchCreateSnippets(c *gin.Context) {
 
 // BatchDeleteSnippets deletes multiple snippets in a single request
 func (sh *SnippetHandler) BatchDeleteSnippets(c *gin.Context) {
+	if !sh.requireSnippetWriter(c) {
+		return
+	}
 	var req models.SnippetBatchDeleteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format", "details": err.Error()})

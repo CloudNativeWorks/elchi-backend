@@ -36,6 +36,10 @@ func InitRouter(h *handlers.Handler) *gin.Engine {
 	v3 := api.Group("/v3")
 	op := api.Group("/op")
 
+	// Cap op command body size BEFORE BodyCapture reads it, so an oversized
+	// POST is rejected (413) instead of being fully buffered in memory.
+	op.Use(middleware.BodyLimitMiddleware(middleware.MaxOpBodyBytes))
+
 	// Add body capture middleware before authentication for groups
 	v3.Use(middleware.BodyCaptureMiddleware())
 	op.Use(middleware.BodyCaptureMiddleware())

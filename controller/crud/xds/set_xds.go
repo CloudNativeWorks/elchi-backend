@@ -320,6 +320,15 @@ func (xds *AppHandler) processListenerSpecificResources(ctx context.Context, res
 
 // SetResource creates a new XDS resource with proper validation and rollback handling
 func (xds *AppHandler) SetResource(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails) (any, error) {
+	// Viewers reach POST through checkRole (which permits POST so read-only
+	// client/op commands can run); the resource-create path therefore must
+	// reject them explicitly — mirrors DelResource and the CanModifyResource
+	// gate on update. Without this a viewer with project access can create
+	// XDS resources despite being read-only.
+	if requestDetails.User.Role == models.RoleViewer {
+		return nil, fmt.Errorf("insufficient privileges: viewers cannot create resources")
+	}
+
 	// Step 1: Validate prerequisites
 	if err := xds.validateResourcePrerequisites(ctx, resource, requestDetails); err != nil {
 		return nil, err

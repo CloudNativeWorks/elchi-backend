@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"go.mongodb.org/mongo-driver/bson"
+
 	"github.com/CloudNativeWorks/elchi-backend/pkg/models"
 )
 
@@ -15,6 +17,19 @@ func (h *Client) ListClients(ctx context.Context, _ models.OperationClass, reque
 		}
 		return clients, nil
 	}
+
+	// Owner/Admin see every client; Editor/Viewer are scoped to the active
+	// project (the clients collection carries a "project" field). Without
+	// this, read-only roles would list clients across all projects, unlike
+	// the service list which is permission-filtered.
+	if !requestDetails.User.IsOwner && requestDetails.User.Role != models.RoleAdmin {
+		clients, err := h.Service.GetAllClientsWithFilter(bson.M{"project": requestDetails.Project})
+		if err != nil {
+			return nil, err
+		}
+		return clients, nil
+	}
+
 	clients, err := h.Service.GetAllClients()
 	if err != nil {
 		return nil, err

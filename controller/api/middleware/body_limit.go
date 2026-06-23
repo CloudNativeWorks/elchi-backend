@@ -16,6 +16,13 @@ import (
 // keeping a hostile request well within recoverable memory.
 const MaxBackupBodyBytes = 100 * 1024 * 1024
 
+// MaxOpBodyBytes caps the size of /api/op/* request payloads (client &
+// service command bodies). These are small JSON command envelopes; 10 MB is
+// far above any legitimate command while preventing an unauthenticated-shaped
+// or oversized POST from being fully buffered in memory by BodyCapture +
+// the body-based authorization pre-parse.
+const MaxOpBodyBytes = 10 * 1024 * 1024
+
 // BodyLimitMiddleware wraps the request body with http.MaxBytesReader
 // so every downstream read (auth pre-parse, handler bind) aborts as
 // soon as the byte ceiling is exceeded. The 413 response is returned

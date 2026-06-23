@@ -19,6 +19,12 @@ import (
 
 // CreateScenario creates a new scenario in the database
 func (t *AppHandler) CreateScenario(request models.CreateScenarioRequest, reqDetails models.RequestDetails) (*models.Scenario, error) {
+	// checkRole permits viewer POST (for read-only op commands); scenario
+	// writes must reject viewers explicitly.
+	if reqDetails.User.Role == models.RoleViewer {
+		return nil, fmt.Errorf("insufficient privileges: viewers cannot create scenarios")
+	}
+
 	// Enrich component instances with GType from catalog
 	enrichedComponents := make([]models.ComponentInstance, len(request.Components))
 	for i, component := range request.Components {
@@ -252,6 +258,12 @@ type CreatedResource struct {
 
 // ExecuteScenario executes a scenario and generates resources
 func (t *AppHandler) ExecuteScenario(request models.ExecuteScenarioRequest, reqDetails models.RequestDetails) ([]map[string]any, error) {
+	// Executing a scenario creates XDS resources; reject viewers up-front
+	// (the per-resource SetResource gate would block them anyway).
+	if reqDetails.User.Role == models.RoleViewer {
+		return nil, fmt.Errorf("insufficient privileges: viewers cannot execute scenarios")
+	}
+
 	scenario, err := t.GetScenarioByID(request.ScenarioID, reqDetails)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get scenario: %w", err)
@@ -627,6 +639,11 @@ func (t *AppHandler) ExportScenarios(request models.ExportScenarioRequest, reqDe
 
 // ImportScenarios imports scenarios with conflict resolution
 func (t *AppHandler) ImportScenarios(request models.ImportScenarioRequest, reqDetails models.RequestDetails) (*models.ImportScenarioResponse, error) {
+	// checkRole permits viewer POST; scenario import is a write — reject viewers.
+	if reqDetails.User.Role == models.RoleViewer {
+		return nil, fmt.Errorf("insufficient privileges: viewers cannot import scenarios")
+	}
+
 	collection := t.Context.Client.Collection("scenarios")
 
 	// Validate version compatibility if version is provided

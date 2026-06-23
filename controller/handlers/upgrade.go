@@ -88,6 +88,14 @@ func (h *UpgradeHandler) UpgradeResource(c *gin.Context) {
 		return
 	}
 
+	// Upgrades restart connected clients (service-impacting); restrict to
+	// Admin/Owner. This is a direct handler (no checkRole), so the guard is
+	// explicit here.
+	if !userDetails.IsOwner && userDetails.Role != models.RoleAdmin {
+		c.JSON(403, gin.H{"error": "only Admin or Owner can upgrade resources"})
+		return
+	}
+
 	// Compute a deterministic lock key so the background_jobs partial unique
 	// index can reject a second concurrent upgrade against the same listener
 	// set. Sorted join makes the key order-independent.

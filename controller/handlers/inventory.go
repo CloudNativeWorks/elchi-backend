@@ -1406,7 +1406,7 @@ func parseTimeWindow(c *gin.Context, defaultRangeMs int64, maxRangeDays int) (fr
 		return time.Time{}, time.Time{}, errors.New("'from' must be earlier than 'to'")
 	}
 	if to.Sub(from) > time.Duration(maxRangeDays)*24*time.Hour {
-		return time.Time{}, time.Time{}, errors.New("time range exceeds maximum (7 days)")
+		return time.Time{}, time.Time{}, fmt.Errorf("time range exceeds maximum (%d days)", maxRangeDays)
 	}
 	return from, to, nil
 }
@@ -1527,6 +1527,8 @@ func lengthOf(v any) int {
 	case []clickhouse.RawEvent:
 		return len(x)
 	case []clickhouse.RollupBucket:
+		return len(x)
+	case []clickhouse.ShieldEvent:
 		return len(x)
 	}
 	return 0

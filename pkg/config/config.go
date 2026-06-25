@@ -47,6 +47,9 @@ func applyDefaults(c *AppConfig) {
 	if c.ClickhouseTable == "" {
 		c.ClickhouseTable = "api_events_raw"
 	}
+	if c.ClickhouseShieldTable == "" {
+		c.ClickhouseShieldTable = "elchi_shield_audit"
+	}
 	if c.ClickhouseRollup1m == "" {
 		c.ClickhouseRollup1m = "api_events_1m"
 	}

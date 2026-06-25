@@ -518,6 +518,12 @@ func initShieldRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		{"GET", "/status", h.Shield.ShieldStatus}, // GET /api/v3/shield/status?project=&client_id=
 		// Read back a connected client's live on-disk shield file set (client-scoped)
 		{"GET", "/files", h.Shield.ShieldFiles}, // GET /api/v3/shield/files?project=&client_id=
+
+		// Security events feed + summary (project-scoped) from the central
+		// ClickHouse — what shield is blocking/detecting across the project's edges.
+		{"GET", "/events", h.Shield.ListShieldEvents},            // GET /api/v3/shield/events?project=&...
+		{"GET", "/events/summary", h.Shield.ShieldEventsSummary}, // GET /api/v3/shield/events/summary?project=&...
+		{"GET", "/events/facets", h.Shield.ShieldEventsFacets},   // GET /api/v3/shield/events/facets?project=&...
 	}
 
 	initRoutes(rg, routes)

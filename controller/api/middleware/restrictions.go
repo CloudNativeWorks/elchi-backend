@@ -201,6 +201,9 @@ var AllowedEndpoints = []string{
 	"/api/v3/shield/sync",                // re-push merged policy set (POST)
 	"/api/v3/shield/status",              // live edge shield service status (GET)
 	"/api/v3/shield/files",               // live edge on-disk file set (GET)
+	"/api/v3/shield/events",              // security events feed (GET)
+	"/api/v3/shield/events/summary",      // security events summary (GET)
+	"/api/v3/shield/events/facets",       // security events filter facets (GET)
 	// Upgrade endpoint
 	"/api/v3/resource/upgrade",
 	// Maintenance endpoints

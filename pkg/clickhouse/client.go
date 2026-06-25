@@ -26,14 +26,16 @@ import (
 // and table identifiers used in every query. Construct once at startup
 // and share by reference; callers must NOT close it until shutdown.
 type Client struct {
-	conn         driver.Conn
-	database     string
-	rawTable     string
-	rollup1m     string
-	rollup1h     string
-	rollup1d     string
-	queryTimeout time.Duration
-	logger       *logger.Logger
+	conn            driver.Conn
+	database        string
+	rawTable        string
+	shieldTable     string
+	shieldUseRollup bool
+	rollup1m        string
+	rollup1h        string
+	rollup1d        string
+	queryTimeout    time.Duration
+	logger          *logger.Logger
 	// discoveryCache memoises DiscoverInventoryKeys by filter — see
 	// discovery_cache.go. Always non-nil after Open(); the TTL alone
 	// decides whether reads/writes do real work.
@@ -95,14 +97,16 @@ func Open(cfg *config.AppConfig, log *logger.Logger) (*Client, error) {
 	}
 
 	c := &Client{
-		conn:         conn,
-		database:     cfg.ClickhouseDatabase,
-		rawTable:     cfg.ClickhouseTable,
-		rollup1m:     cfg.ClickhouseRollup1m,
-		rollup1h:     cfg.ClickhouseRollup1h,
-		rollup1d:     cfg.ClickhouseRollup1d,
-		queryTimeout: time.Duration(cfg.ClickhouseQueryTimeoutSec) * time.Second,
-		logger:       log,
+		conn:            conn,
+		database:        cfg.ClickhouseDatabase,
+		rawTable:        cfg.ClickhouseTable,
+		shieldTable:     cfg.ClickhouseShieldTable,
+		shieldUseRollup: cfg.ClickhouseShieldUseRollup,
+		rollup1m:        cfg.ClickhouseRollup1m,
+		rollup1h:        cfg.ClickhouseRollup1h,
+		rollup1d:        cfg.ClickhouseRollup1d,
+		queryTimeout:    time.Duration(cfg.ClickhouseQueryTimeoutSec) * time.Second,
+		logger:          log,
 		// 60s TTL is the upper bound on staleness an operator filtering
 		// the inventory list by country/ASN/IP/UA will tolerate; the
 		// underlying raw events stream lives at sub-minute freshness
@@ -137,6 +141,20 @@ func (c *Client) Ping(ctx context.Context) error {
 // rawQualifiedTable returns "<db>.<raw_events_table>" for use in SQL.
 func (c *Client) rawQualifiedTable() string {
 	return c.database + "." + c.rawTable
+}
+
+// shieldQualifiedTable returns "<db>.<shield_audit_table>" for use in SQL. This
+// is the table elchi-shield's ClickHouse audit exporter writes to directly.
+func (c *Client) shieldQualifiedTable() string {
+	return c.database + "." + c.shieldTable
+}
+
+// shieldRollupQualifiedTable returns "<db>.<shield_table>_1m" — the per-minute
+// AggregatingMergeTree rollup shield maintains off the audit table. The `_1m`
+// suffix is hardcoded to exactly match what shield's exporter creates (there is no
+// separate config knob, so the read side can never drift from the write side).
+func (c *Client) shieldRollupQualifiedTable() string {
+	return c.database + "." + c.shieldTable + "_1m"
 }
 
 // rollupQualifiedTable returns the qualified rollup name for the given

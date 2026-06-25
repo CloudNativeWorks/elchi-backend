@@ -98,9 +98,22 @@ type AppConfig struct {
 	// `CLICKHOUSE_TABLE`) so a single secret set drives both services.
 	// CLICKHOUSE_URI empty → inventory_detail endpoints return 503;
 	// the controller still starts (graceful degradation).
-	ClickhouseURI               string `mapstructure:"CLICKHOUSE_URI" yaml:"CLICKHOUSE_URI"`
-	ClickhouseDatabase          string `mapstructure:"CLICKHOUSE_DATABASE" yaml:"CLICKHOUSE_DATABASE"`
-	ClickhouseTable             string `mapstructure:"CLICKHOUSE_TABLE" yaml:"CLICKHOUSE_TABLE"`
+	ClickhouseURI      string `mapstructure:"CLICKHOUSE_URI" yaml:"CLICKHOUSE_URI"`
+	ClickhouseDatabase string `mapstructure:"CLICKHOUSE_DATABASE" yaml:"CLICKHOUSE_DATABASE"`
+	ClickhouseTable    string `mapstructure:"CLICKHOUSE_TABLE" yaml:"CLICKHOUSE_TABLE"`
+	// ClickhouseShieldTable is the table elchi-shield's ClickHouse audit
+	// exporter writes security events to (default `elchi_shield_audit`); the
+	// shield events read API queries it.
+	ClickhouseShieldTable string `mapstructure:"CLICKHOUSE_SHIELD_TABLE" yaml:"CLICKHOUSE_SHIELD_TABLE"`
+	// ClickhouseShieldUseRollup opts the summary into reading shield's per-minute
+	// rollup (default false): it aggregates wide windows via countMerge instead of
+	// scanning raw rows. The rollup table name is structurally `<shield_table>_1m`
+	// (shield hardcodes that suffix — there is intentionally NO separate knob, so it
+	// can't drift from what shield creates). Enable it only after the rollup has been
+	// collecting for at least the audit retention window (default 7d), so wide-window
+	// summaries are complete (the rollup forward-fills from when shield created it;
+	// there is no backfill).
+	ClickhouseShieldUseRollup   bool   `mapstructure:"CLICKHOUSE_SHIELD_USE_ROLLUP" yaml:"CLICKHOUSE_SHIELD_USE_ROLLUP"`
 	ClickhouseRollup1m          string `mapstructure:"CLICKHOUSE_ROLLUP_1M" yaml:"CLICKHOUSE_ROLLUP_1M"`
 	ClickhouseRollup1h          string `mapstructure:"CLICKHOUSE_ROLLUP_1H" yaml:"CLICKHOUSE_ROLLUP_1H"`
 	ClickhouseRollup1d          string `mapstructure:"CLICKHOUSE_ROLLUP_1D" yaml:"CLICKHOUSE_ROLLUP_1D"`

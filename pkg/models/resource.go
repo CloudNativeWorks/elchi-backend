@@ -69,9 +69,16 @@ type General struct {
 	// update flow can $set it without having to merge into the
 	// map (which currently leaves Metadata untouched to protect the
 	// system-managed `is_default` flag).
-	APIDiscovery    bool               `json:"api_discovery,omitempty" bson:"api_discovery,omitempty"`
-	CreatedAt       primitive.DateTime `json:"created_at,omitempty" bson:"created_at,omitempty"`
-	UpdatedAt       primitive.DateTime `json:"updated_at,omitempty" bson:"updated_at,omitempty"`
+	APIDiscovery bool `json:"api_discovery,omitempty" bson:"api_discovery,omitempty"`
+	// APISecurity is an HCM-only "one-click" feature flag, the ext_proc/shield
+	// analog of APIDiscovery. When true, the extension save path injects a
+	// reference to the project's `elchi-shield` ExternalProcessor extension as the
+	// FIRST entry of this HCM's http_filters[] (before the router), wiring Envoy to
+	// the local elchi-shield WAF sidecar over its UDS. Stored standalone (not in
+	// Metadata) so the update flow can $set it like api_discovery.
+	APISecurity bool               `json:"api_security,omitempty" bson:"api_security,omitempty"`
+	CreatedAt   primitive.DateTime `json:"created_at,omitempty" bson:"created_at,omitempty"`
+	UpdatedAt   primitive.DateTime `json:"updated_at,omitempty" bson:"updated_at,omitempty"`
 }
 
 type ElchiDiscovery struct {

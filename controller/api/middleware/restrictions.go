@@ -17,6 +17,7 @@ var AllowedEndpoints = []string{
 	"/refresh",
 	"/auth/login",
 	// Admin + Owner endpoints (User/Group management)
+	"/api/v3/setting/storage-stats",
 	"/api/v3/setting/user_list",
 	"/api/v3/setting/user/:user_id",
 	"/api/v3/setting/users/:user_id",

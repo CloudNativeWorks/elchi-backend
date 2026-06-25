@@ -65,6 +65,9 @@ func (extension *AppHandler) SetExtension(ctx context.Context, resource models.R
 	// general.typed_config alongside operator-defined access loggers.
 	applyAPIDiscoveryALS(ctx, resource, extension.Context, extension.Logger)
 
+	// Same for the elchi-shield ext_proc http_filter and general.api_security.
+	applyAPISecurityExtProc(ctx, resource, extension.Context, extension.Logger)
+
 	err := resources.PrepareResource(resource, requestDetails, extension.Logger, extension.ResourceService)
 	if err != nil {
 		return nil, err

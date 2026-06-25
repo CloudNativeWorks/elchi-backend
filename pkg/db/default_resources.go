@@ -125,6 +125,14 @@ func createDefaults(ctx context.Context, context *AppContext, logger *logger.Log
 		logger.Infof("Default elchi-als not created: %s", err)
 	}
 
+	if err := CreateDefaultElchiShieldCluster(ctx, context, projectID, vrs, groupID); err != nil {
+		logger.Infof("Default elchi-shield cluster not created: %s", err)
+	}
+
+	if err := CreateDefaultElchiShieldExtProc(ctx, context, projectID, vrs, groupID); err != nil {
+		logger.Infof("Default elchi-shield ext_proc not created: %s", err)
+	}
+
 	// Create default scenarios (project-independent)
 	if err := CreateDefaultScenarios(ctx, context); err != nil {
 		logger.Infof("Default scenarios not created: %s", err)
@@ -1068,6 +1076,201 @@ func CreateDefaultElchiALS(ctx context.Context, db *AppContext, projectID string
 		return fmt.Errorf("failed to check for default elchi-als: %w", err)
 	default:
 		db.Logger.Info("default elchi-als already exists")
+	}
+
+	return nil
+}
+
+// CreateDefaultElchiShieldCluster seeds the `elchi-shield` upstream cluster — a
+// STATIC, HTTP/2 cluster pointing at the local elchi-shield sidecar's ext_proc
+// Unix Domain Socket (/run/elchi-shield/extproc.sock, matching the installer).
+// It reuses the project's `elchi-control-plane-hpo` HttpProtocolOptions (already
+// HTTP/2) so no dedicated HPO is needed. The ext_proc filter references this
+// cluster by name; api_security wires the filter into an HCM.
+func CreateDefaultElchiShieldCluster(ctx context.Context, db *AppContext, projectID string, vers string, groupID string) error {
+	gtypeCluster := models.Cluster
+	collection := db.Client.Collection(gtypeCluster.CollectionString())
+	if projectID == "" {
+		return errstr.ErrProjectIDEmpty
+	}
+
+	var cluster models.Resource
+	err := collection.FindOne(ctx, bson.M{
+		"general.name":    "elchi-shield",
+		"general.version": vers,
+		"general.project": projectID,
+	}).Decode(&cluster)
+
+	switch {
+	case errors.Is(err, mongo.ErrNoDocuments):
+		now := time.Now()
+		createdAt := primitive.NewDateTimeFromTime(now)
+		updatedAt := primitive.NewDateTimeFromTime(now)
+
+		resourceConfig := bson.M{
+			"name":            "elchi-shield",
+			"type":            "STATIC",
+			"connect_timeout": "1s",
+			"typed_extension_protocol_options": bson.M{
+				"envoy.extensions.upstreams.http.v3.HttpProtocolOptions": bson.M{
+					"type_url": "envoy.extensions.upstreams.http.v3.HttpProtocolOptions",
+					"value": encodeDefaultResourceMetadata(DefaultResourceMetadata{
+						Name:          "elchi-control-plane-hpo",
+						GType:         "envoy.extensions.upstreams.http.v3.HttpProtocolOptions",
+						Type:          "http_protocol_options",
+						CanonicalName: "envoy.upstreams.http.http_protocol_options",
+						Category:      "envoy.upstreams.http.http_protocol_options",
+						Collection:    "extensions",
+					}),
+				},
+			},
+			"load_assignment": bson.M{
+				"cluster_name": "elchi-shield",
+				"endpoints": []bson.M{
+					{
+						"lb_endpoints": []bson.M{
+							{
+								"endpoint": bson.M{
+									"address": bson.M{
+										"pipe": bson.M{
+											"path": "/run/elchi-shield/extproc.sock",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		defaultCluster := bson.M{
+			"general": bson.M{
+				"name":           "elchi-shield",
+				"version":        vers,
+				"type":           gtypeCluster.Type(),
+				"gtype":          gtypeCluster.String(),
+				"project":        projectID,
+				"collection":     gtypeCluster.CollectionString(),
+				"canonical_name": gtypeCluster.CanonicalName(),
+				"category":       gtypeCluster.Category(),
+				"metadata": bson.M{
+					"is_default": true,
+				},
+				"permissions": bson.M{
+					"users":  []string{},
+					"groups": []string{groupID},
+				},
+				"created_at": createdAt,
+				"updated_at": updatedAt,
+			},
+			"resource": bson.M{
+				"version":  "1",
+				"resource": resourceConfig,
+			},
+		}
+
+		if _, err = collection.InsertOne(ctx, defaultCluster); err != nil {
+			if mongo.IsDuplicateKeyError(err) {
+				db.Logger.Infof("default elchi-shield cluster already exists: %v", err)
+			} else {
+				return fmt.Errorf("failed to create default elchi-shield cluster: %w", err)
+			}
+		} else {
+			db.Logger.Info("default elchi-shield cluster created successfully")
+		}
+	case err != nil:
+		return fmt.Errorf("failed to check for default elchi-shield cluster: %w", err)
+	default:
+		db.Logger.Info("default elchi-shield cluster already exists")
+	}
+
+	return nil
+}
+
+// CreateDefaultElchiShieldExtProc seeds the `elchi-shield` ExternalProcessor
+// (ext_proc) filter extension — the resolution target of the api_security HCM
+// toggle. It points Envoy's ext_proc gRPC at the `elchi-shield` cluster (UDS),
+// fails OPEN (failure_mode_allow) so a shield outage never breaks traffic, and
+// sets allow_mode_override so shield can dynamically request the body per policy.
+// request_attributes carries the Envoy node id so shield scopes events per project.
+func CreateDefaultElchiShieldExtProc(ctx context.Context, db *AppContext, projectID string, vers string, groupID string) error {
+	gtype := models.ExternalProcessor
+	collection := db.Client.Collection(gtype.CollectionString())
+	if projectID == "" {
+		return errstr.ErrProjectIDEmpty
+	}
+
+	var existing models.Resource
+	err := collection.FindOne(ctx, bson.M{
+		"general.name":    "elchi-shield",
+		"general.version": vers,
+		"general.project": projectID,
+	}).Decode(&existing)
+
+	switch {
+	case errors.Is(err, mongo.ErrNoDocuments):
+		now := time.Now()
+		createdAt := primitive.NewDateTimeFromTime(now)
+		updatedAt := primitive.NewDateTimeFromTime(now)
+
+		resourceConfig := bson.M{
+			"grpc_service": bson.M{
+				"envoy_grpc": bson.M{
+					"cluster_name": "elchi-shield",
+				},
+			},
+			"failure_mode_allow":  true,
+			"allow_mode_override": true,
+			"message_timeout":     "1s",
+			"request_attributes":  []string{"xds.node.id"},
+			"processing_mode": bson.M{
+				"request_header_mode":  "SEND",
+				"response_header_mode": "SEND",
+				"request_body_mode":    "NONE",
+				"response_body_mode":   "NONE",
+			},
+		}
+
+		defaultExtProc := bson.M{
+			"general": bson.M{
+				"name":           "elchi-shield",
+				"version":        vers,
+				"type":           gtype.Type(),
+				"gtype":          gtype.String(),
+				"project":        projectID,
+				"collection":     gtype.CollectionString(),
+				"canonical_name": gtype.CanonicalName(),
+				"category":       gtype.Category(),
+				"metadata": bson.M{
+					"is_default": true,
+				},
+				"permissions": bson.M{
+					"users":  []string{},
+					"groups": []string{groupID},
+				},
+				"created_at": createdAt,
+				"updated_at": updatedAt,
+			},
+			"resource": bson.M{
+				"version":  "1",
+				"resource": resourceConfig,
+			},
+		}
+
+		if _, err = collection.InsertOne(ctx, defaultExtProc); err != nil {
+			if mongo.IsDuplicateKeyError(err) {
+				db.Logger.Infof("default elchi-shield ext_proc already exists: %v", err)
+			} else {
+				return fmt.Errorf("failed to create default elchi-shield ext_proc: %w", err)
+			}
+		} else {
+			db.Logger.Info("default elchi-shield ext_proc created successfully")
+		}
+	case err != nil:
+		return fmt.Errorf("failed to check for default elchi-shield ext_proc: %w", err)
+	default:
+		db.Logger.Info("default elchi-shield ext_proc already exists")
 	}
 
 	return nil

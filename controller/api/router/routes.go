@@ -70,6 +70,7 @@ func initSettingRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		path    string
 		handler gin.HandlerFunc
 	}{
+		{"GET", "/storage-stats", h.GetStorageStats},
 		{"GET", "/user_list", h.Settings.ListUsers},
 		{"GET", "/user/:user_id", h.Settings.GetUser},
 		{"GET", "/users/:user_id", h.Settings.GetUserByID},

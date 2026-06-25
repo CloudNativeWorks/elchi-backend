@@ -67,6 +67,9 @@ func updateResource(ctx context.Context, extension *AppHandler, resource models.
 	// the validated resource and is reflected in general.typed_config.
 	applyAPIDiscoveryALS(ctx, resource, extension.Context, extension.Logger)
 
+	// Same for the elchi-shield ext_proc http_filter and general.api_security.
+	applyAPISecurityExtProc(ctx, resource, extension.Context, extension.Logger)
+
 	// Version increment moved to control-plane GenerateSnapshot for centralized control
 	// Keep existing version without manual increment
 	newResource := resource.GetResource()
@@ -96,6 +99,7 @@ func updateResource(ctx context.Context, extension *AppHandler, resource models.
 			"general.typed_config":     resource.GetTypedConfig(),
 			"general.waf":              general.WAF,          // Update WAF field (supports both set and unset)
 			"general.api_discovery":    general.APIDiscovery, // HCM-only toggle; false-zero default is fine for non-HCM extensions
+			"general.api_security":     general.APISecurity,  // HCM-only ext_proc/shield toggle (same false-zero default)
 		},
 	}
 

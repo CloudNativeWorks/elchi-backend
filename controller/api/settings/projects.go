@@ -330,6 +330,18 @@ func (handler *AppHandler) CreateProject(ctx context.Context, projectCollection 
 			handler.Logger.Debugf("Default elchi-als not created for project %s version %s: %s", projectID.Hex(), vers, err)
 			return http.StatusBadRequest, fmt.Sprintf("Failed to create default elchi-als: %v", err), "0"
 		}
+
+		handler.Logger.Debugf("Creating default elchi-shield cluster for project %s, version %s", projectID.Hex(), vers)
+		if err := db.CreateDefaultElchiShieldCluster(ctx, handler.Context, projectID.Hex(), vers, groupID); err != nil {
+			handler.Logger.Debugf("Default elchi-shield cluster not created for project %s version %s: %s", projectID.Hex(), vers, err)
+			return http.StatusBadRequest, fmt.Sprintf("Failed to create default elchi-shield cluster: %v", err), "0"
+		}
+
+		handler.Logger.Debugf("Creating default elchi-shield ext_proc for project %s, version %s", projectID.Hex(), vers)
+		if err := db.CreateDefaultElchiShieldExtProc(ctx, handler.Context, projectID.Hex(), vers, groupID); err != nil {
+			handler.Logger.Debugf("Default elchi-shield ext_proc not created for project %s version %s: %s", projectID.Hex(), vers, err)
+			return http.StatusBadRequest, fmt.Sprintf("Failed to create default elchi-shield ext_proc: %v", err), "0"
+		}
 	}
 	handler.Logger.Debugf("Successfully created all default resources for project %s", projectID.Hex())
 

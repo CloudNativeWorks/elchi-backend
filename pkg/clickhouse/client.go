@@ -42,12 +42,22 @@ type Client struct {
 	discoveryCache *discoveryCache
 }
 
-// Open dials ClickHouse using the URI/DSN from cfg, validates the
-// connection with a Ping, and returns a ready-to-use Client. The Ping
-// failure is fatal — without a working connection the inventory_detail
-// endpoints would return 5xx on every request, so we surface the error
-// to the caller (cmd/controller.go) which logs and proceeds without a
-// ClickHouse client (graceful degradation).
+// Open dials ClickHouse using the URI/DSN from cfg and returns a
+// ready-to-use Client. chgo.Open builds a *lazy* connection pool: it does
+// not actually dial until the first query, so the returned client
+// self-heals once ClickHouse becomes reachable.
+//
+// The startup Ping is therefore only a *probe*, NOT a gate: when it fails
+// (e.g. ClickHouse hasn't finished booting yet — common under Docker
+// Swarm / k8s where the controller starts before the CH cluster forms),
+// we log a warning and return the client anyway. The next real query
+// (storage-stats, inventory_detail) dials a fresh connection from the
+// pool and succeeds — no controller restart required. Returning nil here
+// would instead disable ClickHouse permanently until the next restart.
+//
+// A non-nil error is returned only for unrecoverable config problems
+// (empty URI, unparseable DSN, pool construction failure) where retrying
+// the same client could never succeed.
 func Open(cfg *config.AppConfig, log *logger.Logger) (*Client, error) {
 	if cfg.ClickhouseURI == "" {
 		return nil, fmt.Errorf("CLICKHOUSE_URI is empty")
@@ -89,11 +99,14 @@ func Open(cfg *config.AppConfig, log *logger.Logger) (*Client, error) {
 		return nil, fmt.Errorf("open clickhouse: %w", err)
 	}
 
+	// Probe the connection, but do NOT fail on a ping error: chgo.Open's
+	// pool is lazy and reconnects on the next query, so a controller that
+	// boots ahead of ClickHouse self-heals instead of staying disabled
+	// until restart. We keep the client and only log the transient miss.
 	pingCtx, cancel := context.WithTimeout(context.Background(), connectTimeout)
 	defer cancel()
 	if err := conn.Ping(pingCtx); err != nil {
-		_ = conn.Close()
-		return nil, fmt.Errorf("ping clickhouse: %w", err)
+		log.Warnf("clickhouse ping failed at startup (will reconnect on first query): %v", err)
 	}
 
 	c := &Client{
@@ -115,7 +128,7 @@ func Open(cfg *config.AppConfig, log *logger.Logger) (*Client, error) {
 		// per controller and bounds the cache memory at a few MB.
 		discoveryCache: newDiscoveryCache(60*time.Second, 256),
 	}
-	log.Infof("clickhouse connected: db=%s raw=%s pool(open=%d idle=%d lifetime=%s)",
+	log.Infof("clickhouse client ready: db=%s raw=%s pool(open=%d idle=%d lifetime=%s)",
 		c.database, c.rawTable, opts.MaxOpenConns, opts.MaxIdleConns, opts.ConnMaxLifetime)
 	return c, nil
 }

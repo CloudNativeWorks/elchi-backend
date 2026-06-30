@@ -149,6 +149,7 @@ var AllowedEndpoints = []string{
 	"/api/v3/inventory/operations",
 	"/api/v3/inventory/attack-surface",
 	"/api/v3/inventory/openapi",
+	"/api/v3/inventory/suggest-policy",
 	"/api/v3/inventory/listeners",
 	"/api/v3/inventory/geo",
 	"/api/v3/inventory/discoveries",

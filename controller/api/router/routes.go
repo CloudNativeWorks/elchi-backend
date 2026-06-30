@@ -402,6 +402,7 @@ func initInventoryRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		{"GET", "/operations", h.Inventory.ListInventoryOperations}, // GET /api/v3/inventory/operations (path-grouped: methods nested under (host, normalized_path))
 		{"GET", "/attack-surface", h.Inventory.ListAttackSurface},   // GET /api/v3/inventory/attack-surface (scanner/probe noise — confirmed:false)
 		{"GET", "/openapi", h.Inventory.ExportOpenAPI},              // GET /api/v3/inventory/openapi?format=yaml|json (download OpenAPI 3.0.3 skeleton from confirmed endpoints)
+		{"POST", "/suggest-policy", h.Inventory.SuggestPolicy},      // POST /api/v3/inventory/suggest-policy (findings → draft shield SecurityPolicy + rationale; not persisted)
 		{"GET", "/listeners", h.Inventory.ListInventoryListeners},   // GET /api/v3/inventory/listeners (project listeners summary — UI default landing)
 		{"GET", "/geo", h.Inventory.GeoSummary},                     // GET /api/v3/inventory/geo (country/asn/UA/TI aggregates + optional time series)
 		// API discovery + security surfaces. All five share the

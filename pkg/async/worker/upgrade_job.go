@@ -90,15 +90,41 @@ func (w *Worker) processResourceUpgradeJob(ctx context.Context, j *job.Job) {
 		w.logger.Errorf("Phase 4 (bootstrap+notify) failed: %v", phase4Err)
 	}
 
+	// Step 5b: Advance services.version for upgraded managed listeners that
+	// have NO client deployments. Phase 4 owns the service-version bump for
+	// listeners WITH clients (it must wait until the clients are notified), but
+	// Phase 4 is gated behind analysis.BootstrapRequired and is skipped wholesale
+	// when a managed listener has zero client deployments — no client means no
+	// bootstrap, so BootstrapRequired is false. That left the service pinned to
+	// the old version even though Phase 2 had already advanced the listener. This
+	// reconciles it independently of the bootstrap gate; it is idempotent for any
+	// listener Phase 4 already advanced (the version==fromVersion filter no-ops).
+	serviceErr := w.advanceServiceVersionsForClientlessListeners(ctx, meta, analysis, successfulListeners)
+	if serviceErr != nil {
+		w.logger.Errorf("Service-version advance for clientless listener(s) failed: %v", serviceErr)
+	}
+
 	// Always persist created resources so the failed/completed job remains inspectable.
 	w.storeCreatedResources(ctx, j, allCreatedResources)
 
-	// Final status: any Phase 2 failure OR Phase 4 failure → FailJob.
-	// A "partial Phase 2 failure" alone is enough to fail the job because
-	// the operator must consciously retry the missing listeners (typically
-	// via failed_only) before declaring success.
-	if phase2HadFailure || phase4Err != nil {
-		summary := w.buildFailureSummary(listenerNames, successfulListeners, phase2HadFailure, phase4Err)
+	// Fold Phase 4 and the clientless service-version advance into one terminal
+	// error so a services write failure also surfaces as FailJob rather than a
+	// green job over a half-advanced service.
+	finalErr := phase4Err
+	if serviceErr != nil {
+		if finalErr != nil {
+			finalErr = fmt.Errorf("%w; service-version advance failed: %v", finalErr, serviceErr)
+		} else {
+			finalErr = serviceErr
+		}
+	}
+
+	// Final status: any Phase 2 failure OR a terminal Phase 4 / service-version
+	// failure → FailJob. A "partial Phase 2 failure" alone is enough to fail the
+	// job because the operator must consciously retry the missing listeners
+	// (typically via failed_only) before declaring success.
+	if phase2HadFailure || finalErr != nil {
+		summary := w.buildFailureSummary(listenerNames, successfulListeners, phase2HadFailure, finalErr)
 		if failErr := w.jobManager.FailJob(ctx, j.ID, summary); failErr != nil {
 			w.logger.Errorf("Failed to mark job as failed: %v", failErr)
 		}
@@ -320,6 +346,42 @@ func (w *Worker) updateBootstrapsAndNotifyClients(ctx context.Context, j *job.Jo
 		// iteration to re-update every other listener's bootstrap.
 		listenerBootstraps := w.findListenerBootstrapNames(analysis, listenerName)
 		if err := w.updateBootstrapsForListener(ctx, j, listenerName, listenerBootstraps, requiresClientUpgrade); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
+// advanceServiceVersionsForClientlessListeners advances services.version to the
+// target for every successfully-upgraded managed listener that has NO client
+// deployments (requiresClientUpgrade == false).
+//
+// Why this exists separately from Phase 4: the service-version bump for a
+// listener WITH clients must wait until those clients are notified, so it lives
+// inside notifyClientsForUpgrade. But that whole path sits behind Phase 4's
+// analysis.BootstrapRequired gate, and a managed listener whose service is not
+// deployed to any client produces no bootstrap → BootstrapRequired is false →
+// Phase 4 returns early and the bump never runs. The listener still advanced in
+// Phase 2, so without this the service would stay pinned to the old version.
+//
+// Scope: requiresClientUpgrade==false only. Listeners with (possibly offline)
+// clients keep the deliberate anti-drift policy in notifyClientsForUpgrade —
+// their service is advanced only once the clients are actually told to swap.
+// updateServiceVersion is idempotent (its version==fromVersion filter matches
+// nothing once the service already points at toVersion), so this is a safe
+// no-op for any listener Phase 4 already advanced, and for unmanaged listeners
+// (which have no service record to match).
+func (w *Worker) advanceServiceVersionsForClientlessListeners(ctx context.Context, meta *job.JobMetadata, analysis *job.UpgradeAnalysisResult, successfulListeners []string) error {
+	project := meta.SourceResource.ProjectID
+	fromVersion := meta.SourceResource.Version
+	toVersion := meta.UpgradeConfig.TargetVersion
+
+	var firstErr error
+	for _, listenerName := range successfulListeners {
+		if w.findRequiresClientUpgrade(analysis, listenerName) {
+			continue // handled by Phase 4's client-notify path
+		}
+		if err := w.updateServiceVersion(ctx, project, listenerName, fromVersion, toVersion); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}

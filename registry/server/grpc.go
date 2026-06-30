@@ -532,6 +532,12 @@ func (p *ExternalProcessorServer) isEnvoyADSStream(path string) bool {
 // behind for the full TTL (default 30s). A restarted single-node registry
 // then sits as standby for ~30s rejecting RPCs with "not the active leader",
 // which is what we observed in local restarts.
+// grpcGracefulStopTimeout bounds how long GracefulStop may wait for in-flight
+// RPCs to drain before the shutdown path forcibly Stop()s the server. Without
+// this cap, a single parked ext_proc bidi stream keeps the process alive
+// indefinitely on Ctrl-C / SIGTERM.
+const grpcGracefulStopTimeout = 10 * time.Second
+
 func StartGRPCServer(
 	ctx context.Context,
 	address string,
@@ -589,7 +595,27 @@ func StartGRPCServer(
 	go func() {
 		<-ctx.Done()
 		logger.Infof("shutdown signal received, gracefully stopping gRPC server")
-		grpcServer.GracefulStop()
+		// GracefulStop blocks until every in-flight RPC returns. Long-lived
+		// bidi streams — notably the Envoy ext_proc Process handler, which
+		// parks in stream.Recv() — never end on their own while a peer stays
+		// connected, so an unbounded GracefulStop hangs the process on Ctrl-C
+		// (exactly the "registry waiting on shutdown" symptom). Bound it: give
+		// in-flight RPCs a short grace window, then force Stop(), which cancels
+		// active streams so deferred lock-release/snapshot work can finish and
+		// the binary can exit.
+		stopped := make(chan struct{})
+		go func() {
+			grpcServer.GracefulStop()
+			close(stopped)
+		}()
+		select {
+		case <-stopped:
+			logger.Infof("gRPC server stopped gracefully")
+		case <-time.After(grpcGracefulStopTimeout):
+			logger.Warnf("graceful stop exceeded %s; forcing stop (open streams cancelled)", grpcGracefulStopTimeout)
+			grpcServer.Stop()
+			<-stopped
+		}
 	}()
 
 	logger.Infof("gRPC server starting on address %s (Controller + Control-Plane + ExternalProcessor + Metrics + Health services)", address)

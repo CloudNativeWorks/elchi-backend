@@ -7,22 +7,36 @@ import "testing"
 // isELCHIShieldEntry (so a re-save strips the old one), and an unrelated filter
 // must NOT be (so user filters are never dropped).
 func TestELCHIShieldEntryRoundTrip(t *testing.T) {
-	entry := buildELCHIShieldExtProcFilter("v1.36.2")
+	entry := buildELCHIShieldExtProcFilter()
 
 	if !isELCHIShieldEntry(entry) {
 		t.Fatal("the built elchi-shield ext_proc filter must be recognized by isELCHIShieldEntry")
 	}
 
-	// The injected filter's name must be the ext_proc canonical name so Envoy and
-	// the UI render it as a normal http filter.
-	if got := entry["name"]; got != "envoy.filters.http.ext_proc" {
-		t.Errorf("filter name = %v, want envoy.filters.http.ext_proc", got)
+	// HTTP filters in elchi are delivered via ECDS: the entry must be named after the
+	// extension (so the control plane serves its config by name) and carry a
+	// config_discovery block — NOT an inline typed_config (which http_filters never
+	// resolves, so Envoy rejects it with an empty type URL).
+	if got := entry["name"]; got != elchiShieldExtensionName {
+		t.Errorf("filter name = %v, want %s", got, elchiShieldExtensionName)
+	}
+	if _, ok := entry["config_discovery"]; !ok {
+		t.Error("filter must use config_discovery (ECDS), not inline typed_config")
+	}
+	if _, ok := entry["typed_config"]; ok {
+		t.Error("filter must NOT carry an inline typed_config")
+	}
+
+	// The paired ECDS registration must point at the elchi-shield extension.
+	cd := buildELCHIShieldConfigDiscovery()
+	if cd.Name != elchiShieldExtensionName || cd.CanonicalName != "envoy.filters.http.ext_proc" {
+		t.Errorf("config_discovery registration = %+v", cd)
 	}
 
 	// A different (operator-defined) filter must never be mistaken for elchi-shield.
 	for _, other := range []any{
 		map[string]any{"name": "envoy.filters.http.router"},
-		map[string]any{"name": "envoy.filters.http.cors", "typed_config": map[string]any{"type_url": "x", "value": "bm90LXNoaWVsZA=="}},
+		map[string]any{"name": "envoy.filters.http.cors"},
 		"not-a-map",
 		nil,
 	} {

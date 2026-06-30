@@ -25,14 +25,16 @@ const elchiShieldExtensionName = "elchi-shield"
 // filter, so the existing snapshot resolver (processTypedConfigPath) and
 // DecodeSetTypedConfigs pick it up with no special-casing.
 //
-// The ext_proc filter is inserted as the FIRST http_filter (before the router and
-// before any other filters) so the WAF inspects requests before anything else.
-// Persisting the reference (rather than injecting at snapshot time) keeps it
-// visible in the UI, durable across saves, and cleanly removed when toggled off.
+// Delivered via ECDS: the http_filter holds a config_discovery pointer and a paired
+// general.config_discovery entry tells the control plane which extension to serve
+// for that name. Persisting it (rather than injecting at snapshot time) keeps it
+// visible + reorderable in the UI, durable across saves, and cleanly removed off.
 //
-// No-op for non-HCM extensions. Idempotent: an existing elchi-shield ext_proc
-// entry is always stripped first, then re-added (as the head) only when enabled,
-// so repeated saves never duplicate it or change the ordering of other filters.
+// No-op for non-HCM extensions. Position-preserving & idempotent: on first enable
+// the filter is dropped in at the head (a sensible WAF default), but once present
+// it is LEFT exactly where the user put it — they may reorder it (e.g. run a Lua
+// filter ahead of it). Disabling strips it from both lists. It is never re-pinned
+// to the head on save, and other filters' ordering is never touched.
 //
 // Fail-open: if api_security is enabled but the project has no `elchi-shield`
 // ext_proc extension (e.g. an old project predating the default), the reference is
@@ -50,43 +52,64 @@ func applyAPISecurityExtProc(ctx context.Context, resource models.ResourceClass,
 		return
 	}
 
-	// Drop any pre-existing elchi-shield entry from BOTH the http_filters list AND
-	// the general.config_discovery registration — re-added below if enabled. Every
-	// HTTP filter in elchi is delivered via ECDS (config_discovery): the filter entry
-	// only points at ADS, and a MATCHING general.config_discovery entry tells the
-	// control plane which extension to serve for that name. An inline typed_config is
-	// never resolved (http_filters is not a TypedConfigPath) and Envoy rejects it with
-	// an empty type URL, so both pieces are required.
 	existing := toAnySlice(hcmMap["http_filters"])
-	filters := make([]any, 0, len(existing)+1)
+	cd := general.ConfigDiscovery
+
+	shieldPresent := false
 	for _, f := range existing {
 		if isELCHIShieldEntry(f) {
-			continue
+			shieldPresent = true
+			break
 		}
-		filters = append(filters, f)
-	}
-	cds := make([]*models.ConfigDiscovery, 0, len(general.ConfigDiscovery)+1)
-	for _, cd := range general.ConfigDiscovery {
-		if cd != nil && cd.Name == elchiShieldExtensionName {
-			continue
-		}
-		cds = append(cds, cd)
 	}
 
+	// Enable only when the toggle is on AND the project actually has the elchi-shield
+	// ExternalProcessor extension — a dangling ECDS reference would break the listener
+	// snapshot. A missing extension is treated like "off" (the entry is not added).
+	enable := false
 	if general.APISecurity {
 		if _, err := resources.GetResourceNGeneral(ctx, dbCtx, models.ExternalProcessor.CollectionString(), elchiShieldExtensionName, general.Project, general.Version); err != nil {
-			log.Warnf("api_security: elchi-shield ext_proc extension missing for project=%s version=%s; http_filter not added: %v", general.Project, general.Version, err)
+			log.Warnf("api_security: elchi-shield ext_proc extension missing for project=%s version=%s; not added: %v", general.Project, general.Version, err)
 		} else {
-			// Prepend so shield runs first (ahead of every other filter + the router),
-			// and register it for ECDS so the control plane serves the real config.
-			filters = append([]any{buildELCHIShieldExtProcFilter()}, filters...)
-			cds = append(cds, buildELCHIShieldConfigDiscovery())
+			enable = true
 		}
 	}
 
-	hcmMap["http_filters"] = filters
+	switch {
+	case enable && shieldPresent:
+		// Already in the chain — leave it EXACTLY where the user placed it. They may
+		// have reordered it (e.g. dropped a Lua filter ahead of it to pre-compute
+		// something); never re-pin it to the head on save.
+		return
+	case enable && !shieldPresent:
+		// First enable: drop it in at the head as a sensible default (a WAF usually
+		// wants to inspect first); the user is then free to move it — the branch above
+		// preserves whatever position it ends up at. Both lists get the entry: the
+		// http_filter (ECDS pointer) AND the general.config_discovery registration the
+		// control plane needs to serve the real ExternalProcessor config by name.
+		hcmMap["http_filters"] = append([]any{buildELCHIShieldExtProcFilter()}, existing...)
+		general.ConfigDiscovery = append([]*models.ConfigDiscovery{buildELCHIShieldConfigDiscovery()}, cd...)
+	default:
+		// Disabled (or extension missing): strip elchi-shield from both lists.
+		filters := make([]any, 0, len(existing))
+		for _, f := range existing {
+			if isELCHIShieldEntry(f) {
+				continue
+			}
+			filters = append(filters, f)
+		}
+		newCD := make([]*models.ConfigDiscovery, 0, len(cd))
+		for _, c := range cd {
+			if c != nil && c.Name == elchiShieldExtensionName {
+				continue
+			}
+			newCD = append(newCD, c)
+		}
+		hcmMap["http_filters"] = filters
+		general.ConfigDiscovery = newCD
+	}
+
 	resource.SetResource(hcmMap)
-	general.ConfigDiscovery = cds
 	resource.SetGeneral(&general)
 }
 

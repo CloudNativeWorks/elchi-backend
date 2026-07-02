@@ -1,11 +1,48 @@
 package handlers
 
 import (
+	"regexp"
 	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 )
+
+// pathToRegex converts a normalized path (with optional {param} placeholders) into
+// an anchored RE2 pattern that:
+//   - is CASE-INSENSITIVE ((?i)) — so an attacker can't dodge the route (and its
+//     engines) by varying path case (/users vs /Users), which would otherwise fall
+//     through to the permissive file default;
+//   - tolerates an optional TRAILING SLASH (/?$) — real traffic mixes /x and /x/;
+//   - matches each {param} as exactly one path segment ([^/]+);
+//   - regex-escapes literal runs so "/v1.0/{id}" is matched literally.
+func pathToRegex(path string) string {
+	p := strings.TrimRight(path, "/") // normalize away a trailing slash; /?$ re-adds tolerance
+	var b strings.Builder
+	b.WriteString("(?i)^")
+	for i := 0; i < len(p); {
+		if p[i] == '{' {
+			j := strings.IndexByte(p[i:], '}')
+			if j < 0 { // malformed: no closing brace — treat the rest as literal
+				b.WriteString(regexp.QuoteMeta(p[i:]))
+				i = len(p)
+				break
+			}
+			b.WriteString("[^/]+")
+			i += j + 1
+			continue
+		}
+		k := strings.IndexByte(p[i:], '{')
+		if k < 0 {
+			b.WriteString(regexp.QuoteMeta(p[i:]))
+			break
+		}
+		b.WriteString(regexp.QuoteMeta(p[i : i+k]))
+		i += k
+	}
+	b.WriteString("/?$")
+	return b.String()
+}
 
 // ── Suggested-policy YAML shape ──────────────────────────────────────────────
 // These structs intentionally cover ONLY the field subset the UI policy Builder
@@ -42,6 +79,7 @@ type yRoute struct {
 type yMatch struct {
 	PathExact  string   `yaml:"path_exact,omitempty"`
 	PathPrefix string   `yaml:"path_prefix,omitempty"`
+	PathRegex  string   `yaml:"path_regex,omitempty"`
 	Methods    []string `yaml:"methods,omitempty"`
 }
 
@@ -79,14 +117,19 @@ type yDLP struct {
 }
 
 type yJWT struct {
-	Issuer        string   `yaml:"issuer,omitempty"`
-	Audience      string   `yaml:"audience,omitempty"`
-	Algorithms    []string `yaml:"algorithms,omitempty"`
-	PublicKeyFile string   `yaml:"public_key_file,omitempty"`
+	Issuer     string   `yaml:"issuer,omitempty"`
+	Audience   string   `yaml:"audience,omitempty"`
+	Algorithms []string `yaml:"algorithms,omitempty"`
+	HMACSecret string   `yaml:"hmac_secret,omitempty"`
+}
+type yAPIKeyEntry struct {
+	SHA256  string `yaml:"sha256"`
+	Subject string `yaml:"subject,omitempty"`
 }
 type yAPIKey struct {
-	Source string `yaml:"source,omitempty"`
-	Name   string `yaml:"name,omitempty"`
+	Source string         `yaml:"source,omitempty"`
+	Name   string         `yaml:"name,omitempty"`
+	Keys   []yAPIKeyEntry `yaml:"keys,omitempty"`
 }
 type yXFCC struct {
 	RequirePresent bool `yaml:"require_present,omitempty"`
@@ -117,7 +160,8 @@ type yIPRepFeed struct {
 	Severity string `yaml:"severity,omitempty"`
 }
 type yIPRep struct {
-	Feeds []yIPRepFeed `yaml:"feeds,omitempty"`
+	DenyCIDRs []string     `yaml:"deny_cidrs,omitempty"`
+	Feeds     []yIPRepFeed `yaml:"feeds,omitempty"`
 }
 type yCoraza struct {
 	IncludeOwasp bool `yaml:"include_owasp,omitempty"`
@@ -252,15 +296,41 @@ func buildSuggestedPolicy(name string, docs []suggestInvDoc) (string, []suggestR
 	return string(out), rationale, nil
 }
 
+// Placeholders emitted by auth suggestions: they LOAD (so the draft can be saved
+// and deployed) and FAIL CLOSED (block all traffic) until the operator supplies
+// the real credential — never a working backdoor.
+const (
+	// placeholderJWTSecret is a non-empty HS256 secret so the jwt engine builds; no
+	// real token verifies against it, so every request is blocked until replaced.
+	placeholderJWTSecret = "CHANGE_ME__set_a_real_HS256_secret_or_switch_to_public_key_file_or_jwks"
+	// placeholderNoKeySHA256 is a sha256 with no practical pre-image (all zeros), so
+	// no presented API key ever matches — the engine loads and denies all until the
+	// operator adds real key hashes.
+	placeholderNoKeySHA256 = "0000000000000000000000000000000000000000000000000000000000000000"
+)
+
 // buildRoute turns one (host, path) group into a route + its rationale.
 func buildRoute(g *routeGroup) (yRoute, suggestRationale) {
+	// Observed methods are kept for the rationale (context for the operator) but are
+	// deliberately NOT put on the route match. SECURITY: the engines the suggestion
+	// emits are negative-security (auth/WAF/rate-limit) that must apply to EVERY
+	// method on the endpoint. Restricting to the observed methods would let an
+	// attacker hit an unobserved method (e.g. POST/DELETE on an endpoint the
+	// collector only ever saw via GET) — the request would fail to match the route
+	// and fall through to the permissive file default, bypassing auth entirely. So
+	// the match covers all methods; per-method positive security is a separate,
+	// explicit choice the user can add in the Builder.
 	methods := sortedKeys(g.methods)
-	match := yMatch{Methods: methods}
-	if i := strings.IndexByte(g.path, '{'); i >= 0 {
-		// Parameterised path (e.g. /users/{id}) — match by the literal prefix.
-		match.PathPrefix = g.path[:i]
+	match := yMatch{}
+	// Target the discovered endpoint with a precise, case-insensitive, trailing-
+	// slash-tolerant regex (see pathToRegex). Case-insensitivity matters for
+	// SECURITY too: a case-sensitive route would let an attacker send "/Users/1" to
+	// dodge the route's engines. An empty path degenerates to an explicit "/" prefix
+	// rather than a silent catch-all.
+	if g.path == "" {
+		match.PathPrefix = "/"
 	} else {
-		match.PathExact = g.path
+		match.PathRegex = pathToRegex(g.path)
 	}
 
 	mode := "detect"
@@ -277,19 +347,26 @@ func buildRoute(g *routeGroup) (yRoute, suggestRationale) {
 	if g.noauth || hasAny(g.flags, "bola_suspect", "bfla_suspect", "auth_inconsistent") {
 		switch {
 		case has(g.schemes, "jwt"):
-			eng.JWT = &yJWT{Issuer: "https://issuer.example.com/", Audience: "api", Algorithms: []string{"RS256"}, PublicKeyFile: "/etc/elchi/elchi-shield/keys/jwt-pub.pem"}
-			engines = append(engines, suggestEngineWhy{"jwt", "JWT seen on this endpoint but not enforced — require a valid token. Fill issuer/audience/key."})
+			eng.JWT = &yJWT{Issuer: "https://issuer.example.com/", Audience: "api", Algorithms: []string{"HS256"}, HMACSecret: placeholderJWTSecret}
+			engines = append(engines, suggestEngineWhy{"jwt", "JWT seen but not enforced. This HS256 placeholder blocks ALL tokens until you set your real secret — or switch to public_key_file (RS256) / jwks (OIDC) and upload the key via Data Files."})
 		case has(g.schemes, "apikey"):
-			eng.APIKey = &yAPIKey{Source: "header", Name: "X-Api-Key"}
-			engines = append(engines, suggestEngineWhy{"api_key", "API-key consumers seen — enforce hashed keys. Add your keys in the API Key form."})
+			eng.APIKey = &yAPIKey{Source: "header", Name: "X-Api-Key", Keys: []yAPIKeyEntry{{SHA256: placeholderNoKeySHA256, Subject: "placeholder-replace-me"}}}
+			engines = append(engines, suggestEngineWhy{"api_key", "API-key consumers seen. This placeholder key hash matches nothing (blocks all) until you replace it with your real key hashes."})
 		case has(g.schemes, "mtls"):
 			eng.XFCC = &yXFCC{RequirePresent: true}
-			engines = append(engines, suggestEngineWhy{"xfcc", "mTLS consumers seen — require a verified client certificate (XFCC)."})
+			engines = append(engines, suggestEngineWhy{"xfcc", "mTLS consumers seen — require a verified client certificate (XFCC). Envoy must forward XFCC."})
 		default:
-			eng.JWT = &yJWT{Issuer: "https://issuer.example.com/", Audience: "api", Algorithms: []string{"RS256"}, PublicKeyFile: "/etc/elchi/elchi-shield/keys/jwt-pub.pem"}
-			engines = append(engines, suggestEngineWhy{"jwt", "Endpoint accepts unauthenticated requests — add authentication (JWT shown; switch to api_key/xfcc as needed)."})
+			eng.JWT = &yJWT{Issuer: "https://issuer.example.com/", Audience: "api", Algorithms: []string{"HS256"}, HMACSecret: placeholderJWTSecret}
+			engines = append(engines, suggestEngineWhy{"jwt", "Endpoint accepts unauthenticated requests. This HS256 placeholder blocks all tokens until configured — switch to api_key / xfcc / jwks as fits your setup."})
 		}
-		spec.FailMode = "fail_close" // auth should fail closed
+		// Auth should fail closed ONLY when the route enforces (block). In detect
+		// mode fail_close would still return a real 403 on an engine error/timeout,
+		// breaking the "detect never blocks" contract — so detect routes stay
+		// fail_open (the default). Once the user promotes the route to block, flip
+		// fail_mode to fail_close.
+		if mode == "block" {
+			spec.FailMode = "fail_close"
+		}
 	}
 
 	// 2) Abuse / volume → rate limit.
@@ -302,29 +379,55 @@ func buildRoute(g *routeGroup) (yRoute, suggestRationale) {
 		engines = append(engines, suggestEngineWhy{"rate_limit", "Volume/brute-force signal — throttle per client IP (needs use_remote_address on the HCM)."})
 	}
 
-	// 3) Scanners / probes → bot scoring.
+	// 3) Scanners / probes → bot scoring. score_threshold MUST be reachable by the
+	// heuristics we emit, or the header-anomaly layer is dead: with two anomaly
+	// sources at score_per_anomaly=25 the max achievable score is 50, so the
+	// threshold is 50 (a request missing BOTH Accept and Accept-Language — a strong,
+	// low-false-positive bot signal, since browsers send both — blocks). The UA
+	// deny-list and empty-UA check are independent hard blocks.
 	if hasAny(g.flags, "scanner_user_agent", "path_scan_suspect", "vuln_probe_path") {
 		eng.Bot = &yBot{
-			ScoreThreshold: 100,
+			ScoreThreshold: 50,
 			UserAgent:      &yBotUA{DenySubstrings: []string{"sqlmap", "nikto", "masscan", "nuclei"}, BlockEmpty: true},
 			Heuristics:     &yBotHeur{RequireAccept: true, RequireAcceptLanguage: true, ScorePerAnomaly: 25},
 		}
-		engines = append(engines, suggestEngineWhy{"bot", "Scanner/probe traffic seen — block bad user-agents and score header anomalies."})
+		engines = append(engines, suggestEngineWhy{"bot", "Scanner/probe traffic seen — block bad/empty user-agents and block requests missing both Accept and Accept-Language (a bot signal)."})
 	}
 
-	// 4) Threat-intel hit → IP reputation feed.
+	// 4) Threat-intel hit → IP reputation. Emit a harmless TEST-NET placeholder CIDR
+	// (RFC 5737 — matches no real client) so the engine loads without a feed file;
+	// the operator swaps in the malicious ranges or adds a feed via Data Files.
 	if has(g.flags, "threat_intel_hit") {
-		eng.IPReputation = &yIPRep{Feeds: []yIPRepFeed{{Name: "threat-intel", File: "/etc/elchi/elchi-shield/feeds/threat-intel.netset", Format: "firehol_netset", Severity: "high"}}}
-		engines = append(engines, suggestEngineWhy{"ip_reputation", "Source IP matched a threat feed — block by reputation. Upload the feed in the Data Files tab."})
+		eng.IPReputation = &yIPRep{DenyCIDRs: []string{"192.0.2.0/24"}}
+		engines = append(engines, suggestEngineWhy{"ip_reputation", "Source IP matched a threat feed. Replace this placeholder CIDR (192.0.2.0/24, blocks nothing real) with the malicious ranges, or add a threat feed via Data Files. Needs Envoy to supply the client IP (use_remote_address / XFF), else it can't match."})
 	}
 
-	// 5) PII observed → DLP redaction on the response.
-	if redact := mapPIIRedact(g.pii); len(redact) > 0 {
+	// 5) Sensitive data → DLP. The collector's pii_categories/secret_in_path signals
+	// are derived from the REQUEST URL (ALS logs carry no bodies), so the evidence is
+	// request-side: a write endpoint receives PII/secrets inbound, a read echoes them
+	// in the response. Redact in BOTH directions so neither leg leaks, and BLOCK hard
+	// secrets inbound when a credential was seen in the URL (secret_in_path/jwt_in_path).
+	redact := mapPIIRedact(g.pii)
+	credInURL := has(g.pii, "secret_in_path") || has(g.pii, "jwt_in_path")
+	if len(redact) > 0 || credInURL {
+		spec.InspectRequestBody = true
+		if spec.MaxRequestBodyBytes == 0 {
+			spec.MaxRequestBodyBytes = 1048576
+		}
 		spec.InspectResponseBody = true
 		spec.MaxResponseBodyBytes = 1048576
 		spec.ensureChecksBody()
-		spec.Checks.Body.DLP = &yDLP{Direction: "response", Redact: redact}
-		engines = append(engines, suggestEngineWhy{"dlp", "Sensitive data seen in traffic — redact " + strings.Join(redact, ", ") + " in the response body."})
+		dlp := &yDLP{Direction: "both"}
+		if len(redact) > 0 {
+			dlp.Redact = redact
+		}
+		why := "Sensitive data seen — redact " + strings.Join(redact, ", ") + " in request and response bodies."
+		if credInURL {
+			dlp.Block = []string{"private_key", "aws_access_key", "google_api_key", "slack_token", "github_token"}
+			why = "Credential/PII exposure seen — block hard secrets and redact PII in request and response bodies."
+		}
+		spec.Checks.Body.DLP = dlp
+		engines = append(engines, suggestEngineWhy{"dlp", why})
 	}
 
 	// 6) Payment/admin/auth surface or high risk → WAF (OWASP CRS).
@@ -359,13 +462,20 @@ func (s *yPolicySpec) ensureChecksBody() {
 	}
 }
 
+// mapPIIRedact maps the collector's observed PII categories to shield DLP redact
+// kinds. The collector emits email/ssn/credit_card/iban/phone plus jwt_in_path; of
+// these shield's DLP can redact email/ssn/credit_card/jwt (iban/phone have no DLP
+// kind and are dropped). Note the collector's URL-JWT signal is "jwt_in_path", not
+// a bare "jwt" — mapping it here is what makes the jwt redact actually fire.
 func mapPIIRedact(pii map[string]struct{}) []string {
-	// Only the PII kinds DLP can redact (model.ts allowlist): email, ssn, credit_card, jwt.
 	out := []string{}
-	for _, k := range []string{"email", "ssn", "credit_card", "jwt"} {
+	for _, k := range []string{"email", "ssn", "credit_card"} {
 		if has(pii, k) {
 			out = append(out, k)
 		}
+	}
+	if has(pii, "jwt_in_path") {
+		out = append(out, "jwt")
 	}
 	return out
 }

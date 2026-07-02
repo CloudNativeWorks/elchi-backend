@@ -97,6 +97,39 @@ func TestBuildSuggestedPolicyMapping(t *testing.T) {
 	}
 }
 
+// TestSuggestedRouteInvariants guards two security/consistency properties of the
+// emitted routes:
+//   - the match carries NO `methods` (else an unobserved method would bypass the
+//     route's engines and fall through to the permissive default);
+//   - a detect-mode route is never fail_close (else it would 403 on an engine
+//     error/timeout, breaking "detect never blocks"); a block-mode auth route is.
+func TestSuggestedRouteInvariants(t *testing.T) {
+	// Detect route: low-risk unauth endpoint.
+	yDet, rDet, err := buildSuggestedPolicy("t", []suggestInvDoc{
+		{Host: "a.x", Method: "GET", NormalizedPath: "/low", AuthSchemes: []string{"jwt"}, NoauthObserved: true, MaxRiskScore: 10},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rDet[0].Mode != "detect" {
+		t.Fatalf("want detect, got %q", rDet[0].Mode)
+	}
+	if strings.Contains(yDet, "fail_close") {
+		t.Errorf("a detect-mode route must not be fail_close:\n%s", yDet)
+	}
+	if strings.Contains(yDet, "methods:") {
+		t.Errorf("route match must not restrict methods (bypass risk):\n%s", yDet)
+	}
+
+	// Block route: high-risk unauth endpoint → fail_close expected.
+	yBlk, rBlk, _ := buildSuggestedPolicy("t", []suggestInvDoc{
+		{Host: "a.x", Method: "GET", NormalizedPath: "/high", AuthSchemes: []string{"jwt"}, NoauthObserved: true, MaxRiskScore: 40},
+	})
+	if rBlk[0].Mode != "block" || !strings.Contains(yBlk, "fail_close") {
+		t.Errorf("a block-mode auth route must be fail_close; mode=%q yaml=%s", rBlk[0].Mode, yBlk)
+	}
+}
+
 // TestSuggestedPolicyKeysAreAllowlisted is the contract that guards the Builder:
 // every policy/engine key the suggestion engine emits must be one the UI models.
 func TestSuggestedPolicyKeysAreAllowlisted(t *testing.T) {

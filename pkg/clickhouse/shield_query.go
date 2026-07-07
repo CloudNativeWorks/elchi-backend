@@ -2,12 +2,32 @@ package clickhouse
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 	"golang.org/x/sync/errgroup"
 )
+
+// clickHouseUnknownTable is ClickHouse's UNKNOWN_TABLE server error code. The
+// shield audit table (elchi_shield_audit) is created lazily by elchi-shield on
+// its first write, so before any edge reports a security decision the table does
+// not exist yet. A read against it then fails with this code — which is the
+// legitimate "no events yet" state, not a query failure.
+const clickHouseUnknownTable = 60
+
+// isUnknownTable reports whether err is ClickHouse UNKNOWN_TABLE, so the shield
+// read paths can treat a not-yet-created audit table as an empty result instead
+// of a 502.
+func isUnknownTable(err error) bool {
+	var ex *proto.Exception
+	if errors.As(err, &ex) {
+		return ex.Code == clickHouseUnknownTable
+	}
+	return false
+}
 
 // ShieldEvent is one row from elchi-shield's ClickHouse audit table
 // (`elchi_shield_audit`). It is redacted by construction on the shield side:
@@ -223,6 +243,13 @@ func (c *Client) QueryShieldEvents(ctx context.Context, f ShieldEventsFilter) ([
 		})
 	}
 	if err := g.Wait(); err != nil {
+		if isUnknownTable(err) {
+			total := int64(-1)
+			if f.IncludeTotal {
+				total = 0
+			}
+			return []ShieldEvent{}, total, nil
+		}
 		return nil, 0, err
 	}
 	return out, total, nil
@@ -268,6 +295,9 @@ func (c *Client) QueryShieldEventsFacets(ctx context.Context, f ShieldEventsFilt
 	if err := c.conn.QueryRow(qctx, sql, args...).Scan(
 		&out.Engines, &out.Actions, &out.Severities, &out.Hosts, &out.Nodes,
 	); err != nil {
+		if isUnknownTable(err) {
+			return out, nil // no events yet → empty facets
+		}
 		return out, fmt.Errorf("query shield facets: %w", err)
 	}
 	return out, nil
@@ -417,6 +447,9 @@ func (c *Client) QueryShieldEventsSummary(ctx context.Context, f ShieldEventsFil
 	})
 
 	if err := g.Wait(); err != nil {
+		if isUnknownTable(err) {
+			return ShieldEventsSummary{}, nil
+		}
 		return ShieldEventsSummary{}, err
 	}
 	sum.Groups, sum.Total, sum.Series = groups, total, series

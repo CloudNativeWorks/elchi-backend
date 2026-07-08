@@ -206,6 +206,10 @@ var AllowedEndpoints = []string{
 	"/api/v3/shield/events",              // security events feed (GET)
 	"/api/v3/shield/events/summary",      // security events summary (GET)
 	"/api/v3/shield/events/facets",       // security events filter facets (GET)
+	"/api/v3/shield/crs/fleet",           // CRS versions the project's shield fleet runs (GET)
+	"/api/v3/shield/crs/versions",        // shield CRS library versions (GET)
+	"/api/v3/shield/crs/ids",             // shield CRS rule ids for exclude validation (GET)
+	"/api/v3/shield/crs",                 // shield CRS rule library, keyed by coreruleset version (GET)
 	// Upgrade endpoint
 	"/api/v3/resource/upgrade",
 	// Maintenance endpoints

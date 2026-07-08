@@ -521,6 +521,15 @@ func initShieldRoutes(rg *gin.RouterGroup, h *handlers.Handler) {
 		// Read back a connected client's live on-disk shield file set (client-scoped)
 		{"GET", "/files", h.Shield.ShieldFiles}, // GET /api/v3/shield/files?project=&client_id=
 
+		// CRS versions the project's shield fleet compiled in (embedded per binary),
+		// with node counts + a `primary` — drives the UI's auto-pinned CRS library.
+		{"GET", "/crs/fleet", h.Shield.GetShieldCRSFleet}, // GET /api/v3/shield/crs/fleet?project=
+		// The shield CRS rule library, keyed by coreruleset version (the exact ruleset
+		// a shield binary embeds — separate from the WASM path's /api/v3/waf/crs).
+		{"GET", "/crs/versions", h.Shield.GetShieldCRSVersions}, // GET /api/v3/shield/crs/versions
+		{"GET", "/crs/ids", h.Shield.GetShieldCRSRuleIDs},       // GET /api/v3/shield/crs/ids?crs_version=v4.25.0
+		{"GET", "/crs", h.Shield.GetShieldCRSRules},             // GET /api/v3/shield/crs?crs_version=v4.25.0&...
+
 		// Security events feed + summary (project-scoped) from the central
 		// ClickHouse — what shield is blocking/detecting across the project's edges.
 		{"GET", "/events", h.Shield.ListShieldEvents},            // GET /api/v3/shield/events?project=&...

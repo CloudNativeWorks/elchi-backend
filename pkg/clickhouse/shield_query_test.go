@@ -59,23 +59,26 @@ func TestBuildShieldWhere(t *testing.T) {
 		f := ShieldEventsFilter{
 			ProjectID: "p1", NodeID: "lst::p1::ip", Instance: "edge1-shield", Engine: "coraza",
 			Action: "block", Severity: "high", Host: "api.example.com", Method: "POST", Path: "/x",
-			FindingsOnly: true, From: from, To: to,
+			Search: "/apikey/order", FindingsOnly: true, From: from, To: to,
 		}
 		where, args := buildShieldWhere(f)
 		for _, frag := range []string{
 			"node_id = ?", "instance = ?", "engine = ?", "action = ?", "severity = ?",
-			"host = ?", "method = ?", "path = ?", "action NOT IN ('allow','continue')",
+			"host = ?", "method = ?", "path = ?",
+			"(positionCaseInsensitive(host, ?) > 0 OR positionCaseInsensitive(path, ?) > 0 OR positionCaseInsensitive(request_id, ?) > 0)",
+			"action NOT IN ('allow','continue')",
 		} {
 			if !strings.Contains(where, frag) {
 				t.Errorf("where missing %q: %s", frag, where)
 			}
 		}
-		// 3 base args + 8 optional (findings_only adds a static clause, no arg).
-		if len(args) != 11 {
-			t.Fatalf("expected 11 args, got %d: %#v", len(args), args)
+		// 3 base args + 8 single-arg optionals + 3 for search (findings_only adds a
+		// static clause, no arg).
+		if len(args) != 14 {
+			t.Fatalf("expected 14 args, got %d: %#v", len(args), args)
 		}
 		// No raw value should be interpolated into the SQL text.
-		if strings.Contains(where, "api.example.com") || strings.Contains(where, "coraza") {
+		if strings.Contains(where, "api.example.com") || strings.Contains(where, "coraza") || strings.Contains(where, "/apikey/order") {
 			t.Fatalf("values must be bound as args, not interpolated: %s", where)
 		}
 	})
@@ -125,6 +128,7 @@ func TestShieldRollupUsable(t *testing.T) {
 		{"enabled but path", true, ShieldEventsFilter{ProjectID: "p1", Path: "/x"}, false},
 		{"enabled but method", true, ShieldEventsFilter{ProjectID: "p1", Method: "GET"}, false},
 		{"enabled but instance", true, ShieldEventsFilter{ProjectID: "p1", Instance: "edge-shield"}, false},
+		{"enabled but search", true, ShieldEventsFilter{ProjectID: "p1", Search: "/apikey"}, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

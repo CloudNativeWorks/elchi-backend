@@ -67,6 +67,10 @@ type ShieldEventsFilter struct {
 	Host      string
 	Method    string
 	Path      string // exact normalized path
+	// Search is a case-insensitive substring matched against host, path and
+	// request_id (OR) — the server-side counterpart of the UI's quick-search box,
+	// so the summary/facets count the same rows the feed shows.
+	Search string
 	// FindingsOnly keeps only block/detect/shadow rows (drops the allow stream),
 	// which is what the "what is shield blocking/detecting" feed wants.
 	FindingsOnly bool
@@ -114,6 +118,12 @@ func buildShieldWhere(f ShieldEventsFilter) (string, []any) {
 		clauses = append(clauses, "path = ?")
 		args = append(args, f.Path)
 	}
+	if f.Search != "" {
+		// Substring (not LIKE) so user input needs no %/_ escaping; still bound as
+		// args, never interpolated.
+		clauses = append(clauses, "(positionCaseInsensitive(host, ?) > 0 OR positionCaseInsensitive(path, ?) > 0 OR positionCaseInsensitive(request_id, ?) > 0)")
+		args = append(args, f.Search, f.Search, f.Search)
+	}
 	if f.FindingsOnly {
 		clauses = append(clauses, "action NOT IN ('allow','continue')")
 	}
@@ -151,11 +161,11 @@ func buildShieldRollupWhere(f ShieldEventsFilter) (string, []any) {
 
 // shieldRollupUsable reports whether the summary can read the per-minute rollup
 // for this filter: the operator must have opted in AND the filter must use only
-// dimensions the rollup carries. instance/host/method/path are raw-only, so any
-// of them forces a raw scan.
+// dimensions the rollup carries. instance/host/method/path/search are raw-only,
+// so any of them forces a raw scan.
 func (c *Client) shieldRollupUsable(f ShieldEventsFilter) bool {
 	return c.shieldUseRollup &&
-		f.Instance == "" && f.Host == "" && f.Method == "" && f.Path == ""
+		f.Instance == "" && f.Host == "" && f.Method == "" && f.Path == "" && f.Search == ""
 }
 
 // QueryShieldEvents returns shield audit rows newest-first for the filter, plus

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/CloudNativeWorks/elchi-backend/controller/shield"
@@ -249,6 +250,20 @@ const (
 	shieldEventsMaxLimit       = 500
 )
 
+// shieldEventsSearchMaxLen bounds the free-text search term; anything longer
+// than a real host/path/request-id is noise and just widens the scan.
+const shieldEventsSearchMaxLen = 256
+
+// shieldEventsSearchTerm normalises the quick-search query param: trimmed,
+// length-capped, empty when unusable.
+func shieldEventsSearchTerm(q string) string {
+	q = strings.TrimSpace(q)
+	if len(q) > shieldEventsSearchMaxLen {
+		q = q[:shieldEventsSearchMaxLen]
+	}
+	return q
+}
+
 // shieldEventsFilter builds the ClickHouse filter from the request's common
 // query params (shared by the feed and the summary). Time window + project are
 // validated by the caller; this only maps the optional narrowing knobs.
@@ -263,6 +278,7 @@ func shieldEventsFilter(c *gin.Context, project string, from, to time.Time) clic
 		Host:         c.Query("host"),
 		Method:       c.Query("method"),
 		Path:         c.Query("path"),
+		Search:       shieldEventsSearchTerm(c.Query("search")),
 		FindingsOnly: c.Query("findings_only") == "true",
 		From:         from,
 		To:           to,

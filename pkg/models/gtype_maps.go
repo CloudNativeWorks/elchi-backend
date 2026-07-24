@@ -1151,7 +1151,9 @@ var gTypeMappings = map[GType]GTypeMapping{
 		PrettyName:                    "Resource Monitor (Downstream Connections)",
 		Collection:                    "extensions",
 		Type:                          "resource_monitor",
-		CanonicalName:                 "envoy.resource_monitors.downstream_connections",
+		// Envoy registers this factory under the legacy runtime-key name,
+		// NOT the proto package name (downstream_connections).
+		CanonicalName:                 "envoy.resource_monitors.global_downstream_max_connections",
 		Category:                      "envoy.resource_monitors",
 		URL:                           URLs["resource_monitors"],
 		Message:                       &rm_downstream_conn.DownstreamConnectionsConfig{},

@@ -147,6 +147,15 @@ func TestCollectDNSResolver_InlinePassThrough(t *testing.T) {
 	}
 }
 
+func TestResourceMonitorCanonicalName_MatchesEnvoyRegistry(t *testing.T) {
+	// Validated against envoyproxy/envoy: the factory is registered under the
+	// legacy runtime-key name, not the proto package name.
+	got := models.ResourceMonitorDownstreamMax.CanonicalName()
+	if got != "envoy.resource_monitors.global_downstream_max_connections" {
+		t.Errorf("CanonicalName = %q, want envoy.resource_monitors.global_downstream_max_connections", got)
+	}
+}
+
 func TestSetBootstrapResourceMonitors_PreservesSiblings(t *testing.T) {
 	resource := newBootstrapResource(primitive.M{
 		"overload_manager": primitive.M{
@@ -171,7 +180,7 @@ func TestSetBootstrapResourceMonitors_PreservesSiblings(t *testing.T) {
 // overload_manager.resource_monitors entries.
 func TestTCSerializationShape(t *testing.T) {
 	tc := models.TC{
-		Name: "envoy.resource_monitors.downstream_connections",
+		Name: "envoy.resource_monitors.global_downstream_max_connections",
 		TypedConfig: map[string]any{
 			"@type":                             "type.googleapis.com/envoy.extensions.resource_monitors.downstream_connections.v3.DownstreamConnectionsConfig",
 			"max_active_downstream_connections": "1000",
@@ -188,7 +197,7 @@ func TestTCSerializationShape(t *testing.T) {
 		t.Fatalf("unmarshal failed: %v", err)
 	}
 
-	if out["name"] != "envoy.resource_monitors.downstream_connections" {
+	if out["name"] != "envoy.resource_monitors.global_downstream_max_connections" {
 		t.Errorf("name key wrong: %s", raw)
 	}
 	typed, ok := out["typed_config"].(map[string]any)

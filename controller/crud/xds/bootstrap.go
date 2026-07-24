@@ -704,8 +704,16 @@ func (xds *AppHandler) GetExtensionTypedConfig(ctx context.Context, collectionNa
 	}
 
 	general := resource.GetGeneral()
+
+	// The GType registry is the single source of truth for canonical names;
+	// the persisted field is only a fallback for unregistered gtypes.
+	canonicalName := general.GType.CanonicalName()
+	if canonicalName == "" || canonicalName == "unknown" {
+		canonicalName = general.CanonicalName
+	}
+
 	typedConfig := models.TC{
-		Name: general.CanonicalName,
+		Name: canonicalName,
 		TypedConfig: map[string]any{
 			"@type": "type.googleapis.com/" + string(general.GType),
 		},

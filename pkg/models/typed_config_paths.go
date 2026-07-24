@@ -112,7 +112,7 @@ var ClusterTypedConfigPaths = []TypedConfigPath{
 	{
 		ArrayPaths:   []ArrayPath{},
 		PathTemplate: "cluster_type.typed_config",
-		Kind:         "cluster_extension",
+		Kind:         "cluster_dynamic_forward_proxy",
 	},
 	{
 		ArrayPaths:   []ArrayPath{},
@@ -168,7 +168,7 @@ var RouteTypedConfigPaths = []TypedConfigPath{
 			{ParentPath: "virtual_hosts.%d.routes", IndexPath: routes},
 		},
 		PathTemplate: "virtual_hosts.%d.routes.%d.route.path_rewrite_policy.typed_config",
-		Kind:         "path_rewrite",
+		Kind:         "path_rewrite_policy",
 	},
 	{
 		ArrayPaths: []ArrayPath{
@@ -177,7 +177,7 @@ var RouteTypedConfigPaths = []TypedConfigPath{
 			{ParentPath: "virtual_hosts.%d.routes.%d.route.internal_redirect_policy.predicates", IndexPath: "virtual_hosts.%d.routes.%d.route.internal_redirect_policy.predicates.%d"},
 		},
 		PathTemplate: "virtual_hosts.%d.routes.%d.route.internal_redirect_policy.predicates.%d.typed_config",
-		Kind:         "internal_redirect",
+		Kind:         "internal_redirect_predicates",
 	},
 }
 
@@ -208,7 +208,7 @@ var VirtualHostTypedConfigPaths = []TypedConfigPath{
 			{ParentPath: "routes", IndexPath: "routes.%d"},
 		},
 		PathTemplate: "routes.%d.route.path_rewrite_policy.typed_config",
-		Kind:         "path_rewrite",
+		Kind:         "path_rewrite_policy",
 	},
 	{
 		ArrayPaths: []ArrayPath{
@@ -216,7 +216,7 @@ var VirtualHostTypedConfigPaths = []TypedConfigPath{
 			{ParentPath: "routes.%d.route.internal_redirect_policy.predicates", IndexPath: "routes.%d.route.internal_redirect_policy.predicates.%d"},
 		},
 		PathTemplate: "routes.%d.route.internal_redirect_policy.predicates.%d.typed_config",
-		Kind:         "internal_redirect",
+		Kind:         "internal_redirect_predicates",
 	},
 }
 
@@ -272,7 +272,7 @@ var HTTPConnectionManagerTypedConfigPaths = []TypedConfigPath{
 			{ParentPath: "route_config.virtual_hosts.%d.routes", IndexPath: routes},
 		},
 		PathTemplate: "route_config.virtual_hosts.%d.routes.%d.route.path_rewrite_policy.typed_config",
-		Kind:         "path_rewrite",
+		Kind:         "path_rewrite_policy",
 	},
 	{
 		ArrayPaths: []ArrayPath{
@@ -281,7 +281,7 @@ var HTTPConnectionManagerTypedConfigPaths = []TypedConfigPath{
 			{ParentPath: "route_config.virtual_hosts.%d.routes.%d.route.internal_redirect_policy.predicates", IndexPath: "route_config.virtual_hosts.%d.routes.%d.route.internal_redirect_policy.predicates.%d"},
 		},
 		PathTemplate: "route_config.virtual_hosts.%d.routes.%d.route.internal_redirect_policy.predicates.%d.typed_config",
-		Kind:         "internal_redirect",
+		Kind:         "internal_redirect_predicates",
 	},
 }
 

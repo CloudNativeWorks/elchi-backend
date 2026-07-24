@@ -25,9 +25,11 @@ type BootstrapCollector struct {
 func (xds *AppHandler) NewBootstrapCollector() *BootstrapCollector {
 	return &BootstrapCollector{
 		collectors: map[string]CollectorFunc{
-			"clusters":    xds.collectBootstrapClusters,
-			"access_logs": xds.collectAccessLoggers,
-			"stats_sinks": xds.collectStatSinks,
+			"clusters":          xds.collectBootstrapClusters,
+			"access_logs":       xds.collectAccessLoggers,
+			"stats_sinks":       xds.collectStatSinks,
+			"resource_monitors": xds.collectResourceMonitors,
+			"dns_resolver":      xds.collectDNSResolver,
 		},
 	}
 }
@@ -264,6 +266,18 @@ func (bc *BootstrapCollector) shouldSkipCollection(resource models.ResourceClass
 		}
 		return false, nil
 
+	case "resource_monitors":
+		overloadManager, ok := bootstrapMap["overload_manager"].(primitive.M)
+		if !ok {
+			return true, nil
+		}
+		resourceMonitors, ok := overloadManager["resource_monitors"].(primitive.A)
+		return !ok || len(resourceMonitors) == 0, nil
+
+	case "dns_resolver":
+		_, hasResolver := bootstrapMap["typed_dns_resolver_config"].(primitive.M)
+		return !hasResolver, nil
+
 	default:
 		return false, fmt.Errorf("unknown collector: %s", collectorName)
 	}
@@ -433,9 +447,7 @@ func (xds *AppHandler) GetHTTPProtocolOptions(ctx context.Context, collectionNam
 		"@type": "type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions",
 	}
 
-	for key, value := range resourceData {
-		httpProtocolOptions[key] = value
-	}
+	maps.Copy(httpProtocolOptions, resourceData)
 
 	return httpProtocolOptions, nil
 }
@@ -516,9 +528,7 @@ func (xds *AppHandler) GetAccessLoggers(ctx context.Context, alNames []string, r
 			},
 		}
 
-		for key, value := range resourceData {
-			typedConfig.TypedConfig[key] = value
-		}
+		maps.Copy(typedConfig.TypedConfig, resourceData)
 
 		results = append(results, typedConfig)
 	}
@@ -562,6 +572,148 @@ func (xds *AppHandler) collectStatSinks(ctx context.Context, resource models.Res
 	resource.SetBootstrapStatSinks(statSinkConfigs)
 
 	return resource, nil
+}
+
+func (xds *AppHandler) collectResourceMonitors(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails, version string) (models.ResourceClass, error) {
+	bootstrap := resource.GetResource()
+	bootstrapMap, ok := bootstrap.(primitive.M)
+	if !ok {
+		return nil, fmt.Errorf("failed to parse bootstrap as primitive.M, got type: %T", bootstrap)
+	}
+
+	overloadManager, ok := bootstrapMap["overload_manager"].(primitive.M)
+	if !ok {
+		return nil, errors.New("'overload_manager' key not found or invalid")
+	}
+
+	resourceMonitors, ok := overloadManager["resource_monitors"].(primitive.A)
+	if !ok {
+		return nil, errors.New("'resource_monitors' key not found or invalid")
+	}
+
+	// Single ordered pass: each HasMetadata stub is replaced in place with the
+	// resolved extension; entries that are not stubs pass through untouched.
+	results := make([]any, 0, len(resourceMonitors))
+	for _, monitor := range resourceMonitors {
+		monitorMap, ok := monitor.(primitive.M)
+		if !ok {
+			results = append(results, monitor)
+			continue
+		}
+
+		typedConfig, ok := monitorMap["typed_config"].(primitive.M)
+		if !ok {
+			results = append(results, monitor)
+			continue
+		}
+
+		encodedValue, ok := typedConfig["value"].(string)
+		if !ok {
+			results = append(results, monitor)
+			continue
+		}
+
+		typedConf, err := resources.DecodeBase64Config(encodedValue)
+		if err != nil {
+			return nil, err
+		}
+
+		collectionName := typedConf.Collection
+		if collectionName == "" {
+			collectionName = "extensions"
+		}
+
+		monitorConfig, err := xds.GetExtensionTypedConfig(ctx, collectionName, typedConf.Name, requestDetails, version)
+		if err != nil {
+			return nil, err
+		}
+
+		results = append(results, monitorConfig)
+	}
+
+	resource.SetBootstrapResourceMonitors(results)
+
+	return resource, nil
+}
+
+func (xds *AppHandler) collectDNSResolver(ctx context.Context, resource models.ResourceClass, requestDetails models.RequestDetails, version string) (models.ResourceClass, error) {
+	bootstrap := resource.GetResource()
+	bootstrapMap, ok := bootstrap.(primitive.M)
+	if !ok {
+		return nil, fmt.Errorf("failed to parse bootstrap as primitive.M, got type: %T", bootstrap)
+	}
+
+	resolver, ok := bootstrapMap["typed_dns_resolver_config"].(primitive.M)
+	if !ok {
+		return nil, errors.New("'typed_dns_resolver_config' key not found or invalid")
+	}
+
+	// Not a HasMetadata stub (already inline or malformed) — leave untouched.
+	typedConfig, ok := resolver["typed_config"].(primitive.M)
+	if !ok {
+		return resource, nil
+	}
+
+	encodedValue, ok := typedConfig["value"].(string)
+	if !ok {
+		return resource, nil
+	}
+
+	typedConf, err := resources.DecodeBase64Config(encodedValue)
+	if err != nil {
+		return nil, err
+	}
+
+	collectionName := typedConf.Collection
+	if collectionName == "" {
+		collectionName = "extensions"
+	}
+
+	resolverConfig, err := xds.GetExtensionTypedConfig(ctx, collectionName, typedConf.Name, requestDetails, version)
+	if err != nil {
+		return nil, err
+	}
+
+	resource.SetBootstrapDNSResolver(resolverConfig)
+
+	return resource, nil
+}
+
+// GetExtensionTypedConfig resolves a HasMetadata stub into its stored
+// extension, wrapped as {name: <canonical>, typed_config: {"@type": ...}}.
+func (xds *AppHandler) GetExtensionTypedConfig(ctx context.Context, collectionName, name string, requestDetails models.RequestDetails, version string) (models.TC, error) {
+	resource := &models.DBResource{}
+	collection := xds.Context.Client.Collection(collectionName)
+	filter := bson.M{"general.name": name, "general.project": requestDetails.Project, "general.version": version}
+	result := collection.FindOne(ctx, filter)
+
+	if result.Err() != nil {
+		if errors.Is(result.Err(), mongo.ErrNoDocuments) {
+			return models.TC{}, errors.New("not found: (" + name + ")")
+		}
+		return models.TC{}, errstr.ErrUnknownDBError
+	}
+
+	if err := result.Decode(resource); err != nil {
+		return models.TC{}, err
+	}
+
+	resourceData, ok := resource.GetResource().(primitive.M)
+	if !ok {
+		return models.TC{}, fmt.Errorf("failed to parse resource.GetResource() as primitive.M, got: %T", resource.GetResource())
+	}
+
+	general := resource.GetGeneral()
+	typedConfig := models.TC{
+		Name: general.CanonicalName,
+		TypedConfig: map[string]any{
+			"@type": "type.googleapis.com/" + string(general.GType),
+		},
+	}
+
+	maps.Copy(typedConfig.TypedConfig, resourceData)
+
+	return typedConfig, nil
 }
 
 func (xds *AppHandler) GetStatSinks(ctx context.Context, sinkNames []string, requestDetails models.RequestDetails, version string) ([]any, error) {

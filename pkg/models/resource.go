@@ -43,6 +43,8 @@ type ResourceClass interface {
 	SetBootstrapClusters(clusters []any)
 	SetBootstrapAccessLoggers(accessLoggers []any)
 	SetBootstrapStatSinks(statSinks []any)
+	SetBootstrapResourceMonitors(resourceMonitors []any)
+	SetBootstrapDNSResolver(resolver any)
 }
 
 type General struct {
@@ -226,6 +228,36 @@ func (d *DBResource) SetBootstrapStatSinks(statSinks []any) {
 	}
 
 	resourceMap["stats_sinks"] = statSinks
+	d.Resource.Resource = resourceMap
+}
+
+func (d *DBResource) SetBootstrapResourceMonitors(resourceMonitors []any) {
+	resourceMap, ok := d.Resource.Resource.(primitive.M)
+	if !ok {
+		log.Printf("failed to parse Resource.Resource as map[string]any, got type: %T\n", d.Resource.Resource)
+		return
+	}
+
+	// overload_manager carries sibling fields (refresh_interval, actions);
+	// only the resource_monitors array is replaced.
+	overloadManager, ok := resourceMap["overload_manager"].(primitive.M)
+	if !ok || overloadManager == nil {
+		overloadManager = make(primitive.M)
+	}
+
+	overloadManager["resource_monitors"] = resourceMonitors
+	resourceMap["overload_manager"] = overloadManager
+	d.Resource.Resource = resourceMap
+}
+
+func (d *DBResource) SetBootstrapDNSResolver(resolver any) {
+	resourceMap, ok := d.Resource.Resource.(primitive.M)
+	if !ok {
+		log.Printf("failed to parse Resource.Resource as map[string]any, got type: %T\n", d.Resource.Resource)
+		return
+	}
+
+	resourceMap["typed_dns_resolver_config"] = resolver
 	d.Resource.Resource = resourceMap
 }
 

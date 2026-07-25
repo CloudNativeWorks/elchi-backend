@@ -413,7 +413,7 @@ func TestMergeJSON_RawBodies(t *testing.T) {
 		"private_key": map[string]any{"inline_string": "REAL_KEY"},
 	})
 	new_, _ := json.Marshal(map[string]any{
-		"private_key": map[string]any{"inline_string": RedactionSentinel},
+		"private_key":       map[string]any{"inline_string": RedactionSentinel},
 		"watched_directory": map[string]any{"path": "/etc/certs"},
 	})
 	merged, err := MergeJSON(new_, old)

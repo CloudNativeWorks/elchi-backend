@@ -42,13 +42,13 @@ const (
 // registry_leader.holder_id so the controller can join the two by ID to mark
 // the leader.
 type Instance struct {
-	ID        string             `bson:"_id"`
-	Hostname  string             `bson:"hostname"`
-	Version   string             `bson:"version"`
-	GRPCAddr  string             `bson:"grpc_addr"`
-	IsLeader  bool               `bson:"is_leader"`
-	StartedAt time.Time          `bson:"started_at"`
-	LastSeen  time.Time          `bson:"last_seen"`
+	ID        string    `bson:"_id"`
+	Hostname  string    `bson:"hostname"`
+	Version   string    `bson:"version"`
+	GRPCAddr  string    `bson:"grpc_addr"`
+	IsLeader  bool      `bson:"is_leader"`
+	StartedAt time.Time `bson:"started_at"`
+	LastSeen  time.Time `bson:"last_seen"`
 }
 
 // Registry writes this instance's heartbeat and reads the full set.

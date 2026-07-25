@@ -15,10 +15,10 @@ type contextKey string
 // Context keys for storing values in ProbeResult.Context
 const (
 	taskContextKey        contextKey = "task"                 // ProbeTask
-	manualRecordIDKey     contextKey = "manual_record_id"    // primitive.ObjectID
-	manualHealthStateKey  contextKey = "manual_health_state" // models.HealthState
-	isReprobeKey          contextKey = "is_reprobe"          // bool
-	isWarningMonitorKey   contextKey = "is_warning_monitor"  // bool
+	manualRecordIDKey     contextKey = "manual_record_id"     // primitive.ObjectID
+	manualHealthStateKey  contextKey = "manual_health_state"  // models.HealthState
+	isReprobeKey          contextKey = "is_reprobe"           // bool
+	isWarningMonitorKey   contextKey = "is_warning_monitor"   // bool
 	probeConfigChangedKey contextKey = "probe_config_changed" // bool - probe config changed since last load (triggers counter reset)
 	cachedIPHealthKey     contextKey = "cached_ip_health"     // *models.GSLBIPHealth - batch-fetched IP health to avoid N+1 DB query
 )

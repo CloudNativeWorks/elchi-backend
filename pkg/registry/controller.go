@@ -103,7 +103,6 @@ func NewRegistryClientWithConfig(config *Config, logger *logger.Logger, appConfi
 	return client, nil
 }
 
-
 // Connect establishes gRPC connection to registry.
 //
 // Pairs with Disconnect: connectionMutex guards the conn pointer; the

@@ -146,12 +146,12 @@ func TestEscapeSDValueNoOpFastPath(t *testing.T) {
 
 func TestSanitizeAppName(t *testing.T) {
 	cases := map[string]string{
-		"":                "",
-		"elchi-audit":     "elchi-audit",
-		"my app":          "my_app",                   // space replaced
-		"tag\nwith\rnl":   "tag_with_nl",              // control bytes replaced
-		"  ":              "",                         // all illegal → empty so caller falls back to default
-		"tag]bracket":     "tag]bracket",              // bracket is printable ASCII (93)
+		"":                      "",
+		"elchi-audit":           "elchi-audit",
+		"my app":                "my_app",                // space replaced
+		"tag\nwith\rnl":         "tag_with_nl",           // control bytes replaced
+		"  ":                    "",                      // all illegal → empty so caller falls back to default
+		"tag]bracket":           "tag]bracket",           // bracket is printable ASCII (93)
 		strings.Repeat("a", 60): strings.Repeat("a", 48), // capped at 48
 	}
 	for in, want := range cases {

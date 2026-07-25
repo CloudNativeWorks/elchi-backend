@@ -334,11 +334,11 @@ func (s *InMemoryStorage) ImportAll(controllers []*models.ControllerInfo, mappin
 // Cleanup runs in two passes so we never leave orphan client mappings
 // behind (mappings that reference a controller we just deleted):
 //
-//   Pass 1: scan controllers, collect IDs whose LastSeen is older than
-//           cutoff, delete them from the controllers map.
-//   Pass 2: scan client mappings; delete a mapping if EITHER its parent
-//           controller was just removed in pass 1 (cascade) OR the
-//           mapping itself is older than cutoff.
+//	Pass 1: scan controllers, collect IDs whose LastSeen is older than
+//	        cutoff, delete them from the controllers map.
+//	Pass 2: scan client mappings; delete a mapping if EITHER its parent
+//	        controller was just removed in pass 1 (cascade) OR the
+//	        mapping itself is older than cutoff.
 //
 // Without the cascade, the writer would persist mappings whose parent
 // no longer exists; standbys then load that ghost state and UI/admin

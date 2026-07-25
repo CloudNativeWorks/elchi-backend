@@ -354,10 +354,10 @@ func securitySchemes(authSet map[string]struct{}) map[string]any {
 			// OpenAPI 3.0.3 lacks a mutualTLS scheme type; describe it so the
 			// document stays valid and the posture is still communicated.
 			out["mtls"] = map[string]any{
-				"type":          "apiKey",
-				"in":            "header",
-				"name":          "X-Forwarded-Client-Cert",
-				"description":   "Mutual TLS — client certificate auth (observed). OpenAPI 3.0 has no native mutualTLS scheme; modeled as the mTLS-forwarded cert header for documentation.",
+				"type":           "apiKey",
+				"in":             "header",
+				"name":           "X-Forwarded-Client-Cert",
+				"description":    "Mutual TLS — client certificate auth (observed). OpenAPI 3.0 has no native mutualTLS scheme; modeled as the mTLS-forwarded cert header for documentation.",
 				"x-elchi-scheme": "mtls",
 			}
 		}

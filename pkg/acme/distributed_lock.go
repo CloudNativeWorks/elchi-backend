@@ -71,12 +71,12 @@ func NewDistributedScheduler(
 	instanceID := fmt.Sprintf("%s-%d", hostname, time.Now().Unix())
 
 	return &DistributedScheduler{
-		scheduler:   scheduler,
-		db:          db,
-		instanceID:  instanceID,
-		hostname:    hostname,
-		logger:      logger,
-		stopCh:      make(chan struct{}),
+		scheduler:  scheduler,
+		db:         db,
+		instanceID: instanceID,
+		hostname:   hostname,
+		logger:     logger,
+		stopCh:     make(chan struct{}),
 		// isLeader: atomic.Bool zero value is false; do not initialize.
 		heartbeatCh: make(chan struct{}),
 	}

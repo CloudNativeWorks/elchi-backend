@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/CloudNativeWorks/cnw-license-sdk/cnwlicense"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/logger"
 	"github.com/CloudNativeWorks/elchi-backend/pkg/version"
-	"github.com/CloudNativeWorks/cnw-license-sdk/cnwlicense"
 )
 
 // CheckClaimInterval is the minimum gap between cluster-wide online re-validations.

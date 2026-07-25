@@ -314,7 +314,6 @@ var registryCmd = &cobra.Command{
 	},
 }
 
-
 func init() {
 	rootCmd.AddCommand(registryCmd)
 	registryCmd.PersistentFlags().UintVar(&registryPort, "port", 9090, "Registry service port")

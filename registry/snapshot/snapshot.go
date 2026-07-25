@@ -46,9 +46,9 @@ const (
 
 // Document is the on-disk representation. One row, fixed _id="current".
 type Document struct {
-	ID             string                  `bson:"_id"`
-	SnapshotAt     primitive.DateTime      `bson:"snapshot_at"`
-	WriterID       string                  `bson:"writer_id"`
+	ID             string                   `bson:"_id"`
+	SnapshotAt     primitive.DateTime       `bson:"snapshot_at"`
+	WriterID       string                   `bson:"writer_id"`
 	Controllers    []*models.ControllerInfo `bson:"controllers"`
 	ClientMappings []*models.ClientMapping  `bson:"client_mappings"`
 	ControlPlanes  []*models.ControlPlane   `bson:"control_planes"`
